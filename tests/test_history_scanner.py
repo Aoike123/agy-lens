@@ -14,6 +14,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 SCRIPT = Path(__file__).resolve().parent.parent / "sidecars" / "context" / "history_scanner.py"
 
@@ -135,8 +136,10 @@ class ScannerTest(unittest.TestCase):
         self.assertEqual(set(r), {"totals", "by_model", "by_conversation", "daily", "sources", "errors", "scanned_at",
                                   "elapsed_ms"})
         self.assertEqual(set(r["by_conversation"][0]),
-                         {"id", "source", "title", "model", "display_name", "last_at", "input", "output", "cache_read",
-                          "thinking", "calls", "est_cost_usd"})
+                         {"id", "source", "title", "model", "display_name", "first_at", "last_at", "input", "output",
+                          "cache_read", "thinking", "calls", "est_cost_usd", "cost_partial", "is_subagent", "by_model"})
+        self.assertEqual(set(r["by_conversation"][0]["by_model"][0]),
+                         {"model", "display_name", "input", "output", "cache_read", "thinking", "calls", "est_cost_usd"})
         self.assertEqual(set(r["totals"]), {"today", "d7", "d30", "all"})
         for t in r["totals"].values():
             self.assertEqual(set(t), {"input", "output", "cache_read", "thinking", "calls", "conversations", "est_cost_usd"})
@@ -179,8 +182,10 @@ class ScannerTest(unittest.TestCase):
         make_db(self.desk / "old.db", [call(5, model="gemini-2.5-pro"), call(4, model="gemini-2.5-pro")],
                 first_input="  Fix   the\nlogin bug please  ")
         make_db(self.desk / "new.db", [
-            call(1, model="claude-sonnet-4-5", display="Claude Sonnet 4.5", inp=10, out=10, cache=10),
-            call(0, model="internal-x", display="Internal X", inp=9000, model_field="response"),
+            # Higher cache_read (50000) than internal-x, lower input+output (20 vs 9010):
+            # verifies by_model sorts by (input + output) desc while primary model tracks total tokens.
+            call(1, model="claude-sonnet-4-5", display="Claude Sonnet 4.5", inp=10, out=10, cache=50000, think=2),
+            call(0, model="internal-x", display="Internal X", inp=9000, out=10, cache=100, think=3, model_field="response"),
         ], first_input="x" * 200)
         make_db(self.cli / "titled.db", [call(2, model="mystery")], first_input="ignored, official title wins")
         make_db(self.desk / "empty.db", [])
@@ -192,37 +197,75 @@ class ScannerTest(unittest.TestCase):
                      " ('worker', '', '', 'verifier'), ('sub', '', '', 'self')")
         conn.commit()
         conn.close()
-        r = self.scan()
+        st = {}
+        r = self.scan(stats=st)
         convs = r["by_conversation"]
         self.assertEqual([c["id"] for c in convs], ["new", "titled", "old", "worker", "sub"])  # newest first, empty skipped
         new, titled, old, worker, sub = convs
         self.assertEqual(worker["title"], "@verifier")
+        self.assertTrue(worker["is_subagent"])
         self.assertIsNone(sub["title"])
+        self.assertTrue(sub["is_subagent"])
+        self.assertFalse(new["is_subagent"])
+        self.assertFalse(titled["is_subagent"])
+        self.assertFalse(old["is_subagent"])
         self.assertEqual(new["source"], "desktop")
         self.assertEqual(titled["source"], "cli")
         self.assertEqual(titled["title"], "Official Title")
         self.assertEqual(old["title"], "Fix the login bug please")
         self.assertEqual(len(new["title"]), hs.TITLE_MAX)
         self.assertTrue(new["title"].endswith("…"))
-        self.assertEqual(new["model"], "internal-x")  # most tokens
-        self.assertEqual(new["display_name"], "Internal X")
+        self.assertEqual(new["model"], "claude-sonnet-4-5")  # highest total (incl. cache)
+        self.assertEqual(new["display_name"], "Claude Sonnet 4.5")
         self.assertEqual(new["calls"], 2)
         self.assertEqual(new["input"], 9010)
-        self.assertEqual(new["thinking"], 10)
-        self.assertAlmostEqual(new["est_cost_usd"], round((10 * 3 + 10 * 15 + 10 * 0.3) / 1e6, 4))
+        self.assertEqual(new["output"], 20)
+        self.assertEqual(new["cache_read"], 50100)
+        self.assertEqual(new["thinking"], 5)
+        expected_claude_cost = round((10 * 3 + 10 * 15 + 50000 * 0.3) / 1e6, 4)
+        self.assertAlmostEqual(new["est_cost_usd"], expected_claude_cost)
+        self.assertTrue(new["cost_partial"])  # mixed priced + unpriced
         self.assertIsNone(titled["est_cost_usd"])
+        self.assertTrue(titled["cost_partial"])  # all unpriced
+        self.assertFalse(old["cost_partial"])  # all priced
+        self.assertEqual(datetime.fromisoformat(new["first_at"]).timestamp(), ts(1))
         self.assertEqual(datetime.fromisoformat(new["last_at"]).timestamp(), ts(0))
+        self.assertEqual(datetime.fromisoformat(old["first_at"]).timestamp(), ts(5))
+        self.assertEqual(datetime.fromisoformat(old["last_at"]).timestamp(), ts(4))
+        self.assertEqual(titled["first_at"], titled["last_at"])
         self.assertEqual(old["model"], "gemini-2.5-pro")
-        # Cached second scan yields the same list.
-        self.assertEqual(self.scan()["by_conversation"], convs)
+        # Per-conversation by_model sorted by (input + output) desc, tie-break model.
+        self.assertEqual([m["model"] for m in new["by_model"]], ["internal-x", "claude-sonnet-4-5"])
+        self.assertEqual(new["by_model"][0], {
+            "model": "internal-x", "display_name": "Internal X",
+            "input": 9000, "output": 10, "cache_read": 100, "thinking": 3, "calls": 1, "est_cost_usd": None,
+        })
+        self.assertEqual(new["by_model"][1], {
+            "model": "claude-sonnet-4-5", "display_name": "Claude Sonnet 4.5",
+            "input": 10, "output": 10, "cache_read": 50000, "thinking": 2, "calls": 1, "est_cost_usd": expected_claude_cost,
+        })
+        # Cached second scan yields the exact same list with zero cache misses.
+        r2 = self.scan(stats=st)
+        self.assertEqual((st["hits"], st["misses"]), (6, 0))
+        self.assertEqual(r2["by_conversation"], convs)
+
+    def test_by_conversation_by_model_tie_break(self):
+        make_db(self.desk / "tie.db", [
+            call(0, model="model-b", display="B", inp=50, out=50, cache=10),
+            call(0, model="model-a", display="A", inp=60, out=40, cache=10),
+        ])
+        bm = self.scan()["by_conversation"][0]["by_model"]
+        self.assertEqual([m["model"] for m in bm], ["model-a", "model-b"])
 
     def test_by_conversation_cap(self):
-        for i in range(hs.MAX_CONVERSATIONS + 5):
-            make_db(self.desk / f"c{i:03}.db", [{**call(0), "ts": ts(0) - i}])
-        convs = self.scan()["by_conversation"]
-        self.assertEqual(len(convs), hs.MAX_CONVERSATIONS)
-        self.assertEqual(convs[0]["id"], "c000")
-        self.assertEqual(convs[-1]["id"], f"c{hs.MAX_CONVERSATIONS - 1:03}")
+        self.assertEqual(hs.MAX_CONVERSATIONS, 500)
+        with mock.patch.object(hs, "MAX_CONVERSATIONS", 10):
+            for i in range(15):
+                make_db(self.desk / f"c{i:03}.db", [{**call(0), "ts": ts(0) - i}])
+            convs = self.scan()["by_conversation"]
+            self.assertEqual(len(convs), 10)
+            self.assertEqual(convs[0]["id"], "c000")
+            self.assertEqual(convs[-1]["id"], "c009")
 
     def test_exported_helpers(self):
         p = self.desk / "a.db"
@@ -386,6 +429,7 @@ class ScannerTest(unittest.TestCase):
         r = self.scan(days=365, stats=st)
         cold = time.perf_counter() - t0
         self.assertEqual(r["totals"]["all"]["calls"], 400)
+        self.assertEqual(len(r["by_conversation"]), 200)
         self.assertEqual(len(r["daily"]), 365)
         t0 = time.perf_counter()
         self.scan(days=365, stats=st)

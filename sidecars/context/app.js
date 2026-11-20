@@ -2,16 +2,24 @@
   'use strict';
 
   const POLL_MS = 3000;
+  const AUTO_REFRESH_MS = 65 * 1000;
   const QUOTA_STALE_MS = 60 * 1000;
-  const HISTORY_STALE_MS = 5 * 60 * 1000;
+  const HISTORY_STALE_MS = 60 * 1000;
+  const RESET_RETRY_MS = 3000;
   const SEGMENT_COLORS = ['var(--c-system)', 'var(--c-user)', 'var(--c-agent)', 'var(--c-tool)', 'var(--c-custom)'];
   const CONVERSATION = { user: 'var(--c-user)', agent: 'var(--c-agent)', tool: 'var(--c-tool)', system_messages: 'var(--c-sysmsg)' };
   const SYSTEM = new Set(['system_prompt', 'system_tools', 'system_overhead']);
   const TABS = ['overview', 'quota', 'history'];
   const PERIODS = ['today', 'd7', 'd30', 'all'];
-  const HEAT_MIN_WEEKS = 12;
-  const HEAT_MAX_WEEKS = 26;
-  const CONV_VISIBLE = 12;
+  const HISTORY_VIEWS = ['totals', 'sessions', 'list'];
+  const SESSION_PERIODS = ['all', 'd30', 'd7', 'today'];
+  const LIST_SORTS = ['recent', 'tokens', 'calls'];
+  const SOURCE_FILTERS = ['all', 'desktop', 'cli'];
+  const HEAT_MIN_WEEKS = 10;
+  const HEAT_MAX_WEEKS = 20;
+  const CONV_VISIBLE = 8;
+  const MODEL_VISIBLE = 5;
+  const CHEV = '<svg class="chev" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 2.5L8 6l-3.5 3.5"/></svg>';
   const params = new URLSearchParams(location.search);
   const conversationId = (window.sidecar && window.sidecar.conversationId) || params.get('conversationId') || '';
   const doFetch = (window.sidecar && window.sidecar.fetch) || fetch;
@@ -23,7 +31,9 @@
   const I18N = {
     zh: {
       'tab.overview': '概览', 'tab.quota': '额度', 'tab.history': '历史',
-      loading: '加载中…', refresh: '刷新', unknown: '未知', tokens: 'tokens', live: '实时',
+      loading: '加载中…', refresh: '刷新', autoTag: '自动刷新',
+      refreshTip: (s) => `刷新 · 自动刷新中（每 ${s} 秒）`, langAria: '切换语言',
+      unknown: '未知', tokens: 'tokens', live: '实时',
       copy: '复制文本', copied: '已复制', copyTitle: '按 CLI 输出格式复制报告',
       gridTitle: '每个点代表上下文窗口的 1%',
       tokenUsage: 'Token 用量', freeSpace: '剩余空间',
@@ -69,22 +79,33 @@
       dur: { d: '天', h: '小时', m: '分', s: '秒' },
       historyTitle: '历史用量', scanning: '正在扫描所有对话，可能需要几秒', historyFailed: '扫描历史失败',
       periods: { today: '今天', d7: '近 7 天', d30: '近 30 天', all: '全部' },
-      colPeriod: '时段', colTokens: 'Tokens', colCalls: '调用', colCost: '参考价',
+      periodPills: { today: '今天', d7: '7 天', d30: '30 天', all: '全部' }, periodBarAria: '统计时段',
+      colPeriod: '时段', colTokens: 'Tokens', colCalls: '调用', colConvs: '对话', colCost: '参考价',
       callsConvs: (c, n) => `${c} 次调用 · ${n} 个对话`, calls: (n) => `${n} 次调用`,
-      tokensNoCache: 'tokens，不含缓存读取',
+      tokensNoCache: 'tokens，不含缓存读取', exclCache: '不含缓存读取',
       refNote: '参考价按公开单价估算，不代表实际账单', refPartial: '部分模型没有公开单价，未计入，≥ 表示下限',
       noRefPrice: '没有参考价', partialTip: '仅含有参考价的模型',
-      byModel: '按模型', noModels: '暂无模型用量', legInput: '输入', legCache: '缓存读取', legOutput: '输出',
+      byModel: '按模型', noModels: '暂无模型用量', showMoreModels: (n) => `展开其余 ${n} 个模型`, showLess: '收起',
+      legInput: '输入', legCache: '缓存读取', legOutput: '输出', legThinking: '思考',
       activity: '活跃度', activeDays: (a, w) => `近 ${w} 周活跃 ${a} 天`,
       dayTip: (d, t, c) => `${d} · ${t} tok（含缓存）· ${c} 次调用`, less: '少', more: '多',
       byConversation: '按会话', untitled: '未命名对话', moreConvs: (n) => `再显示 ${n} 个`,
+      hviews: { totals: '按总量', sessions: '按会话', list: '会话列表' }, hviewAria: '历史分类视图',
+      shortPeriods: { all: '全部', d30: '近30天', d7: '近7天', today: '今天' },
+      hideSubagents: '隐藏子智能体', searchPlaceholder: '搜索标题、模型或 ID', clearSearch: '清除搜索',
+      sorts: { recent: '最近活跃', tokens: '按用量', calls: '按调用' },
+      sourceFilters: { all: '全部', desktop: '桌面', cli: 'CLI' }, sourceNames: { desktop: '桌面', cli: 'CLI' },
+      summaryLine: (n, tok, calls) => `${n} 个会话 · ${tok} tokens（不含缓存）· ${calls} 次调用`,
+      noMatches: '没有符合条件的会话', noConversations: '暂无会话记录',
       sources: (d, c) => `桌面 ${d} · CLI ${c} 个对话`, errors: (n) => `${n} 个无法读取`,
       scannedAt: (t, ms) => `扫描于 ${t}${ms != null ? `，用时 ${ms} ms` : ''}`,
       weekdays: ['日', '一', '二', '三', '四', '五', '六'],
     },
     en: {
       'tab.overview': 'Overview', 'tab.quota': 'Quota', 'tab.history': 'History',
-      loading: 'Loading…', refresh: 'Refresh', unknown: 'Unknown', tokens: 'tokens', live: 'Live',
+      loading: 'Loading…', refresh: 'Refresh', autoTag: 'Auto',
+      refreshTip: (s) => `Refresh · Auto-refresh every ${s}s`, langAria: 'Language',
+      unknown: 'Unknown', tokens: 'tokens', live: 'Live',
       copy: 'Copy as text', copied: 'Copied', copyTitle: 'Copy the report as the CLI prints it',
       gridTitle: 'Each dot is 1% of the context window',
       tokenUsage: 'Token usage', freeSpace: 'Free space',
@@ -122,15 +143,24 @@
       dur: { d: 'd', h: 'h', m: 'm', s: 's' },
       historyTitle: 'Usage history', scanning: 'Scanning all conversations, this can take a few seconds', historyFailed: 'History scan failed',
       periods: { today: 'Today', d7: 'Last 7 days', d30: 'Last 30 days', all: 'All time' },
-      colPeriod: 'Period', colTokens: 'Tokens', colCalls: 'Calls', colCost: 'Ref. cost',
+      periodPills: { today: 'Today', d7: '7d', d30: '30d', all: 'All' }, periodBarAria: 'Time period',
+      colPeriod: 'Period', colTokens: 'Tokens', colCalls: 'Calls', colConvs: 'Conversations', colCost: 'Ref. cost',
       callsConvs: (c, n) => `${c} calls · ${n} conversations`, calls: (n) => `${n} ${n === '1' ? 'call' : 'calls'}`,
-      tokensNoCache: 'tokens, excluding cache reads',
+      tokensNoCache: 'tokens, excluding cache reads', exclCache: 'excluding cache reads',
       refNote: 'Reference cost from public list prices, not your bill', refPartial: 'Some models have no public price and are left out, so ≥ marks a lower bound',
       noRefPrice: 'no reference price', partialTip: 'priced models only',
-      byModel: 'By model', noModels: 'No model usage yet', legInput: 'Input', legCache: 'Cache read', legOutput: 'Output',
+      byModel: 'By model', noModels: 'No model usage yet', showMoreModels: (n) => `Show ${n} more`, showLess: 'Show less',
+      legInput: 'Input', legCache: 'Cache read', legOutput: 'Output', legThinking: 'Thinking',
       activity: 'Activity', activeDays: (a, w) => `Active ${a} days in the last ${w} weeks`,
       dayTip: (d, t, c) => `${d} · ${t} tok incl. cache · ${c} calls`, less: 'Less', more: 'More',
       byConversation: 'By conversation', untitled: 'Untitled conversation', moreConvs: (n) => `Show ${n} more`,
+      hviews: { totals: 'Totals', sessions: 'By session', list: 'Session list' }, hviewAria: 'History views',
+      shortPeriods: { all: 'All', d30: '30d', d7: '7d', today: 'Today' },
+      hideSubagents: 'Hide subagents', searchPlaceholder: 'Search title, model or ID', clearSearch: 'Clear search',
+      sorts: { recent: 'Recent', tokens: 'Usage', calls: 'Calls' },
+      sourceFilters: { all: 'All', desktop: 'Desktop', cli: 'CLI' }, sourceNames: { desktop: 'Desktop', cli: 'CLI' },
+      summaryLine: (n, tok, calls) => `${n} ${n === '1' ? 'conversation' : 'conversations'} · ${tok} tok excl. cache · ${calls} ${calls === '1' ? 'call' : 'calls'}`,
+      noMatches: 'No matching conversations', noConversations: 'No conversations yet',
       sources: (d, c) => `Desktop ${d} · CLI ${c} conversations`, errors: (n) => `${n} unreadable`,
       scannedAt: (t, ms) => `Scanned ${t}${ms != null ? ` in ${ms} ms` : ''}`,
       weekdays: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
@@ -334,14 +364,14 @@
       const name = m.display_name || m.model || '?';
       const agent = m.agent === 'main' ? t('agentMain') : m.agent === 'subagent' ? t('agentSub') : '';
       const bars = trendBars(m.recent);
-      const head = `<span class="ellipsis" title="${esc(m.model || '')}">${esc(name)}${agent ? ` <span class="dim">· ${esc(agent)}</span>` : ''}</span>`
+      const body = `<span class="ellipsis" title="${esc(m.model || '')}">${esc(name)}${agent ? ` <span class="dim">· ${esc(agent)}</span>` : ''}</span>`
         + `<span class="rv num"><b>${fmtTps(m.avg_streaming_tps)}</b> tok/s</span>`
         + `<span class="sub num">${esc(t('ttft'))} ${esc(fmtSec(m.avg_ttft_sec))} · ${esc(t('calls', fmtInt(m.calls)))}</span>`;
-      if (!bars) return `<li><div class="spd-row">${head}</div></li>`;
-      return `<li><details data-key="${esc(key)}"${openKeys.has(key) ? ' open' : ''}><summary class="spd-row">${head}</summary>
+      if (!bars) return `<li><div class="spd-row plain">${body}</div></li>`;
+      return `<li><details data-key="${esc(key)}"${openKeys.has(key) ? ' open' : ''}><summary class="spd-row">${CHEV}${body}</summary>
         <div class="spd-trend">${bars}</div></details></li>`;
     }).join('');
-    return `<h2 style="margin:16px 0 0">${esc(t('byModelSpeed'))} <span class="hint">${esc(t('streaming'))}</span></h2><ul class="spd">${rows}</ul>`;
+    return `<h2 style="margin:20px 0 4px">${esc(t('byModelSpeed'))} <span class="hint">${esc(t('streaming'))}</span></h2><ul class="spd">${rows}</ul>`;
   }
 
   function speed(r) {
@@ -373,18 +403,26 @@
     const s = r.session;
     if (!s || typeof s !== 'object' || !num(s.calls)) return '';
     const total = isNum(s.total_tokens) ? s.total_tokens : num(s.input) + num(s.output);
-    const span = s.first_at && s.last_at ? `<p class="note num">${esc(t('span', fmtTime(s.first_at, true), fmtTime(s.last_at, true)))}</p>` : '';
+    const meta = [];
+    if (isNum(s.cache_hit_pct)) meta.push(t('hitLine', s.cache_hit_pct.toFixed(0)));
+    if (s.first_at && s.last_at) meta.push(t('span', fmtTime(s.first_at, true), fmtTime(s.last_at, true)));
     const models = Array.isArray(s.by_model) && s.by_model.length > 1
-      ? `<ul class="mini" style="margin-top:8px">${s.by_model.map((m) => `<li><span class="ellipsis" title="${esc(m.model || '')}">${esc(m.display_name || m.model || '?')}</span>`
-        + `<span class="num dim">${fmtTok(num(m.input) + num(m.output))} · ${esc(t('calls', fmtInt(m.calls)))}${isNum(m.est_cost_usd) ? ` · ${esc(fmtUsd(m.est_cost_usd))}` : ''}</span></li>`).join('')}</ul>`
+      ? `<ul class="mini" style="margin-top:12px">${s.by_model.map((m) => `<li><span class="ellipsis" title="${esc(m.model || '')}">${esc(m.display_name || m.model || '?')}</span>`
+        + `<span class="num dim">${fmtTok(num(m.input) + num(m.output))}${isNum(m.est_cost_usd) ? ` · ${esc(fmtUsd(m.est_cost_usd))}` : ` · ${esc(t('calls', fmtInt(m.calls)))}`}</span></li>`).join('')}</ul>`
       : '';
     return `<section><h2>${esc(t('sessionTitle'))} <span class="hint">${esc(t('speedCalls', fmtInt(s.calls)))}</span></h2>
       <div class="session-head">
-        <div class="fig num" title="${esc(fmtInt(total))}">${fmtTok(total)}<span class="unit">${esc(t('sessionTokens'))}</span></div>
+        <div><div class="fig num" title="${esc(fmtInt(total))}">${fmtTok(total)}<span class="unit">${esc(t('tokens'))}</span></div>
+          <div class="lbl">${esc(t('exclCache'))}</div></div>
         <div class="cost num">${costHtml(s.est_cost_usd, { partial: !!s.cost_partial, calls: s.calls })}</div>
       </div>
-      <p class="note num" style="margin-top:4px">${esc(t('ioLine', fmtTok(s.input), fmtTok(s.output), fmtTok(s.cache_read)))}${isNum(s.cache_hit_pct) ? ` · ${esc(t('hitLine', s.cache_hit_pct.toFixed(0)))}` : ''}</p>
-      ${span}${models}
+      <div class="stats">
+        <div><div class="lbl">${esc(t('legInput'))}</div><div class="v num">${fmtTok(s.input)}</div></div>
+        <div><div class="lbl">${esc(t('legOutput'))}</div><div class="v num">${fmtTok(s.output)}</div></div>
+        <div><div class="lbl">${esc(t('legCache'))}</div><div class="v num">${fmtTok(s.cache_read)}</div></div>
+      </div>
+      ${meta.length ? `<p class="note num">${esc(meta.join(' · '))}</p>` : ''}
+      ${models}
     </section>`;
   }
 
@@ -444,8 +482,16 @@
     setTimeout(() => { btn.textContent = t('copy'); }, 1500);
   }
 
-  async function refreshReport() {
-    if (document.hidden || tab !== 'overview') return;
+  let overviewBusy = false;
+  let overviewSpin = false;
+
+  async function refreshReport({ force = false } = {}) {
+    if (!force && (document.hidden || tab !== 'overview')) return;
+    if (overviewBusy) return;
+    overviewBusy = true;
+    overviewSpin = force || (!report && !overviewMessage);
+    if (force) lastJson = '';
+    if (overviewSpin) syncRefreshButton();
     try {
       const data = await getJson('/api/report', { conversationId, workspace });
       if (data.error === 'no-conversation') return showMessage('noConversation');
@@ -460,46 +506,88 @@
     } catch {
       const dot = panes.overview.querySelector('.live');
       if (dot) dot.classList.remove('on');
+    } finally {
+      overviewBusy = false;
+      overviewSpin = false;
+      syncRefreshButton();
     }
   }
 
   // --- shared loader for quota / history -------------------------------------
 
-  function makeLoader(path, staleMs, paint) {
-    const st = { data: null, loading: false, error: null, loadedAt: 0 };
-    st.load = async (refresh) => {
+  function makeLoader(path, staleMs, { paint, keyOf, onMeta, onSilent }) {
+    const st = { data: null, lastKey: '', loading: false, manual: false, error: null, loadedAt: 0 };
+    st.load = async ({ refresh = false, silent = false } = {}) => {
       if (st.loading) return;
+      const bg = silent && Boolean(st.data);
       st.loading = true;
-      st.error = null;
-      paint();
+      st.manual = !bg;
+      if (!bg) st.error = null;
+      syncRefreshButton();
+      if (!bg) paint();
       try {
         const data = await getJson(path, refresh ? { refresh: 'true' } : null);
         if (!data || typeof data !== 'object') throw new Error('invalid response');
-        st.data = data;
         st.loadedAt = Date.now();
+        if (bg && data.error && st.data && !st.data.error) return;
+        const nextKey = keyOf(data);
+        const changed = nextKey !== st.lastKey || Boolean(st.error);
+        st.data = data;
+        st.lastKey = nextKey;
+        st.error = null;
+        if (bg) {
+          if (changed) onSilent(data);
+          else onMeta(data);
+        }
       } catch (err) {
-        st.error = (err && err.message) || String(err);
+        if (!bg) st.error = (err && err.message) || String(err);
       } finally {
         st.loading = false;
-        paint();
+        st.manual = false;
+        syncRefreshButton();
+        if (!bg) paint();
       }
     };
     st.open = () => {
-      if (!st.loading && (!st.data || Date.now() - st.loadedAt > staleMs)) st.load(false);
-      else paint();
+      if (!st.data) {
+        if (!st.loading) st.load({ refresh: false, silent: false });
+        else paint();
+      } else {
+        paint();
+        if (!st.loading && Date.now() - st.loadedAt > staleMs) st.load({ refresh: false, silent: true });
+      }
     };
     return st;
   }
 
-  function toolbar(id, title, meta, loading) {
-    return `<div class="toolbar"><h2>${esc(title)}</h2>
-      <button data-refresh="${id}" ${loading ? 'disabled' : ''}>${loading ? '<span class="spin"></span>' : ''}${esc(t('refresh'))}</button></div>
-      ${meta ? `<div class="meta num">${meta}</div>` : ''}`;
+  function setMeta(id, html, tip) {
+    const el = $(`${id}-meta`);
+    if (!el) return;
+    el.innerHTML = html;
+    el.hidden = !html;
+    if (tip !== undefined) el.title = tip;
   }
 
   // --- quota ------------------------------------------------------------------
 
-  const quota = makeLoader('/api/quota', QUOTA_STALE_MS, () => paintQuota());
+  function quotaKey(d) {
+    if (!d || typeof d !== 'object') return '';
+    const { fetched_at: _f, ...rest } = d;
+    return JSON.stringify(rest);
+  }
+  function quotaMetaHtml(data) {
+    if (!data || data.error) return '';
+    return [data.tier || data.plan, t('autoTag'), data.fetched_at ? fmtTime(data.fetched_at) : '']
+      .filter(Boolean).map(esc).join(' · ');
+  }
+  const quota = makeLoader('/api/quota', QUOTA_STALE_MS, {
+    paint: () => paintQuota(),
+    keyOf: quotaKey,
+    onMeta: (d) => setMeta('quota', quotaMetaHtml(d), d && d.fetched_at ? t('fetchedAt', fmtTime(d.fetched_at, true)) : ''),
+    onSilent: () => paintQuota(),
+  });
+  const resetFired = new Set(); // reset_time ISO strings that already triggered a post-reset refresh
+  let resetTimer = null;
   const fraction = (v) => (isNum(v) ? Math.min(1, Math.max(0, v)) : null);
   const levelOf = (f) => (f == null ? 'unknown' : f < 0.05 ? 'crit' : f < 0.2 ? 'warn' : '');
   const pctText = (f) => (f == null ? '—' : `${(f * 100).toFixed(f < 0.1 && f > 0 ? 1 : 0)}%`);
@@ -575,7 +663,7 @@
     const hidden = dedupeModels(p.hidden_models).filter((m) => !shown.has(m.name.toLowerCase()));
     const key = `pool:${p.id || label}`;
     const more = hidden.length
-      ? `<details class="more" data-key="${esc(key)}"${openKeys.has(key) ? ' open' : ''}><summary>${esc(t('moreModels', hidden.length))}</summary><div class="tags">${hidden.map(tag).join('')}</div></details>`
+      ? `<details class="more" data-key="${esc(key)}"${openKeys.has(key) ? ' open' : ''}><summary>${CHEV}<span>${esc(t('moreModels', hidden.length))}</span></summary><div class="tags">${hidden.map(tag).join('')}</div></details>`
       : '';
     return `<div class="pool">
       <div class="pool-label">${esc(label)}</div>
@@ -586,8 +674,9 @@
   }
 
   function paintQuota() {
-    const { data, loading, error } = quota;
+    const { data, error } = quota;
     let meta = '';
+    let tip = '';
     let body = '';
     if (error) body = errorBox(t('requestFailed'), error);
     else if (!data) body = `<p class="empty"><span class="spin"></span>${esc(t('loading'))}</p>`;
@@ -597,56 +686,131 @@
         : errorBox(t('quotaFailed'), data.message || data.error);
     }
     if (data && !data.error) {
-      meta = [data.tier, data.plan && data.plan !== data.tier ? data.plan : '', data.fetched_at ? t('fetchedAt', fmtTime(data.fetched_at)) : '']
-        .filter(Boolean).map(esc).join(' · ');
+      meta = quotaMetaHtml(data);
+      tip = data.fetched_at ? t('fetchedAt', fmtTime(data.fetched_at, true)) : '';
       const pools = Array.isArray(data.pools) ? data.pools : [];
       if (!error) body = pools.length ? pools.map(poolHtml).join('') : `<p class="empty">${esc(t('noPools'))}</p>`;
     }
-    panes.quota.innerHTML = toolbar('quota', t('quotaTitle'), meta, loading) + body;
+    panes.quota.innerHTML = `<div id="quota-meta" class="meta num" title="${esc(tip)}"${meta ? '' : ' hidden'}>${meta}</div>${body}`;
+  }
+
+  function scheduleResetRefresh() {
+    if (resetTimer) return;
+    resetTimer = setTimeout(() => {
+      resetTimer = null;
+      if (tab === 'quota' && !document.hidden) quota.load({ refresh: true, silent: true });
+    }, RESET_RETRY_MS);
   }
 
   function tickCountdowns() {
     if (tab !== 'quota' || document.hidden) return;
+    const now = Date.now();
     panes.quota.querySelectorAll('[data-reset]').forEach((el) => {
       const iso = el.getAttribute('data-reset');
-      if (iso) el.textContent = resetText(iso);
+      if (!iso) return;
+      el.textContent = resetText(iso);
+      const d = parseDate(iso);
+      if (d && d.getTime() <= now && !resetFired.has(iso)) {
+        resetFired.add(iso);
+        scheduleResetRefresh();
+      }
     });
   }
 
   // --- history ----------------------------------------------------------------
 
-  const history = makeLoader('/api/history', HISTORY_STALE_MS, () => paintHistory());
+  function historyKey(d) {
+    if (!d || typeof d !== 'object') return '';
+    const { scanned_at: _s, elapsed_ms: _e, ...rest } = d;
+    return JSON.stringify(rest);
+  }
+  function historyMetaHtml(data, manualLoading) {
+    if (!data || data.error) return '';
+    if (manualLoading) return `<span class="spin"></span>${esc(t('scanning'))}`;
+    if (!data.scanned_at) return esc(t('autoTag'));
+    return `${esc(t('autoTag'))} · ${esc(fmtTime(data.scanned_at))}`;
+  }
+  function historyMetaTip(data) {
+    return data && data.scanned_at ? t('scannedAt', fmtTime(data.scanned_at, true), data.elapsed_ms) : '';
+  }
+  function historySourcesText(data) {
+    const src = (data && data.sources) || {};
+    const foot = [t('sources', fmtInt(src.desktop), fmtInt(src.cli))];
+    if (num(data && data.errors) > 0) foot.push(t('errors', fmtInt(data.errors)));
+    return foot.join(' · ');
+  }
+  const history = makeLoader('/api/history', HISTORY_STALE_MS, {
+    paint: () => paintHistory(),
+    keyOf: historyKey,
+    onMeta: (d) => setMeta('history', historyMetaHtml(d, false), historyMetaTip(d)),
+    onSilent: (d) => onHistorySilent(d),
+  });
+  let listHasCli = false;
   let period = PERIODS.includes(store.get('ctx.period', 'd30')) ? store.get('ctx.period', 'd30') : 'd30';
-  let convLimit = CONV_VISIBLE;
+  let historyView = HISTORY_VIEWS.includes(store.get('ctx.historyView', 'totals')) ? store.get('ctx.historyView', 'totals') : 'totals';
+  let sessionsPeriod = 'all';
+  let hideSubagents = false;
+  let showAllModels = false;
+  let listSort = 'recent';
+  let listSource = 'all';
+  let searchQuery = '';
+  let sessionsLimit = CONV_VISIBLE;
+  let listLimit = CONV_VISIBLE;
   const newTok = (x) => num(x && x.input) + num(x && x.output);
   const allTok = (x) => newTok(x) + num(x && x.cache_read);
+  const isSubagent = (c) => Boolean(c && (c.is_subagent || String(c.title || '').startsWith('@')));
+  const tsOf = (iso) => { const d = parseDate(iso); return d ? d.getTime() : -Infinity; };
+  const sourceLabel = (s) => (s && t('sourceNames')[s]) || s || '';
 
-  function headline(tot, partial) {
-    const p = tot[period] || {};
-    return `<div class="headline">
-      <div class="lbl">${esc(t('periods')[period])}</div>
-      <div class="fig num" title="${esc(fmtInt(newTok(p)))}">${fmtTok(newTok(p))}<span class="unit">${esc(t('tokensNoCache'))}</span></div>
-      <div class="lbl num">${esc(t('callsConvs', fmtInt(p.calls), fmtInt(p.conversations)))} · ${costHtml(p.est_cost_usd, { partial, calls: p.calls })}</div>
-      <div class="lbl num">${esc(t('ioLine', fmtTok(p.input), fmtTok(p.output), fmtTok(p.cache_read)))}</div>
-    </div>`;
+  function periodCutoff(p) {
+    if (p === 'all') return -Infinity;
+    const now = new Date();
+    const base = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    if (p === 'today') return base.getTime();
+    if (p === 'd7') { base.setDate(base.getDate() - 6); return base.getTime(); }
+    if (p === 'd30') { base.setDate(base.getDate() - 29); return base.getTime(); }
+    return -Infinity;
   }
 
-  function periodTable(tot, partial) {
-    const rows = PERIODS.map((k) => {
-      const p = tot[k] || {};
-      return `<tr data-period="${k}" aria-selected="${k === period}" tabindex="0">
-        <td>${esc(t('periods')[k])}</td><td class="num">${fmtTok(newTok(p))}</td><td class="num">${fmtInt(p.calls)}</td>
-        <td class="num">${costHtml(p.est_cost_usd, { partial, calls: p.calls, label: false })}</td></tr>`;
+  function historySubNav() {
+    const btns = HISTORY_VIEWS.map((k) => {
+      const on = k === historyView;
+      return `<button class="seg-btn" type="button" role="tab" data-hview="${k}" aria-selected="${on}" tabindex="${on ? 0 : -1}">${esc(t('hviews')[k])}</button>`;
     }).join('');
-    return `<table class="periods"><thead><tr><th>${esc(t('colPeriod'))}</th><th>${esc(t('colTokens'))}</th><th>${esc(t('colCalls'))}</th><th>${esc(t('colCost'))}</th></tr></thead>
-      <tbody>${rows}</tbody></table>
-      <p class="note">${esc(t('refNote'))}${partial ? `${esc(t('sep'))}${esc(t('refPartial'))}` : ''}</p>`;
+    return `<div class="seg" role="tablist" aria-label="${esc(t('hviewAria'))}">${btns}</div>`;
+  }
+
+  function periodBar() {
+    const pills = PERIODS.map((k) => {
+      const on = k === period;
+      return `<button class="pill" type="button" role="tab" data-period="${k}" aria-selected="${on}" tabindex="${on ? 0 : -1}">${esc(t('periodPills')[k])}</button>`;
+    }).join('');
+    return `<div class="period-bar" role="tablist" aria-label="${esc(t('periodBarAria'))}">${pills}</div>`;
+  }
+
+  function totalsHero(tot, partial) {
+    const p = tot[period] || {};
+    const costTip = partial ? `${t('refNote')}${t('sep')}${t('refPartial')}` : t('refNote');
+    return `${periodBar()}
+      <div class="hero">
+        <div class="fig num" title="${esc(fmtInt(newTok(p)))}">${fmtTok(newTok(p))}<span class="unit">${esc(t('tokens'))}</span></div>
+        <div class="sub">${esc(t('exclCache'))}</div>
+      </div>
+      <div class="hero-stats">
+        <div><div class="lbl">${esc(t('legInput'))}</div><div class="v num" title="${esc(fmtInt(p.input))}">${fmtTok(p.input)}</div></div>
+        <div><div class="lbl">${esc(t('legOutput'))}</div><div class="v num" title="${esc(fmtInt(p.output))}">${fmtTok(p.output)}</div></div>
+        <div><div class="lbl">${esc(t('legCache'))}</div><div class="v num" title="${esc(fmtInt(p.cache_read))}">${fmtTok(p.cache_read)}</div></div>
+        <div><div class="lbl">${esc(t('colCalls'))}</div><div class="v num">${fmtInt(p.calls)}</div></div>
+        <div><div class="lbl">${esc(t('colConvs'))}</div><div class="v num">${fmtInt(p.conversations)}</div></div>
+        <div><div class="lbl">${esc(t('colCost'))}<span class="help-mark" title="${esc(costTip)}" aria-label="${esc(costTip)}">?</span></div>
+          <div class="v num">${costHtml(p.est_cost_usd, { partial, calls: p.calls, label: false })}</div></div>
+      </div>`;
   }
 
   const parseDay = (s) => { const [y, m, d] = String(s).split('-').map(Number); return new Date(y, (m || 1) - 1, d || 1); };
   const dayKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
-  /** GitHub-style grid: weeks across, Sun..Sat down; spans from the first active week (12–26 weeks), fluid width. */
+  /** GitHub-style grid: weeks across, Sun..Sat down; compact 10–12 weeks when activity is recent, up to 20 weeks when older weeks have activity. */
   function heatmap(daily) {
     if (!Array.isArray(daily) || !daily.length) return '';
     const byDay = new Map(daily.map((d) => [d.date, d]));
@@ -654,10 +818,9 @@
     if (Number.isNaN(end.getTime())) return '';
     const firstActive = daily.find((d) => num(d.tokens) > 0 || num(d.calls) > 0);
     const spanDays = firstActive ? Math.round((end - parseDay(firstActive.date)) / 86400000) + 1 : 0;
-    // As many ~14px weeks as fit the panel, never fewer than needed to reach the first active day (capped).
-    const fit = Math.floor(((panes.history.clientWidth || 360) - 56) / 17);
-    const need = Math.ceil((spanDays + (6 - end.getDay())) / 7);
-    const weeks = Math.min(HEAT_MAX_WEEKS, Math.max(HEAT_MIN_WEEKS, fit, Math.min(need, HEAT_MAX_WEEKS)));
+    const baseWeeks = (panes.history.clientWidth || 360) >= 420 ? 12 : HEAT_MIN_WEEKS;
+    const need = firstActive ? Math.ceil((spanDays + (6 - end.getDay())) / 7) : 0;
+    const weeks = Math.min(HEAT_MAX_WEEKS, Math.max(baseWeeks, need));
     const start = new Date(end.getFullYear(), end.getMonth(), end.getDate() - end.getDay() - 7 * (weeks - 1));
     const days = [];
     for (let i = 0; i < weeks * 7; i += 1) days.push(new Date(start.getFullYear(), start.getMonth(), start.getDate() + i));
@@ -671,9 +834,9 @@
     for (let w = 0; w < weeks; w += 1) {
       const first = days[w * 7];
       const monthStart = days.slice(w * 7, w * 7 + 7).find((d) => d.getDate() === 1);
-      if ((w === 0 || monthStart) && w - lastLabelCol >= 4 && w <= weeks - 3) {
+      if ((w === 0 || monthStart) && w - lastLabelCol >= 3 && w <= weeks - 2) {
         const m = (monthStart || first).toLocaleDateString(locale(), { month: 'short' });
-        html += `<span class="ax" style="grid-row:1;grid-column:${w + 2} / span 4">${esc(m)}</span>`;
+        html += `<span class="ax" style="grid-row:1;grid-column:${w + 2} / span 3">${esc(m)}</span>`;
         lastLabelCol = w;
       }
     }
@@ -693,81 +856,309 @@
       <div class="heat-foot"><span>${esc(t('activeDays', active, weeks))}</span>${scale}</div></section>`;
   }
 
-  function byModel(list) {
-    if (!Array.isArray(list) || !list.length) return `<section><h2>${esc(t('byModel'))}</h2><p class="note" style="margin:0">${esc(t('noModels'))}</p></section>`;
-    const max = Math.max(1, ...list.map(allTok));
-    const seg = (v, cls) => (v > 0 ? `<span class="${cls}" style="width:${(v / max * 100).toFixed(2)}%"></span>` : '');
-    const legend = `<div class="legend"><span><i class="seg-in"></i>${esc(t('legInput'))}</span><span><i class="seg-cache"></i>${esc(t('legCache'))}</span><span><i class="seg-out"></i>${esc(t('legOutput'))}</span></div>`;
-    const names = new Map();
-    list.forEach((m) => { const n = m.display_name || m.model; names.set(n, (names.get(n) || 0) + 1); });
-    const rows = list.slice(0, 12).map((m) => {
-      const dup = names.get(m.display_name || m.model) > 1 && m.display_name;
-      const tip = `${m.model}\n${t('ioLine', fmtInt(m.input), fmtInt(m.output), fmtInt(m.cache_read))}\n${t('calls', fmtInt(m.calls))}`;
-      return `<li title="${esc(tip)}">
-        <div class="rh"><span class="ellipsis">${esc(m.display_name || m.model || '?')}${dup ? ` <span class="dim mono">${esc(m.model)}</span>` : ''}</span>
-          <span class="rv num"><b>${fmtTok(newTok(m))}</b> · ${esc(t('calls', fmtInt(m.calls)))}${isNum(m.est_cost_usd) ? ` · ${esc(fmtUsd(m.est_cost_usd))}` : ''}</span></div>
-        <div class="hbar">${seg(num(m.input), 'seg-in')}${seg(num(m.cache_read), 'seg-cache')}${seg(num(m.output), 'seg-out')}</div>
-      </li>`;
-    }).join('');
-    return `<section><h2>${esc(t('byModel'))} <span class="hint">${esc(t('colTokens'))} · ${esc(t('colCalls'))}</span></h2>${legend}<ul class="rank">${rows}</ul></section>`;
+  /** Merge duplicate display names so raw model variants never clutter inline rows. */
+  function mergeModels(list) {
+    const map = new Map();
+    for (const m of Array.isArray(list) ? list : []) {
+      if (!m) continue;
+      const name = String(m.display_name || m.model || '?').trim();
+      let g = map.get(name);
+      if (!g) {
+        g = { name, ids: [], input: 0, output: 0, cache_read: 0, thinking: 0, calls: 0, est_cost_usd: null, partial: false };
+        map.set(name, g);
+      }
+      if (m.model && !g.ids.includes(m.model)) g.ids.push(m.model);
+      g.input += num(m.input);
+      g.output += num(m.output);
+      g.cache_read += num(m.cache_read);
+      g.thinking += num(m.thinking);
+      g.calls += num(m.calls);
+      if (isNum(m.est_cost_usd)) g.est_cost_usd = (g.est_cost_usd || 0) + m.est_cost_usd;
+      else if (num(m.calls) > 0) g.partial = true;
+    }
+    return [...map.values()].sort((a, b) => allTok(b) - allTok(a) || newTok(b) - newTok(a));
   }
 
-  function byConversation(list) {
-    if (!Array.isArray(list) || !list.length) return '';
-    const rows = list.slice(0, convLimit).map((c) => {
-      const title = c.title ? String(c.title) : '';
-      const agentName = title.startsWith('@');
-      const shown = title || `${t('untitled')} · ${String(c.id || '').slice(0, 8)}`;
-      const sub = [c.display_name || c.model, fmtAgo(c.last_at), c.source && c.source !== 'desktop' ? c.source : ''].filter(Boolean).join(' · ');
-      return `<li title="${esc(c.id || '')}">
-        <span class="ellipsis${agentName || !title ? ' dim' : ''}">${esc(shown)}</span>
-        <span class="rv num"><b>${fmtTok(newTok(c))}</b>${isNum(c.est_cost_usd) ? esc(fmtUsd(c.est_cost_usd)) : esc(t('calls', fmtInt(c.calls)))}</span>
-        <span class="sub ellipsis">${esc(sub)}</span>
+  function byModel(list) {
+    const merged = mergeModels(list);
+    if (!merged.length) return `<section><h2>${esc(t('byModel'))}</h2><p class="note" style="margin:0">${esc(t('noModels'))}</p></section>`;
+    const max = Math.max(1, ...merged.map(allTok));
+    const seg = (v, cls) => (v > 0 ? `<span class="${cls}" style="width:${(v / max * 100).toFixed(2)}%"></span>` : '');
+    const legend = `<div class="legend"><span><i class="seg-in"></i>${esc(t('legInput'))}</span><span><i class="seg-cache"></i>${esc(t('legCache'))}</span><span><i class="seg-out"></i>${esc(t('legOutput'))}</span></div>`;
+    const visible = showAllModels ? merged : merged.slice(0, MODEL_VISIBLE);
+    const rows = visible.map((m) => {
+      const tip = `${m.ids.join(', ') || m.name}\n${t('ioLine', fmtInt(m.input), fmtInt(m.output), fmtInt(m.cache_read))}\n${t('calls', fmtInt(m.calls))}`;
+      const cost = isNum(m.est_cost_usd) ? ` · ${m.partial ? '≥' : ''}${esc(fmtUsd(m.est_cost_usd))}` : '';
+      return `<li title="${esc(tip)}">
+        <div class="rh"><span class="ellipsis">${esc(m.name)}</span>
+          <span class="rv num"><b>${fmtTok(newTok(m))}</b>${cost}</span></div>
+        <div class="hbar">${seg(m.input, 'seg-in')}${seg(m.cache_read, 'seg-cache')}${seg(m.output, 'seg-out')}</div>
       </li>`;
     }).join('');
-    const rest = list.length - convLimit;
-    const more = rest > 0 ? `<button data-more-convs style="margin-top:8px">${esc(t('moreConvs', Math.min(rest, CONV_VISIBLE * 2)))}</button>` : '';
-    return `<section><h2>${esc(t('byConversation'))} <span class="hint">${fmtInt(list.length)}</span></h2><ul class="convs">${rows}</ul>${more}</section>`;
+    const rest = merged.length - MODEL_VISIBLE;
+    const toggle = rest > 0
+      ? `<button type="button" class="quiet-btn" data-toggle-models aria-expanded="${showAllModels}">${CHEV}<span>${esc(showAllModels ? t('showLess') : t('showMoreModels', rest))}</span></button>`
+      : '';
+    return `<section><h2>${esc(t('byModel'))} <span class="hint">${esc(t('colTokens'))}</span></h2>${legend}<ul class="rank">${rows}</ul>${toggle}</section>`;
+  }
+
+  function convDetailHtml(c) {
+    const totalIn = num(c.input) + num(c.cache_read);
+    const hit = totalIn > 0 ? `${(num(c.cache_read) / totalIn * 100).toFixed(0)}%` : '—';
+    const think = isNum(c.thinking) ? fmtTok(c.thinking) : '—';
+    const first = c.first_at ? fmtTime(c.first_at, true) : '';
+    const last = c.last_at ? fmtTime(c.last_at, true) : '';
+    const spanText = first && last && first !== last ? t('span', first, last) : (last || first);
+    const metaBits = [];
+    if (c.source) metaBits.push(esc(sourceLabel(c.source)));
+    if (isSubagent(c)) metaBits.push(esc(t('agentSub')));
+    if (c.id) metaBits.push(`<span class="mono" title="${esc(c.id)}">${esc(String(c.id).slice(0, 8))}</span>`);
+    const mergedModels = mergeModels(c.by_model);
+    const models = mergedModels.length
+      ? `<div class="conv-models"><div class="lbl">${esc(t('byModel'))}</div><ul class="mini">${mergedModels.map((m) => `<li>
+          <span class="ellipsis" title="${esc(m.ids.join(', ') || m.name)}">${esc(m.name)}</span>
+          <span class="num dim">${fmtTok(newTok(m))} · ${isNum(m.est_cost_usd) ? `${m.partial ? '≥' : ''}${esc(fmtUsd(m.est_cost_usd))}` : esc(t('calls', fmtInt(m.calls)))}</span>
+        </li>`).join('')}</ul></div>`
+      : '';
+    return `<div class="conv-detail">
+      <div class="conv-kv">
+        <div><div class="lbl">${esc(t('legInput'))}</div><div class="v num" title="${esc(fmtInt(c.input))}">${fmtTok(c.input)}</div></div>
+        <div><div class="lbl">${esc(t('legOutput'))}</div><div class="v num" title="${esc(fmtInt(c.output))}">${fmtTok(c.output)}</div></div>
+        <div><div class="lbl">${esc(t('legCache'))}</div><div class="v num" title="${esc(fmtInt(c.cache_read))}">${fmtTok(c.cache_read)}</div></div>
+        <div><div class="lbl">${esc(t('legThinking'))}</div><div class="v num" title="${isNum(c.thinking) ? esc(fmtInt(c.thinking)) : ''}">${think}</div></div>
+        <div><div class="lbl">${esc(t('cacheHit'))}</div><div class="v num">${hit}</div></div>
+        <div><div class="lbl">${esc(t('colCalls'))}</div><div class="v num">${fmtInt(c.calls)}</div></div>
+      </div>
+      <div class="conv-row"><span class="lbl">${esc(t('colCost'))}</span><span class="num">${costHtml(c.est_cost_usd, { partial: !!c.cost_partial, calls: c.calls })}</span></div>
+      ${spanText ? `<div class="conv-foot num">${esc(spanText)}</div>` : ''}
+      ${metaBits.length ? `<div class="conv-foot num">${metaBits.join(' · ')}</div>` : ''}
+      ${models}
+    </div>`;
+  }
+
+  function convItemHtml(c, i, maxTok) {
+    const id = String(c.id || i);
+    const key = `conv:${id}`;
+    const title = c.title ? String(c.title) : '';
+    const muted = !title || title.startsWith('@') || Boolean(c.is_subagent);
+    const shown = title || `${t('untitled')} · ${id.slice(0, 8)}`;
+    const subLeft = [c.display_name || c.model, fmtAgo(c.last_at)].filter(Boolean).join(' · ');
+    const subRight = isNum(c.est_cost_usd)
+      ? costHtml(c.est_cost_usd, { partial: !!c.cost_partial, calls: c.calls, label: false })
+      : esc(t('calls', fmtInt(c.calls)));
+    let bar = '';
+    if (maxTok > 0) {
+      const seg = (v, cls) => (v > 0 ? `<span class="${cls}" style="width:${(v / maxTok * 100).toFixed(2)}%"></span>` : '');
+      bar = `<div class="hbar conv-bar">${seg(num(c.input), 'seg-in')}${seg(num(c.output), 'seg-out')}</div>`;
+    }
+    return `<li class="conv-item"><details data-key="${esc(key)}"${openKeys.has(key) ? ' open' : ''}>
+      <summary class="conv-sum">
+        <div class="conv-top">
+          ${CHEV}
+          <span class="conv-title ellipsis${muted ? ' dim' : ''}" title="${esc(shown)}">${esc(shown)}</span>
+          <span class="conv-val num" title="${esc(fmtInt(newTok(c)))}">${fmtTok(newTok(c))}</span>
+        </div>
+        <div class="conv-meta"><span class="ellipsis">${esc(subLeft)}</span><span class="num">${subRight}</span></div>
+        ${bar}
+      </summary>
+      ${convDetailHtml(c)}
+    </details></li>`;
+  }
+
+  function summarizeConvs(list) {
+    let tok = 0;
+    let calls = 0;
+    for (const c of list) { tok += newTok(c); calls += num(c.calls); }
+    return `<div class="summary num">${esc(t('summaryLine', fmtInt(list.length), fmtTok(tok), fmtInt(calls)))}</div>`;
+  }
+
+  function sessionsViewHtml(data) {
+    const all = Array.isArray(data.by_conversation) ? data.by_conversation : [];
+    const pBtns = SESSION_PERIODS.map((k) => `<button class="fchip" type="button" data-speriod="${k}" aria-pressed="${k === sessionsPeriod}">${esc(t('shortPeriods')[k])}</button>`).join('');
+    const subBtn = `<button class="fchip" type="button" data-hide-sub aria-pressed="${hideSubagents}">${esc(t('hideSubagents'))}</button>`;
+    const controls = `<div class="filters"><div class="fgroup">${pBtns}</div>${subBtn}</div>`;
+    const cutoff = periodCutoff(sessionsPeriod);
+    const filtered = all.filter((c) => {
+      if (hideSubagents && isSubagent(c)) return false;
+      if (sessionsPeriod !== 'all') {
+        const ts = tsOf(c.last_at);
+        if (ts < cutoff) return false;
+      }
+      return true;
+    }).sort((a, b) => newTok(b) - newTok(a) || tsOf(b.last_at) - tsOf(a.last_at) || String(a.id || '').localeCompare(String(b.id || '')));
+    if (!filtered.length) {
+      return controls + `<p class="empty">${esc(all.length ? t('noMatches') : t('noConversations'))}</p>`;
+    }
+    const maxTok = Math.max(1, newTok(filtered[0]));
+    const legend = `<div class="legend" style="margin-top:12px"><span><i class="seg-in"></i>${esc(t('legInput'))}</span><span><i class="seg-out"></i>${esc(t('legOutput'))}</span></div>`;
+    const rows = filtered.slice(0, sessionsLimit).map((c, i) => convItemHtml(c, i, maxTok)).join('');
+    const rest = filtered.length - sessionsLimit;
+    const more = rest > 0 ? `<button type="button" class="quiet-btn" data-more-sessions>${CHEV}<span>${esc(t('moreConvs', Math.min(rest, CONV_VISIBLE * 2)))}</span></button>` : '';
+    return controls + summarizeConvs(filtered) + legend + `<ul class="conv-list">${rows}</ul>` + more;
+  }
+
+  function matchesQuery(c, q) {
+    if (!q) return true;
+    if (String(c.title || '').toLowerCase().includes(q)) return true;
+    if (String(c.display_name || '').toLowerCase().includes(q)) return true;
+    if (String(c.model || '').toLowerCase().includes(q)) return true;
+    if (String(c.id || '').toLowerCase().includes(q)) return true;
+    if (Array.isArray(c.by_model)) {
+      return c.by_model.some((m) => String((m && m.display_name) || '').toLowerCase().includes(q)
+        || String((m && m.model) || '').toLowerCase().includes(q));
+    }
+    return false;
+  }
+
+  function hasCliSources(data) {
+    const src = (data && data.sources) || {};
+    if (num(src.cli) > 0) return true;
+    const all = Array.isArray(data && data.by_conversation) ? data.by_conversation : [];
+    return all.some((c) => c && c.source && c.source !== 'desktop');
+  }
+
+  function listBodyHtml(data) {
+    const all = Array.isArray(data && data.by_conversation) ? data.by_conversation : [];
+    const cli = hasCliSources(data);
+    if (!cli && listSource !== 'all') listSource = 'all';
+    const q = searchQuery.trim().toLowerCase();
+    const filtered = all.filter((c) => {
+      if (hideSubagents && isSubagent(c)) return false;
+      if (listSource !== 'all' && (c.source || 'desktop') !== listSource) return false;
+      return matchesQuery(c, q);
+    }).sort((a, b) => {
+      if (listSort === 'tokens') return newTok(b) - newTok(a) || tsOf(b.last_at) - tsOf(a.last_at);
+      if (listSort === 'calls') return num(b.calls) - num(a.calls) || tsOf(b.last_at) - tsOf(a.last_at);
+      return tsOf(b.last_at) - tsOf(a.last_at) || newTok(b) - newTok(a);
+    });
+    if (!filtered.length) {
+      return `<p class="empty">${esc(all.length ? t('noMatches') : t('noConversations'))}</p>`;
+    }
+    const rows = filtered.slice(0, listLimit).map((c, i) => convItemHtml(c, i, 0)).join('');
+    const rest = filtered.length - listLimit;
+    const more = rest > 0 ? `<button type="button" class="quiet-btn" data-more-list>${CHEV}<span>${esc(t('moreConvs', Math.min(rest, CONV_VISIBLE * 2)))}</span></button>` : '';
+    return summarizeConvs(filtered) + `<ul class="conv-list">${rows}</ul>` + more;
+  }
+
+  function listViewHtml(data) {
+    const cli = hasCliSources(data);
+    listHasCli = cli;
+    if (!cli && listSource !== 'all') listSource = 'all';
+    const search = `<div class="search-box">
+      <input id="history-search" class="search-input" type="search" value="${esc(searchQuery)}" placeholder="${esc(t('searchPlaceholder'))}" aria-label="${esc(t('searchPlaceholder'))}" autocomplete="off">
+      <button id="history-search-clear" class="search-clear" type="button" title="${esc(t('clearSearch'))}" aria-label="${esc(t('clearSearch'))}"${searchQuery ? '' : ' hidden'}>&times;</button>
+    </div>`;
+    const sortBtns = LIST_SORTS.map((k) => `<button class="fchip" type="button" data-hsort="${k}" aria-pressed="${k === listSort}">${esc(t('sorts')[k])}</button>`).join('');
+    const srcBtns = cli
+      ? `<div class="fgroup">${SOURCE_FILTERS.map((k) => `<button class="fchip" type="button" data-hsource="${k}" aria-pressed="${k === listSource}">${esc(t('sourceFilters')[k])}</button>`).join('')}</div>`
+      : '';
+    const subBtn = `<button class="fchip" type="button" data-hide-sub aria-pressed="${hideSubagents}">${esc(t('hideSubagents'))}</button>`;
+    const controls = `<div class="filters"><div class="fgroup">${sortBtns}</div>${srcBtns}${subBtn}</div>`;
+    return search + controls + `<div id="history-list-body">${listBodyHtml(data)}</div>`;
+  }
+
+  function updateListBody() {
+    if (historyView !== 'list' || !history.data || history.data.error) return;
+    const body = $('history-list-body');
+    if (body) body.innerHTML = listBodyHtml(history.data);
+    const clr = $('history-search-clear');
+    if (clr) clr.hidden = !searchQuery;
+    panes.history.querySelectorAll('[data-hsort]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.hsort === listSort)));
+    panes.history.querySelectorAll('[data-hsource]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.hsource === listSource)));
+    panes.history.querySelectorAll('[data-hide-sub]').forEach((b) => b.setAttribute('aria-pressed', String(hideSubagents)));
+  }
+
+  function onHistorySilent(data) {
+    if (historyView === 'list' && $('history-search') && $('history-list-body') && hasCliSources(data) === listHasCli) {
+      setMeta('history', historyMetaHtml(data, false), historyMetaTip(data));
+      updateListBody();
+      const src = $('history-sources');
+      if (src) src.textContent = historySourcesText(data);
+      return;
+    }
+    const inp = $('history-search');
+    const focused = inp && document.activeElement === inp;
+    const selStart = focused ? inp.selectionStart : null;
+    const selEnd = focused ? inp.selectionEnd : null;
+    paintHistory();
+    if (focused) {
+      const next = $('history-search');
+      if (next) {
+        next.focus();
+        if (selStart != null && selEnd != null) {
+          try { next.setSelectionRange(selStart, selEnd); } catch { /* ignore */ }
+        }
+      }
+    }
   }
 
   function paintHistory() {
-    const { data, loading, error } = history;
+    const { data, loading, manual, error } = history;
     let body = '';
-    let meta = '';
     if (error) body = errorBox(t('requestFailed'), error);
     else if (!data) body = `<p class="empty"><span class="spin"></span>${esc(t('scanning'))}</p>`;
     else if (data.error) body = errorBox(t('historyFailed'), data.message || data.error);
-    if (data && !data.error) {
-      if (loading) meta = `<span class="spin"></span>${esc(t('scanning'))}`;
-      else if (data.scanned_at) meta = esc(t('scannedAt', fmtTime(data.scanned_at, true), data.elapsed_ms));
-      if (!error) {
-        const tot = data.totals || {};
-        const src = data.sources || {};
-        const partial = Array.isArray(data.by_model) && data.by_model.some((m) => num(m.calls) > 0 && !isNum(m.est_cost_usd));
-        const foot = [t('sources', fmtInt(src.desktop), fmtInt(src.cli))];
-        if (num(data.errors) > 0) foot.push(t('errors', fmtInt(data.errors)));
-        body = headline(tot, partial) + periodTable(tot, partial) + heatmap(data.daily) + byModel(data.by_model)
-          + byConversation(data.by_conversation) + `<footer><span>${esc(foot.join(' · '))}</span></footer>`;
-      }
+    if (data && !data.error && !error) {
+      const tot = data.totals || {};
+      const partial = Array.isArray(data.by_model) && data.by_model.some((m) => num(m.calls) > 0 && !isNum(m.est_cost_usd));
+      const meta = historyMetaHtml(data, loading && manual);
+      let viewBody;
+      if (historyView === 'sessions') viewBody = sessionsViewHtml(data);
+      else if (historyView === 'list') viewBody = listViewHtml(data);
+      else viewBody = totalsHero(tot, partial) + heatmap(data.daily) + byModel(data.by_model);
+      body = `${historySubNav()}${viewBody}<footer id="history-footer"><span id="history-sources">${esc(historySourcesText(data))}</span><span id="history-meta" class="num" title="${esc(historyMetaTip(data))}">${meta}</span></footer>`;
     }
-    panes.history.innerHTML = toolbar('history', t('historyTitle'), meta, loading) + body;
+    panes.history.innerHTML = body;
   }
 
-  function setPeriod(k) {
+  function setHistoryView(next, focusBtn) {
+    if (!HISTORY_VIEWS.includes(next) || next === historyView) return;
+    historyView = next;
+    store.set('ctx.historyView', historyView);
+    paintHistory();
+    if (focusBtn) {
+      const btn = panes.history.querySelector(`.seg-btn[data-hview="${historyView}"]`);
+      if (btn) btn.focus();
+    }
+  }
+
+  function setPeriod(k, focusBtn) {
     if (!PERIODS.includes(k) || k === period) return;
     period = k;
     store.set('ctx.period', k);
     paintHistory();
-    const row = panes.history.querySelector(`tr[data-period="${k}"]`);
-    if (row) row.focus();
+    if (focusBtn) {
+      const btn = panes.history.querySelector(`.pill[data-period="${k}"]`);
+      if (btn) btn.focus();
+    }
   }
 
   // --- tabs, language, lifecycle ---------------------------------------------
 
+  function syncRefreshButton() {
+    const btn = $('refresh');
+    if (!btn) return;
+    const busy = (tab === 'overview' && overviewSpin)
+      || (tab === 'quota' && quota.loading)
+      || (tab === 'history' && history.loading);
+    btn.classList.toggle('busy', busy);
+    btn.setAttribute('aria-busy', String(busy));
+    const tip = t('refreshTip', tab === 'overview' ? 3 : 60);
+    btn.title = tip;
+    btn.setAttribute('aria-label', tip);
+  }
+
   function applyStatic() {
     document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
     document.querySelectorAll('[data-i18n]').forEach((el) => { el.textContent = t(el.getAttribute('data-i18n')); });
-    $('lang').textContent = lang === 'zh' ? 'EN' : '中';
+    const pill = $('lang');
+    if (pill) {
+      pill.setAttribute('aria-label', t('langAria'));
+      pill.querySelectorAll('[data-lang]').forEach((b) => {
+        b.setAttribute('aria-pressed', String(b.dataset.lang === lang));
+      });
+    }
+    syncRefreshButton();
   }
 
   function setTab(next) {
@@ -779,6 +1170,7 @@
       b.tabIndex = on ? 0 : -1;
     });
     TABS.forEach((k) => { panes[k].hidden = k !== tab; });
+    syncRefreshButton();
     if (tab === 'overview') refreshReport();
     else if (tab === 'quota') quota.open();
     else history.open();
@@ -793,6 +1185,23 @@
     if (history.data || history.loading || history.error) paintHistory();
   }
 
+  function autoRefreshActive() {
+    if (document.hidden) return;
+    if (tab === 'quota' && quota.data) quota.load({ refresh: false, silent: true });
+    else if (tab === 'history' && history.data) history.load({ refresh: false, silent: true });
+  }
+
+  function onWake() {
+    if (document.hidden) return;
+    if (tab === 'overview') { refreshReport(); return; }
+    if (tab === 'quota') {
+      tickCountdowns();
+      if (quota.data && Date.now() - quota.loadedAt > QUOTA_STALE_MS) quota.load({ refresh: false, silent: true });
+    } else if (tab === 'history') {
+      if (history.data && Date.now() - history.loadedAt > HISTORY_STALE_MS) history.load({ refresh: false, silent: true });
+    }
+  }
+
   document.querySelector('.tabs').addEventListener('click', (e) => {
     const b = e.target.closest('.tab');
     if (b) setTab(b.dataset.tab);
@@ -804,26 +1213,91 @@
     const btn = document.querySelector(`.tab[data-tab="${tab}"]`);
     if (btn) btn.focus();
   });
-  $('lang').addEventListener('click', () => setLang(lang === 'zh' ? 'en' : 'zh'));
+  $('refresh').addEventListener('click', () => {
+    if (tab === 'overview') refreshReport({ force: true });
+    else if (tab === 'quota') quota.load({ refresh: true, silent: false });
+    else history.load({ refresh: true, silent: false });
+  });
+  $('lang').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-lang]');
+    if (b && b.dataset.lang !== lang) setLang(b.dataset.lang);
+  });
   document.addEventListener('click', (e) => {
-    const b = e.target.closest('[data-refresh]');
-    if (b) {
-      if (b.dataset.refresh === 'quota') quota.load(true);
-      else if (b.dataset.refresh === 'history') history.load(true);
+    const hv = e.target.closest('[data-hview]');
+    if (hv) { setHistoryView(hv.dataset.hview, false); return; }
+    const sp = e.target.closest('[data-speriod]');
+    if (sp) {
+      if (SESSION_PERIODS.includes(sp.dataset.speriod) && sp.dataset.speriod !== sessionsPeriod) {
+        sessionsPeriod = sp.dataset.speriod;
+        sessionsLimit = CONV_VISIBLE;
+        paintHistory();
+      }
       return;
     }
-    if (e.target.closest('[data-more-convs]')) { convLimit += CONV_VISIBLE * 2; paintHistory(); return; }
-    const row = e.target.closest('tr[data-period]');
-    if (row) setPeriod(row.dataset.period);
+    const hs = e.target.closest('[data-hsort]');
+    if (hs) {
+      if (LIST_SORTS.includes(hs.dataset.hsort) && hs.dataset.hsort !== listSort) {
+        listSort = hs.dataset.hsort;
+        listLimit = CONV_VISIBLE;
+        updateListBody();
+      }
+      return;
+    }
+    const hsrc = e.target.closest('[data-hsource]');
+    if (hsrc) {
+      if (SOURCE_FILTERS.includes(hsrc.dataset.hsource) && hsrc.dataset.hsource !== listSource) {
+        listSource = hsrc.dataset.hsource;
+        listLimit = CONV_VISIBLE;
+        updateListBody();
+      }
+      return;
+    }
+    if (e.target.closest('[data-hide-sub]')) {
+      hideSubagents = !hideSubagents;
+      if (historyView === 'list') { listLimit = CONV_VISIBLE; updateListBody(); }
+      else { sessionsLimit = CONV_VISIBLE; paintHistory(); }
+      return;
+    }
+    if (e.target.closest('#history-search-clear')) {
+      searchQuery = '';
+      listLimit = CONV_VISIBLE;
+      const inp = $('history-search');
+      if (inp) { inp.value = ''; inp.focus(); }
+      updateListBody();
+      return;
+    }
+    if (e.target.closest('[data-toggle-models]')) { showAllModels = !showAllModels; paintHistory(); return; }
+    if (e.target.closest('[data-more-sessions]')) { sessionsLimit += CONV_VISIBLE * 2; paintHistory(); return; }
+    if (e.target.closest('[data-more-list]')) { listLimit += CONV_VISIBLE * 2; updateListBody(); return; }
+    const pBtn = e.target.closest('[data-period]');
+    if (pBtn) setPeriod(pBtn.dataset.period, false);
+  });
+  panes.history.addEventListener('input', (e) => {
+    if (e.target && e.target.id === 'history-search') {
+      searchQuery = e.target.value;
+      listLimit = CONV_VISIBLE;
+      updateListBody();
+    }
   });
   panes.history.addEventListener('keydown', (e) => {
-    const row = e.target.closest && e.target.closest('tr[data-period]');
-    if (!row) return;
-    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setPeriod(row.dataset.period); }
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    if (e.target && e.target.id === 'history-search' && e.key === 'Escape' && searchQuery) {
       e.preventDefault();
-      const i = PERIODS.indexOf(period) + (e.key === 'ArrowDown' ? 1 : -1);
-      setPeriod(PERIODS[Math.min(PERIODS.length - 1, Math.max(0, i))]);
+      searchQuery = '';
+      listLimit = CONV_VISIBLE;
+      e.target.value = '';
+      updateListBody();
+      return;
+    }
+    if (e.target.closest && e.target.closest('.seg') && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+      e.preventDefault();
+      const i = HISTORY_VIEWS.indexOf(historyView) + (e.key === 'ArrowRight' ? 1 : -1);
+      setHistoryView(HISTORY_VIEWS[(i + HISTORY_VIEWS.length) % HISTORY_VIEWS.length], true);
+      return;
+    }
+    if (e.target.closest && e.target.closest('.period-bar') && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+      e.preventDefault();
+      const i = PERIODS.indexOf(period) + (e.key === 'ArrowRight' ? 1 : -1);
+      setPeriod(PERIODS[(i + PERIODS.length) % PERIODS.length], true);
     }
   });
   document.addEventListener('toggle', (e) => {
@@ -831,11 +1305,8 @@
     if (!d || !d.matches || !d.matches('details[data-key]')) return;
     if (d.open) openKeys.add(d.dataset.key); else openKeys.delete(d.dataset.key);
   }, true);
-  document.addEventListener('visibilitychange', () => {
-    if (document.hidden) return;
-    if (tab === 'overview') refreshReport();
-    else tickCountdowns();
-  });
+  document.addEventListener('visibilitychange', onWake);
+  window.addEventListener('focus', onWake);
 
   async function start() {
     applyStatic();
@@ -854,6 +1325,7 @@
     setTab(tab);
     setInterval(refreshReport, POLL_MS);
     setInterval(tickCountdowns, 1000);
+    setInterval(autoRefreshActive, AUTO_REFRESH_MS);
   }
   start();
 })();

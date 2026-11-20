@@ -135,7 +135,7 @@ def call_cost(model: str, inp: int, out: int, cache_read: int) -> float | None:
 # --- per-database parsing ----------------------------------------------------
 
 STEP_PLANNER_RESPONSE = 15
-MAX_CONVERSATIONS = 100
+MAX_CONVERSATIONS = 500
 DISPLAY_PREFIX = "display:"
 
 
@@ -272,10 +272,15 @@ def load_titles(roots: list[tuple[Path, str]]) -> tuple[dict[str, str], dict[str
     """({id: title}, {id: agent_name}) from the app's conversation_summaries.db next to each root (read-only)."""
     titles: dict[str, str] = {}
     agents: dict[str, str] = {}
+    seen: set[Path] = set()
     for root, _ in roots:
         p = root.parent / "conversation_summaries.db"
         if not p.is_file():
             continue
+        rp = p.resolve()
+        if rp in seen:
+            continue
+        seen.add(rp)
         try:
             conn = open_ro(p)
             try:
@@ -287,8 +292,9 @@ def load_titles(roots: list[tuple[Path, str]]) -> tuple[dict[str, str], dict[str
                     t = " ".join(str(title or preview or "").split())
                     if t and cid not in titles:
                         titles[cid] = t if len(t) <= TITLE_MAX else t[: TITLE_MAX - 1] + "…"
-                    if agent and agent != "self" and cid not in agents:  # "self" = generic subagent, not a name
-                        agents[cid] = str(agent)
+                    a = str(agent).strip() if agent is not None else ""
+                    if a and cid not in agents:
+                        agents[cid] = a
             finally:
                 conn.close()
         except sqlite3.Error:
@@ -344,6 +350,15 @@ def parse_root(spec: str) -> tuple[Path, str]:
 
 def _empty_totals() -> dict:
     return {"input": 0, "output": 0, "cache_read": 0, "thinking": 0, "calls": 0, "conversations": 0, "est_cost_usd": None}
+
+
+def _fmt_iso(ts: float | None) -> str | None:
+    if ts is None:
+        return None
+    try:
+        return datetime.fromtimestamp(ts).astimezone().isoformat(timespec="seconds")
+    except (OverflowError, OSError, ValueError):
+        return None
 
 
 def scan(roots: list[tuple[Path, str]], cache_path: Path | None = None, days: int = 365,
@@ -415,8 +430,9 @@ def scan(roots: list[tuple[Path, str]], cache_path: Path | None = None, days: in
         conv = None
         if entry["calls"]:
             conv = {"id": stem, "source": label, "title": None, "model": None, "display_name": None,
-                    "last_at": None, "input": 0, "output": 0, "cache_read": 0, "thinking": 0, "calls": 0,
-                    "est_cost_usd": None, "_last": 0.0, "_models": {}, "_first_input": entry.get("first_input")}
+                    "first_at": None, "last_at": None, "input": 0, "output": 0, "cache_read": 0, "thinking": 0,
+                    "calls": 0, "est_cost_usd": None, "cost_partial": False, "is_subagent": False, "by_model": [],
+                    "_first": None, "_last": float("-inf"), "_models": {}, "_first_input": entry.get("first_input")}
             convs.append(conv)
         for ts, model, inp, out, cache, think in entry["calls"]:
             if model.startswith(DISPLAY_PREFIX):
@@ -439,8 +455,21 @@ def scan(roots: list[tuple[Path, str]], cache_path: Path | None = None, days: in
             conv["calls"] += 1
             if cost is not None:
                 conv["est_cost_usd"] = (conv["est_cost_usd"] or 0.0) + cost
+            else:
+                conv["cost_partial"] = True
+            conv["_first"] = ts if conv["_first"] is None else min(conv["_first"], ts)
             conv["_last"] = max(conv["_last"], ts)
-            conv["_models"][model] = conv["_models"].get(model, 0) + inp + out + cache
+            cm = conv["_models"].get(model)
+            if cm is None:
+                cm = conv["_models"][model] = {"model": model, "display_name": None, "input": 0, "output": 0,
+                                               "cache_read": 0, "thinking": 0, "calls": 0, "est_cost_usd": None}
+            cm["input"] += inp
+            cm["output"] += out
+            cm["cache_read"] += cache
+            cm["thinking"] += think
+            cm["calls"] += 1
+            if cost is not None:
+                cm["est_cost_usd"] = (cm["est_cost_usd"] or 0.0) + cost
             for w, start in windows.items():
                 if d >= start and (w == "all" or d <= today):
                     t = totals[w]
@@ -483,19 +512,26 @@ def scan(roots: list[tuple[Path, str]], cache_path: Path | None = None, days: in
     convs = convs[:MAX_CONVERSATIONS]
     titles, agents = load_titles(roots) if convs else ({}, {})
     for c in convs:
-        # Primary model = the one with the most tokens in this conversation.
-        c["model"] = max(c["_models"].items(), key=lambda kv: (kv[1], kv[0]))[0]
+        cmodels = list(c["_models"].values())
+        for cm in cmodels:
+            cm["display_name"] = names.get(cm["model"])
+            if cm["est_cost_usd"] is not None:
+                cm["est_cost_usd"] = round(cm["est_cost_usd"], 4)
+        # Primary model = the one with the most total tokens in this conversation.
+        c["model"] = max(cmodels, key=lambda m: (m["input"] + m["output"] + m["cache_read"], m["model"]))["model"]
         c["display_name"] = names.get(c["model"])
-        # Title: app's summary title -> first user message -> "@<agent name>" (subagents/swarm workers) -> null.
+        cmodels.sort(key=lambda m: (-(m["input"] + m["output"]), m["model"]))
+        c["by_model"] = cmodels
+        # Title: app's summary title -> first user message -> "@<agent name>" (named subagents) -> null.
+        # Any non-empty agent_name (including "self") marks is_subagent=True while keeping "self" untitled.
         agent = agents.get(c["id"])
-        c["title"] = titles.get(c["id"]) or c["_first_input"] or ("@" + agent if agent else None)
-        try:
-            c["last_at"] = datetime.fromtimestamp(c["_last"]).astimezone().isoformat(timespec="seconds")
-        except (OverflowError, OSError, ValueError):
-            c["last_at"] = None
+        c["is_subagent"] = bool(agent)
+        c["title"] = titles.get(c["id"]) or c["_first_input"] or ("@" + agent if agent and agent != "self" else None)
+        c["first_at"] = _fmt_iso(c["_first"])
+        c["last_at"] = _fmt_iso(c["_last"])
         if c["est_cost_usd"] is not None:
             c["est_cost_usd"] = round(c["est_cost_usd"], 4)
-        for k in ("_last", "_models", "_first_input"):
+        for k in ("_first", "_last", "_models", "_first_input"):
             del c[k]
 
     return {
