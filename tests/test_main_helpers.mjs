@@ -1,10 +1,13 @@
 // Tests for the pure helpers in sidecars/context/main.mjs.
 // Run (Node >= 18): node --test tests/test_main_helpers.mjs
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 process.env.CONTEXT_PANEL_NO_SERVER = '1';
-const { inferLimit, parseQuota, redact, truthy } = await import('../sidecars/context/main.mjs');
+const { NO_CACHE_HEADERS, inferLimit, parseQuota, redact, stampAssetUrls, truthy } = await import('../sidecars/context/main.mjs');
 
 const NOW = Date.parse('2026-11-20T10:00:00Z');
 const G = { remainingFraction: 0.72, resetTime: '2026-11-20T10:56:17Z' };
@@ -183,4 +186,32 @@ test('redact removes emails, tokens, secret fields and profile data', () => {
   assert.equal(r.userStatus.name, '[redacted]');
   assert.equal(r.userStatus.profilePictureUrl, '[redacted]');
   assert.equal(r.userStatus.userTier.name, 'Google AI Ultra');
+});
+
+test('NO_CACHE_HEADERS disables WebView caching', () => {
+  assert.equal(NO_CACHE_HEADERS['Cache-Control'], 'no-store, no-cache, must-revalidate');
+  assert.equal(NO_CACHE_HEADERS.Pragma, 'no-cache');
+});
+
+test('stampAssetUrls busts cache on styles.css and app.js without touching other refs', () => {
+  const indexPath = join(dirname(fileURLToPath(import.meta.url)), '..', 'sidecars', 'context', 'index.html');
+  const html = readFileSync(indexPath, 'utf8');
+  const stamped = stampAssetUrls(html, { 'styles.css': '1700000000000:4096', 'app.js': '1700000000001:8192' });
+  assert.ok(stamped.includes('href="styles.css?v=1700000000000%3A4096"'));
+  assert.ok(stamped.includes('src="app.js?v=1700000000001%3A8192"'));
+  assert.ok(stamped.includes('src="/preload.js"'));
+  assert.ok(!stamped.includes('preload.js?v='));
+
+  // Replaces existing query, supports single quotes and ./ or /, skips data-* and missing stamps.
+  const sample = [
+    `<link rel="stylesheet" href='./styles.css?v=old'>`,
+    `<script src="/app.js?v=old"></script>`,
+    `<div data-src="app.js" data-href="styles.css"></div>`,
+    `<a href="https://example.com/styles.css">ext</a>`,
+  ].join('\n');
+  const out = stampAssetUrls(sample, { 'styles.css': '100:20', 'app.js': '-' });
+  assert.ok(out.includes(`href='./styles.css?v=100%3A20'`));
+  assert.ok(out.includes(`src="/app.js?v=old"`));
+  assert.ok(out.includes(`data-src="app.js" data-href="styles.css"`));
+  assert.ok(out.includes(`href="https://example.com/styles.css"`));
 });

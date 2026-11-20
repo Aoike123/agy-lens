@@ -605,7 +605,26 @@ async function report(conversationId, workspaceUri) {
   return result;
 }
 
-// --- server -------------------------------------------------------------------
+// --- static assets & server ---------------------------------------------------
+
+export const NO_CACHE_HEADERS = {
+  'Cache-Control': 'no-store, no-cache, must-revalidate',
+  Pragma: 'no-cache',
+};
+
+// Appends ?v=<stamp> to local asset href/src attributes (e.g. styles.css,
+// app.js) so WebViews cannot pair a newly served HTML shell with stale JS/CSS.
+export function stampAssetUrls(html, stamps) {
+  let out = String(html);
+  for (const [asset, raw] of Object.entries(stamps || {})) {
+    if (!raw || raw === '-') continue;
+    const v = encodeURIComponent(String(raw));
+    const escaped = asset.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp(`((?:^|\\s)(?:href|src)=)(["'])((?:\\.?\\/)?${escaped})(?:\\?[^"']*)?\\2`, 'g');
+    out = out.replace(re, (_, attr, quote, path) => `${attr}${quote}${path}?v=${v}${quote}`);
+  }
+  return out;
+}
 
 if (!process.env.CONTEXT_PANEL_NO_SERVER) {
   const { Response, SidecarApp } = await import('sidecar_sdk');
@@ -619,12 +638,19 @@ if (!process.env.CONTEXT_PANEL_NO_SERVER) {
   for (const [path, [file, contentType]] of Object.entries(STATIC)) {
     app.page(path, () => {
       try {
-        return new Response(readFileSync(join(HERE, file), 'utf8'), {
+        let body = readFileSync(join(HERE, file), 'utf8');
+        if (path === '/') {
+          body = stampAssetUrls(body, {
+            'styles.css': fileStamp(join(HERE, 'styles.css')),
+            'app.js': fileStamp(join(HERE, 'app.js')),
+          });
+        }
+        return new Response(body, {
           contentType,
-          headers: { 'Cache-Control': 'no-cache' },
+          headers: NO_CACHE_HEADERS,
         });
       } catch {
-        return new Response('Not found', { status: 404 });
+        return new Response('Not found', { status: 404, headers: NO_CACHE_HEADERS });
       }
     });
   }
