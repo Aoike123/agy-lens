@@ -121,6 +121,34 @@
       sources: (d, c) => `桌面 ${d} · CLI ${c} 个对话`, errors: (n) => `${n} 个无法读取`,
       scannedAt: (t, ms) => `扫描于 ${t}${ms != null ? `，用时 ${ms} ms` : ''}`,
       weekdays: ['日', '一', '二', '三', '四', '五', '六'],
+      helpTip: '使用指南与指标说明', helpClose: '关闭',
+      welcomeTitle: '欢迎使用 Pulse',
+      welcomeSub: '100% 本地只读，刷新不消耗任何 Token，无需安装 Python。',
+      welcomeItems: [
+        ['概览', '当前对话的上下文占用、输出速度与本会话累计'],
+        ['额度', '各模型池的每周限额与 5 小时重置倒计时'],
+        ['历史', '全量用量统计、热力图、按会话与官网价估算'],
+      ],
+      welcomeDone: '知道了', welcomeGlossary: '指标说明',
+      glossaryTitle: '指标说明与使用指南',
+      glossaryItems: [
+        ['原生窗口 vs 请求预算', '原生窗口是模型理论容量（如 1M）；超出「请求预算」（通常 256k）后，应用会自动裁剪较早历史。'],
+        ['不含缓存读取', '总用量只统计新产生的「输入 + 输出」，缓存读取单独列出，避免重复计算虚高。'],
+        ['流式速度 · 端到端 · 首字延迟', '流式速度已过滤短回复与缓冲突发；端到端 = 总输出 ÷ (首字延迟 + 流式耗时)。'],
+        ['≈ 与 ≥ 标记', '≈ 表示同系列公开价估算（预览模型）或根据重置时间推断；≥ 表示包含无公开单价调用时的费用下限。'],
+        ['隐私与自动刷新', '所有会话数据库仅以只读方式访问；仅在点击「同步官网价」时请求公开价格列表。概览每 3 秒更新，额度与历史每 65 秒静默刷新。'],
+      ],
+      noConvTitle: '先打开一个对话',
+      noConvHint: '在左侧打开任意对话后，这里会实时显示它的上下文占用、输出速度和本会话统计。你也可以先看看：',
+      noDbTitle: '新对话已就绪',
+      noDbHint: '发送第一条消息后，这里会自动显示上下文占用、输出速度与本会话累计。',
+      goQuota: '查看额度', goHistory: '查看历史',
+      quotaTrouble: ['1. 确认已登录 Antigravity 账号', '2. 在插件管理中关闭再重新开启 Pulse', '3. 点击下方按钮重试'],
+      retry: '立即重试',
+      historyEmptyTitle: '还没有历史记录',
+      historyEmptyHint: '聊几轮后，这里会自动汇总你的 Token 用量、活跃热力图与会话排行。',
+      pricingSyncOk: (n, src) => `已同步 ${n} 个模型官网价（${src}）`,
+      pricingSyncFail: '同步失败，继续使用内置官网价',
     },
     en: {
       'tab.overview': 'Overview', 'tab.quota': 'Quota', 'tab.history': 'History',
@@ -206,6 +234,34 @@
       sources: (d, c) => `Desktop ${d} · CLI ${c} conversations`, errors: (n) => `${n} unreadable`,
       scannedAt: (t, ms) => `Scanned ${t}${ms != null ? ` in ${ms} ms` : ''}`,
       weekdays: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
+      helpTip: 'Quick guide & glossary', helpClose: 'Close',
+      welcomeTitle: 'Welcome to Pulse',
+      welcomeSub: '100% local & read-only. Zero tokens per refresh, no Python needed.',
+      welcomeItems: [
+        ['Overview', 'Live context window, output speed and this-conversation totals'],
+        ['Quota', 'Per-pool weekly and 5-hour limits with reset countdowns'],
+        ['History', 'Totals, activity heatmap, per-session breakdown and pricing'],
+      ],
+      welcomeDone: 'Got it', welcomeGlossary: 'Glossary',
+      glossaryTitle: 'Quick guide & glossary',
+      glossaryItems: [
+        ['Native window vs Request budget', 'The native window is the model capacity (e.g. 1M). Past the request budget (usually 256k), the app trims older history.'],
+        ['Excluding cache reads', 'Headline totals count fresh input + output only; cached prompt reads are shown separately so numbers stay realistic.'],
+        ['Streaming · End-to-end · TTFT', 'Streaming excludes tiny/buffered bursts. End-to-end divides output by (first-token wait + streaming time).'],
+        ['≈ and ≥ markers', '≈ marks same-family price estimates (preview models) or inferred limit windows. ≥ marks a lower bound when some calls lack pricing.'],
+        ['Privacy & auto-refresh', 'Conversation DBs are opened strictly read-only. Public pricing is fetched only when you click Sync prices. Overview updates every 3s; Quota & History every 65s.'],
+      ],
+      noConvTitle: 'Open a conversation first',
+      noConvHint: 'Select any conversation in Antigravity to see its live context usage, output speed and session stats. Meanwhile you can inspect:',
+      noDbTitle: 'New conversation ready',
+      noDbHint: 'Send your first message and this panel will automatically populate context, speed and session usage.',
+      goQuota: 'View Quota', goHistory: 'View History',
+      quotaTrouble: ['1. Make sure you are signed in to Antigravity', '2. Toggle Pulse off and on under Customizations → Installed', '3. Click Retry below'],
+      retry: 'Retry',
+      historyEmptyTitle: 'No history yet',
+      historyEmptyHint: 'Once you send a few messages, your token totals, heatmap and session rankings will appear here.',
+      pricingSyncOk: (n, src) => `Synced ${n} model prices (${src})`,
+      pricingSyncFail: 'Sync failed; using built-in list prices',
     },
   };
 
@@ -324,7 +380,9 @@
   let weeklyLeft = readWeeklyLeft();
   let calEditorOpen = false;
   let pricingSyncing = false;
-  let pricingError = '';
+  let pricingNotice = null; // { ok: boolean, text: string } | null
+  let pricingNoticeTimer = null;
+  let guideMode = store.get('ctx.onboarded', '') === '1' ? null : 'welcome'; // null | 'welcome' | 'glossary'
   const hasCal = () => weeklyLeft.gemini != null || weeklyLeft.claude_gpt != null;
   function setWeeklyLeft(next) {
     weeklyLeft = { gemini: clampPct(next && next.gemini), claude_gpt: clampPct(next && next.claude_gpt) };
@@ -512,6 +570,42 @@
     if (s.first_at && s.last_at) meta.push(t('span', fmtTime(s.first_at, true), fmtTime(s.last_at, true)));
     const costStr = fmtCost(s.est_cost_usd, { estimated: !!s.cost_estimated, partial: !!s.cost_partial });
     const costTip = pricingTip(s.pricing_source, null, { partial: !!s.cost_partial });
+    const hd = history.data && !history.data.error ? history.data : null;
+    let weeklyHtml = '';
+    let poolRows = '';
+    if (hd) {
+      const sPools = s.d7_by_pool || {};
+      const rawD7ByPool = hd.d7_by_pool || {};
+      const d7ByPool = {};
+      for (const pk of new Set([...Object.keys(rawD7ByPool), ...Object.keys(sPools)])) {
+        d7ByPool[pk] = Math.max(num(rawD7ByPool[pk]), num(sPools[pk]));
+      }
+      const d7Total = Math.max(newTok(hd.totals && hd.totals.d7), num(s.d7_tokens));
+      const sCtx = s.model || !(Array.isArray(s.by_model) && s.by_model[0])
+        ? s
+        : { ...s, model: s.by_model[0].model, display_name: s.by_model[0].display_name };
+      const wTag = convWeeklyLabel(sCtx, d7Total, d7ByPool, { compact: false });
+      if (wTag) {
+        const primary = sCtx.pool || inferPool(sCtx.model || sCtx.display_name);
+        const eff = effectiveWeekly(primary) || CAL_POOLS.map((k) => effectiveWeekly(k)).find(Boolean) || null;
+        if (eff && eff.live) {
+          weeklyHtml = `<div class="session-weekly dim num" title="${esc(t('liveWeeklyTip'))}">${esc(wTag)}</div>`;
+        } else {
+          weeklyHtml = `<button type="button" class="inline-link session-weekly num" data-go-tab="history" title="${esc(t('calTip'))}">${esc(wTag)}</button>`;
+        }
+      }
+      const activePools = Object.keys(sPools).filter((k) => num(sPools[k]) > 0);
+      const pn = t('poolShort');
+      if (activePools.length > 1) {
+        poolRows = `<div class="session-pools"><ul class="mini">${activePools.map((pk) => {
+          const tok = num(sPools[pk]);
+          const eff = effectiveWeekly(pk);
+          const pt = num(d7ByPool[pk]);
+          const lbl = eff != null && pt > 0 ? t('ofPoolQuota', fmtPctNum(tok / pt * eff.used)) : (d7Total > 0 ? t('ofD7', fmtPctNum(tok / d7Total * 100)) : '');
+          return `<li><span class="dim">${esc(pn[pk] || pk)}</span><span class="num dim">${fmtTok(tok)}${lbl ? ` · ${esc(lbl)}` : ''}</span></li>`;
+        }).join('')}</ul></div>`;
+      }
+    }
     const models = Array.isArray(s.by_model) && s.by_model.length > 1
       ? `<ul class="mini" style="margin-top:12px">${s.by_model.map((m) => {
         const mc = fmtCost(m.est_cost_usd, { estimated: !!m.cost_estimated });
@@ -519,23 +613,29 @@
           + `<span class="num dim">${fmtTok(num(m.input) + num(m.output))}${mc ? ` · ${esc(mc)}` : ` · ${esc(t('calls', fmtInt(m.calls)))}`}</span></li>`;
       }).join('')}</ul>`
       : '';
+    const rightBits = [];
+    if (costStr) rightBits.push(`<div class="session-cost num" title="${esc(costTip)}">${esc(costStr)}</div>`);
+    if (weeklyHtml) rightBits.push(weeklyHtml);
     return `<section><h2>${esc(t('sessionTitle'))} <span class="hint">${esc(t('speedCalls', fmtInt(s.calls)))}</span></h2>
       <div class="session-head">
         <div><div class="fig num" title="${esc(fmtInt(total))}">${fmtTok(total)}<span class="unit">${esc(t('tokens'))}</span></div>
           <div class="lbl">${esc(t('exclCache'))}</div></div>
-        ${costStr ? `<div class="session-cost num" title="${esc(costTip)}">${esc(costStr)}</div>` : ''}
+        ${rightBits.length ? `<div class="session-right">${rightBits.join('')}</div>` : ''}
       </div>
       <div class="stats">
         <div><div class="lbl">${esc(t('legInput'))}</div><div class="v num">${fmtTok(s.input)}</div></div>
         <div><div class="lbl">${esc(t('legOutput'))}</div><div class="v num">${fmtTok(s.output)}</div></div>
         <div><div class="lbl">${esc(t('legCache'))}</div><div class="v num">${fmtTok(s.cache_read)}</div></div>
       </div>
+      ${poolRows}
       ${meta.length ? `<p class="note num">${esc(meta.join(' · '))}</p>` : ''}
       ${models}
     </section>`;
   }
 
   function renderOverview(r) {
+    lastOverviewWeeklySig = overviewWeeklySig();
+    ensureWeeklyForOverview();
     const limit = r.limit_tokens;
     keepScroll(() => {
       panes.overview.innerHTML = `
@@ -567,6 +667,18 @@
     report = null;
     lastJson = '';
     overviewMessage = [key, ...args];
+    if (key === 'noConversation' || key === 'noDatabase') {
+      const title = key === 'noConversation' ? t('noConvTitle') : t('noDbTitle');
+      const hint = key === 'noConversation' ? t('noConvHint') : t('noDbHint');
+      panes.overview.innerHTML = `<div class="guide-empty">
+        <h3>${esc(title)}</h3><p>${esc(hint)}</p>
+        <div class="guide-acts">
+          <button type="button" class="guide-btn" data-go-tab="quota">${esc(t('goQuota'))}</button>
+          <button type="button" data-go-tab="history">${esc(t('goHistory'))}</button>
+        </div>
+      </div>`;
+      return;
+    }
     panes.overview.innerHTML = `<p class="empty">${esc(t(key, ...args))}</p>`;
   }
 
@@ -692,10 +804,10 @@
       .filter(Boolean).map(esc).join(' · ');
   }
   const quota = makeLoader('/api/quota', QUOTA_STALE_MS, {
-    paint: () => { paintQuota(); syncHistoryFromQuota(); },
+    paint: () => { paintQuota(); syncHistoryFromQuota(); syncOverviewWeekly(); },
     keyOf: quotaKey,
     onMeta: (d) => setMeta('quota', quotaMetaHtml(d), d && d.fetched_at ? t('fetchedAt', fmtTime(d.fetched_at, true)) : ''),
-    onSilent: () => { paintQuota(); syncHistoryFromQuota(); },
+    onSilent: () => { paintQuota(); syncHistoryFromQuota(); syncOverviewWeekly(); },
   });
   let lastQuotaWeeklySig = '';
   function liveWeeklyEntry(pool) {
@@ -728,6 +840,50 @@
     if (force || !quota.data || Date.now() - quota.loadedAt > QUOTA_STALE_MS) {
       quota.load({ refresh: force, silent: true });
     }
+  }
+  let lastOverviewWeeklySig = '';
+  let lastOverviewHistoryTry = 0;
+  let lastOverviewQuotaTry = 0;
+  function overviewWeeklySig() {
+    const hd = typeof history !== 'undefined' && history.data && !history.data.error ? history.data : null;
+    const d7Total = hd ? newTok(hd.totals && hd.totals.d7) : -1;
+    const d7ByPool = (hd && hd.d7_by_pool) || {};
+    const poolSig = CAL_POOLS.map((k) => num(d7ByPool[k])).join(',');
+    const effSig = CAL_POOLS.map((k) => {
+      const e = effectiveWeekly(k);
+      return e ? `${e.used}:${e.live ? 1 : 0}` : 'n';
+    }).join('|');
+    const sesSig = report && report.session ? `${report.session.calls}:${num(report.session.d7_tokens)}` : '';
+    return `${d7Total}|${poolSig}|${effSig}|${sesSig}`;
+  }
+  function ensureWeeklyForOverview() {
+    if (tab !== 'overview' || !report || !report.session || !num(report.session.calls)) return;
+    if (typeof history === 'undefined') return;
+    const now = Date.now();
+    if (!history.loading) {
+      const hasErr = Boolean(history.error || (history.data && history.data.error));
+      const stale = !history.data || hasErr || now - history.loadedAt > HISTORY_STALE_MS;
+      const cooldown = hasErr ? 60000 : 15000;
+      if (stale && now - lastOverviewHistoryTry > cooldown) {
+        lastOverviewHistoryTry = now;
+        history.load({ refresh: false, silent: true });
+      }
+    }
+    if (!quota.loading) {
+      const hasErr = Boolean(quota.error || (quota.data && quota.data.error));
+      const stale = !quota.data || hasErr || now - quota.loadedAt > QUOTA_STALE_MS;
+      const cooldown = hasErr ? 60000 : 15000;
+      if (stale && now - lastOverviewQuotaTry > cooldown) {
+        lastOverviewQuotaTry = now;
+        quota.load({ refresh: false, silent: true });
+      }
+    }
+  }
+  function syncOverviewWeekly() {
+    if (tab !== 'overview' || !report || !report.session || !num(report.session.calls)) return;
+    const sig = overviewWeeklySig();
+    if (sig === lastOverviewWeeklySig) return;
+    renderOverview(report);
   }
   const resetFired = new Set(); // reset_time ISO strings that already triggered a post-reset refresh
   let resetTimer = null;
@@ -829,12 +985,22 @@
     let meta = '';
     let tip = '';
     let body = '';
-    if (error) body = errorBox(t('requestFailed'), error);
-    else if (!data) body = `<p class="empty"><span class="spin"></span>${esc(t('loading'))}</p>`;
-    else if (data.error) {
-      body = data.error === 'unavailable'
-        ? errorBox(t('quotaUnavailable'), data.message || t('quotaUnavailableHint'))
-        : errorBox(t('quotaFailed'), data.message || data.error);
+    if (error) {
+      body = `${errorBox(t('requestFailed'), error)}<div class="guide-acts"><button type="button" class="guide-btn" data-retry="quota">${esc(t('retry'))}</button></div>`;
+    } else if (!data) {
+      body = `<p class="empty"><span class="spin"></span>${esc(t('loading'))}</p>`;
+    } else if (data.error) {
+      if (data.error === 'unavailable') {
+        const steps = t('quotaTrouble').map((s) => `<li>${esc(s)}</li>`).join('');
+        body = `<div class="guide-empty">
+          <h3>${esc(t('quotaUnavailable'))}</h3>
+          <p>${esc(data.message || t('quotaUnavailableHint'))}</p>
+          <ol class="guide-steps">${steps}</ol>
+          <div class="guide-acts"><button type="button" class="guide-btn" data-retry="quota">${esc(t('retry'))}</button></div>
+        </div>`;
+      } else {
+        body = `${errorBox(t('quotaFailed'), data.message || data.error)}<div class="guide-acts"><button type="button" class="guide-btn" data-retry="quota">${esc(t('retry'))}</button></div>`;
+      }
     }
     if (data && !data.error) {
       meta = quotaMetaHtml(data);
@@ -893,10 +1059,10 @@
     return foot.join(' · ');
   }
   const history = makeLoader('/api/history', HISTORY_STALE_MS, {
-    paint: () => paintHistory(),
+    paint: () => { paintHistory(); syncOverviewWeekly(); },
     keyOf: historyKey,
     onMeta: (d) => setMeta('history', historyMetaHtml(d, false), historyMetaTip(d)),
-    onSilent: (d) => onHistorySilent(d),
+    onSilent: (d) => { onHistorySilent(d); syncOverviewWeekly(); },
   });
   let listHasCli = false;
   let period = PERIODS.includes(store.get('ctx.period', 'd30')) ? store.get('ctx.period', 'd30') : 'd30';
@@ -1012,8 +1178,10 @@
       }).join('');
       barsHtml = `<div class="wbudget">${liveHead}${items}</div>`;
     }
-    const syncErr = pricingError ? `<div class="sync-err">${esc(pricingError)}</div>` : '';
-    return `${periodRow(data)}${syncErr}
+    const syncNote = pricingNotice
+      ? `<div id="history-sync-note" class="sync-note ${pricingNotice.ok ? 'ok' : 'err'}">${esc(pricingNotice.text)}</div>`
+      : '<div id="history-sync-note" class="sync-note" hidden></div>';
+    return `${periodRow(data)}${syncNote}
       <div class="hero">
         <div class="fig num" title="${esc(fmtInt(newTok(p)))}">${fmtTok(newTok(p))}<span class="unit">${esc(t('tokens'))}</span></div>
         <div class="sub num">${esc(t('exclCache'))} · ${esc(t('convsCount', fmtInt(p.conversations)))}</div>
@@ -1521,13 +1689,22 @@
   function paintHistory() {
     const { data, loading, manual, error } = history;
     let body = '';
-    if (error) body = errorBox(t('requestFailed'), error);
-    else if (!data) body = `<p class="empty"><span class="spin"></span>${esc(t('scanning'))}</p>`;
-    else if (data.error) body = errorBox(t('historyFailed'), data.message || data.error);
+    if (error) {
+      body = `${errorBox(t('requestFailed'), error)}<div class="guide-acts"><button type="button" class="guide-btn" data-retry="history">${esc(t('retry'))}</button></div>`;
+    } else if (!data) {
+      body = `<p class="empty"><span class="spin"></span>${esc(t('scanning'))}</p>`;
+    } else if (data.error) {
+      body = `${errorBox(t('historyFailed'), data.message || data.error)}<div class="guide-acts"><button type="button" class="guide-btn" data-retry="history">${esc(t('retry'))}</button></div>`;
+    }
     if (data && !data.error && !error) {
       const meta = historyMetaHtml(data, loading && manual);
+      const src = data.sources || {};
+      const totalDbs = num(src.desktop) + num(src.cli);
+      const noConvs = !Array.isArray(data.by_conversation) || !data.by_conversation.length;
       let viewBody;
-      if (historyView === 'sessions') viewBody = sessionsViewHtml(data);
+      if (historyView === 'totals' && noConvs && (totalDbs === 0 || num(data.totals && data.totals.all && data.totals.all.calls) === 0) && !num(data.errors)) {
+        viewBody = `<div class="guide-empty"><h3>${esc(t('historyEmptyTitle'))}</h3><p>${esc(t('historyEmptyHint'))}</p></div>`;
+      } else if (historyView === 'sessions') viewBody = sessionsViewHtml(data);
       else if (historyView === 'list') viewBody = listViewHtml(data);
       else viewBody = totalsHero(data) + heatmap(data) + byModel(data);
       body = `${historySubNav()}${viewBody}<footer id="history-footer"><span id="history-sources">${esc(historySourcesText(data))}</span><span id="history-meta" class="num" title="${esc(historyMetaTip(data))}">${meta}</span></footer>`;
@@ -1572,6 +1749,37 @@
     btn.setAttribute('aria-label', tip);
   }
 
+  function paintGuide() {
+    const slot = $('guide-slot');
+    const helpBtn = $('help');
+    if (helpBtn) helpBtn.setAttribute('aria-expanded', String(guideMode === 'glossary'));
+    if (!slot) return;
+    if (!guideMode) {
+      slot.hidden = true;
+      slot.innerHTML = '';
+      return;
+    }
+    if (guideMode === 'welcome') {
+      const items = t('welcomeItems').map(([k, v]) => `<li class="guide-item"><b>${esc(k)}</b><span>${esc(v)}</span></li>`).join('');
+      slot.innerHTML = `<aside class="guide-card" aria-label="${esc(t('welcomeTitle'))}">
+        <div class="guide-head"><h3>${esc(t('welcomeTitle'))}</h3><button type="button" class="guide-close" data-guide-dismiss aria-label="${esc(t('helpClose'))}">&times;</button></div>
+        <p class="guide-sub">${esc(t('welcomeSub'))}</p>
+        <ul class="guide-list">${items}</ul>
+        <div class="guide-acts">
+          <button type="button" class="guide-btn" data-guide-dismiss>${esc(t('welcomeDone'))}</button>
+          <button type="button" data-guide-glossary>${esc(t('welcomeGlossary'))}</button>
+        </div>
+      </aside>`;
+    } else {
+      const items = t('glossaryItems').map(([k, v]) => `<li class="guide-item"><b>${esc(k)}</b><span>${esc(v)}</span></li>`).join('');
+      slot.innerHTML = `<aside class="guide-card" aria-label="${esc(t('glossaryTitle'))}">
+        <div class="guide-head"><h3>${esc(t('glossaryTitle'))}</h3><button type="button" class="guide-close" data-guide-close>${esc(t('helpClose'))}</button></div>
+        <ul class="guide-list">${items}</ul>
+      </aside>`;
+    }
+    slot.hidden = false;
+  }
+
   function applyStatic() {
     document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
     document.querySelectorAll('[data-i18n]').forEach((el) => { el.textContent = t(el.getAttribute('data-i18n')); });
@@ -1582,7 +1790,13 @@
         b.setAttribute('aria-pressed', String(b.dataset.lang === lang));
       });
     }
+    const helpBtn = $('help');
+    if (helpBtn) {
+      helpBtn.title = t('helpTip');
+      helpBtn.setAttribute('aria-label', t('helpTip'));
+    }
     syncRefreshButton();
+    paintGuide();
   }
 
   function setTab(next) {
@@ -1595,7 +1809,7 @@
     });
     TABS.forEach((k) => { panes[k].hidden = k !== tab; });
     syncRefreshButton();
-    if (tab === 'overview') refreshReport();
+    if (tab === 'overview') { syncOverviewWeekly(); ensureWeeklyForOverview(); refreshReport(); }
     else if (tab === 'quota') quota.open();
     else { history.open(); ensureQuotaForHistory(false); }
   }
@@ -1630,20 +1844,44 @@
     }
   }
 
+  function setPricingNotice(ok, text) {
+    if (pricingNoticeTimer) { clearTimeout(pricingNoticeTimer); pricingNoticeTimer = null; }
+    pricingNotice = { ok, text };
+    if (ok) {
+      pricingNoticeTimer = setTimeout(() => {
+        pricingNoticeTimer = null;
+        pricingNotice = null;
+        const note = $('history-sync-note');
+        if (note) {
+          note.hidden = true;
+          note.textContent = '';
+          note.className = 'sync-note';
+        }
+      }, 3500);
+    }
+  }
+
   async function syncPricing() {
     if (pricingSyncing) return;
     pricingSyncing = true;
-    pricingError = '';
+    if (pricingNoticeTimer) { clearTimeout(pricingNoticeTimer); pricingNoticeTimer = null; }
+    pricingNotice = null;
     paintHistory();
+    let syncOk = false;
     try {
       const res = await getJson('/api/pricing', { refresh: 'true' });
-      if (res && res.error) pricingError = res.message || res.error;
+      if (res && res.error) {
+        setPricingNotice(false, t('pricingSyncFail') + (res.message ? ` (${res.message})` : ''));
+      } else {
+        syncOk = true;
+        setPricingNotice(true, t('pricingSyncOk', fmtInt(res && res.count), pricingSourceName(res && res.source)));
+      }
     } catch (err) {
-      pricingError = (err && err.message) || String(err);
+      setPricingNotice(false, t('pricingSyncFail') + (err && err.message ? ` (${err.message})` : ''));
     } finally {
       pricingSyncing = false;
       paintHistory();
-      if (!pricingError) {
+      if (syncOk) {
         history.load({ refresh: true, silent: true });
         if (report) refreshReport({ force: true });
       }
@@ -1700,16 +1938,32 @@
     const btn = document.querySelector(`.tab[data-tab="${tab}"]`);
     if (btn) btn.focus();
   });
+  $('help').addEventListener('click', () => {
+    if (guideMode === 'welcome') store.set('ctx.onboarded', '1');
+    guideMode = guideMode === 'glossary' ? null : 'glossary';
+    paintGuide();
+  });
   $('refresh').addEventListener('click', () => {
     if (tab === 'overview') refreshReport({ force: true });
     else if (tab === 'quota') quota.load({ refresh: true, silent: false });
-    else { pricingError = ''; history.load({ refresh: true, silent: false }); ensureQuotaForHistory(true); }
+    else { pricingNotice = null; history.load({ refresh: true, silent: false }); ensureQuotaForHistory(true); }
   });
   $('lang').addEventListener('click', (e) => {
     const b = e.target.closest('[data-lang]');
     if (b && b.dataset.lang !== lang) setLang(b.dataset.lang);
   });
   document.addEventListener('click', (e) => {
+    if (e.target.closest('[data-guide-dismiss]')) { store.set('ctx.onboarded', '1'); guideMode = null; paintGuide(); return; }
+    if (e.target.closest('[data-guide-glossary]')) { store.set('ctx.onboarded', '1'); guideMode = 'glossary'; paintGuide(); return; }
+    if (e.target.closest('[data-guide-close]')) { guideMode = null; paintGuide(); return; }
+    const goTab = e.target.closest('[data-go-tab]');
+    if (goTab) { setTab(goTab.dataset.goTab); return; }
+    const retryBtn = e.target.closest('[data-retry]');
+    if (retryBtn) {
+      if (retryBtn.dataset.retry === 'quota') quota.load({ refresh: true, silent: false });
+      else if (retryBtn.dataset.retry === 'history') { pricingNotice = null; history.load({ refresh: true, silent: false }); ensureQuotaForHistory(true); }
+      return;
+    }
     const hv = e.target.closest('[data-hview]');
     if (hv) { setHistoryView(hv.dataset.hview, false); return; }
     const sp = e.target.closest('[data-speriod]');
@@ -1802,6 +2056,14 @@
     if (!d || !d.matches || !d.matches('details[data-key]')) return;
     if (d.open) openKeys.add(d.dataset.key); else openKeys.delete(d.dataset.key);
   }, true);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && guideMode === 'glossary') {
+      guideMode = null;
+      paintGuide();
+      const hb = $('help');
+      if (hb) hb.focus();
+    }
+  });
   document.addEventListener('visibilitychange', onWake);
   window.addEventListener('focus', onWake);
 

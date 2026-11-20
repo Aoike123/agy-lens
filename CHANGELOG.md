@@ -4,6 +4,21 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [2.1.0] - 2026-11-21
+
+### Added
+
+- **Zero-Python pure Node.js engine** (`sidecars/context/pb.mjs`, `context_report.mjs`, `history_scanner.mjs`): runs in-process on Antigravity 2.0's bundled Node 24 (`node:sqlite`), removing the Python installation requirement and subprocess overhead (optional Python scripts kept as CLI / fallback).
+- **Direct-install ZIP & one-line installers**: `scripts/build-release.mjs` builds `antigravity-pulse.zip` (only the 13 runtime files, zero Python), `scripts/install.ps1` (Windows) and `scripts/install.sh` (macOS / Linux) install with one command and no Git/Python needed, and `.github/workflows/release.yml` attaches release archives automatically on tag push.
+- **Beginner onboarding & friendly UX**: first-run welcome card (`ctx.onboarded`), toggleable `?` quick guide & glossary drawer in the top bar, actionable empty / error / troubleshooting states with tab shortcuts and retry buttons, and a clear status toast after syncing public model prices.
+- **Overview weekly quota consumption**: Overview → *This conversation* now displays this conversation's estimated weekly quota consumption (`≈ X% weekly` / `% of 7d usage`, plus multi-pool breakdown when needed), backed by `pool`, `d7_tokens`, and `d7_by_pool` on `session` in both Node and Python engines.
+- **Native engine & cross-engine parity tests** (`tests/test_native_engine.mjs`).
+
+### Changed
+
+- Updated CI to run Node 24 tests, native engine parity tests, and direct-install ZIP smoke builds.
+- Rewrote `README.md` to put 30-second installation, 3-step onboarding, and FAQ first.
+
 ## [2.0.0] - 2026-11-20
 
 Released as its own project, **antigravity-pulse** ("Pulse").
@@ -38,5 +53,6 @@ Original **Context Usage** panel by Dimitrios Ioannidis
 - Context window and model name from the app's live model catalog, with a built-in fallback table.
 - Zero tokens per refresh; conversation databases opened read-only.
 
+[2.1.0]: https://github.com/Aoike123/antigravity-pulse/releases/tag/v2.1.0
 [2.0.0]: https://github.com/Aoike123/antigravity-pulse/releases/tag/v2.0.0
 [1.0.0]: https://github.com/dimitr-io/antigravity-desktop-context

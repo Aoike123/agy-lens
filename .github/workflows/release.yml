@@ -1,0 +1,39 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build & attach release ZIP
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Syntax check
+        run: |
+          for f in sidecars/context/*.mjs sidecars/context/*.js scripts/*.mjs; do
+            node --check "$f"
+          done
+      - name: Run Node tests
+        run: node --test tests/test_main_helpers.mjs tests/test_native_engine.mjs
+      - name: Build direct-install ZIP
+        run: node scripts/build-release.mjs
+      - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+          else
+            gh release create "$TAG" dist/* --title "${TAG} — Pulse (antigravity-pulse)" --generate-notes
+          fi

@@ -15,7 +15,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        # The sources use PEP 604 annotations (`X | None`), so 3.10 is the minimum.
+        # The Python fallback scripts use PEP 604 annotations (`X | None`), so 3.10 is the minimum.
         python: ['3.10', '3.11', '3.12', '3.13']
     steps:
       - uses: actions/checkout@v4
@@ -26,7 +26,7 @@ jobs:
         run: python -m unittest discover tests -v
 
   node:
-    name: Node checks · ${{ matrix.os }}
+    name: Node 24 checks · ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -36,17 +36,19 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
       - name: Syntax check
         shell: bash
         run: |
-          for f in sidecars/context/*.mjs sidecars/context/*.js; do
+          for f in sidecars/context/*.mjs sidecars/context/*.js scripts/*.mjs; do
             [ -e "$f" ] || continue
             echo "node --check $f"
             node --check "$f"
           done
-      - name: Backend helper tests
-        run: node tests/test_main_helpers.mjs
+      - name: Node & native engine tests
+        run: node --test tests/test_main_helpers.mjs tests/test_native_engine.mjs
+      - name: Smoke-test release ZIP build
+        run: node scripts/build-release.mjs
       - name: Validate plugin manifests
         shell: bash
         run: |

@@ -78,7 +78,7 @@ button:disabled { opacity: .6; cursor: default; transform: none; }
   display: inline-flex; align-items: center; justify-content: center;
   color: var(--dim); background: transparent;
 }
-.icon-btn:hover { color: var(--fg); background: var(--raise); }
+.icon-btn:hover, .icon-btn[aria-expanded="true"] { color: var(--fg); background: var(--raise); }
 .icon-btn.busy { color: var(--fg); }
 .icon-btn.busy svg { animation: spin .8s linear infinite; }
 .lang-pill {
@@ -193,7 +193,10 @@ summary.spd-row:hover .chev { color: var(--fg); }
 
 /* this conversation */
 .session-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.session-right { text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
 .session-cost { font-size: 14px; font-weight: 500; white-space: nowrap; }
+.session-weekly, .inline-link.session-weekly { font-size: 12px; line-height: 16px; font-weight: 400; white-space: nowrap; }
+.session-pools { margin-top: 8px; }
 .mini li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; height: 24px; align-items: center; font-size: 12px; }
 
 /* ---------- quota ---------- */
@@ -416,3 +419,27 @@ summary.spd-row:hover .chev { color: var(--fg); }
 .conv-models { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
 .conv-models .lbl { margin-bottom: 6px; }
 .conv-models .mini li { height: 24px; }
+
+/* onboarding guide, glossary drawer & actionable empty states */
+.guide-card {
+  margin: 12px 16px 0; padding: 14px 16px;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--raise);
+  font-size: 12px; line-height: 18px; color: var(--dim);
+}
+.guide-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.guide-head h3 { margin: 0; font-size: 13px; line-height: 18px; font-weight: 500; color: var(--fg); }
+.guide-close { border: 0; padding: 2px 6px; margin: -2px -6px -2px 0; font-size: 12px; }
+.guide-sub { margin: 6px 0 0; }
+.guide-list { margin: 10px 0 0; display: flex; flex-direction: column; gap: 8px; }
+.guide-item b { display: block; font-weight: 500; color: var(--fg); }
+.guide-item span { display: block; color: var(--dim); margin-top: 1px; }
+.guide-acts { margin-top: 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.guide-btn { color: var(--fg); border-color: color-mix(in srgb, var(--fg) 22%, transparent); }
+.guide-empty { margin: 24px 0; padding: 16px; border: 1px solid var(--line); border-radius: 10px; font-size: 12px; line-height: 18px; color: var(--dim); }
+.guide-empty h3 { margin: 0 0 6px; font-size: 14px; line-height: 20px; font-weight: 500; color: var(--fg); }
+.guide-empty p { margin: 0; }
+.guide-steps { margin: 10px 0 0; padding-left: 18px; line-height: 20px; }
+.guide-empty .guide-acts { margin-top: 14px; }
+.sync-note { font-size: 12px; line-height: 16px; color: var(--dim); margin-top: 8px; }
+.sync-note.ok { color: var(--ok); }
+.sync-note.err { color: var(--crit); }

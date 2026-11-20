@@ -7,7 +7,7 @@ protobufs from the conversation database (`steps` and `gen_metadata` tables).
 """
 
 import argparse
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 import os
 from pathlib import Path
@@ -929,11 +929,17 @@ def collect_session(db_path: Path, hs=None, pricing_file: Path | str | None = No
     cost_info_fn = getattr(hs, "call_cost_info", None)
 
     prefix = getattr(hs, "DISPLAY_PREFIX", "display:")
+    pools_list = tuple(getattr(hs, "POOLS", ("gemini", "claude_gpt", "other")))
+    pool_fn = getattr(hs, "model_pool", None)
+    today = datetime.now().date()
+    d7_start = today - timedelta(days=6)
     by_display: dict[str, str] = {}
     for mid, disp in sorted(names.items()):
         by_display.setdefault(disp, mid)
 
     tot = {"input": 0, "output": 0, "cache_read": 0, "thinking": 0}
+    d7_tokens = 0
+    d7_by_pool = {pk: 0 for pk in pools_list}
     cost_sum, partial, estimated = None, False, False
     by_model: dict[str, dict] = {}
     stamps = []
@@ -951,6 +957,17 @@ def collect_session(db_path: Path, hs=None, pricing_file: Path | str | None = No
         tot["cache_read"] += cache
         tot["thinking"] += think
         stamps.append(ts)
+        d = None
+        if ts and ts > 0:
+            try:
+                d = datetime.fromtimestamp(ts).date()
+            except (OverflowError, OSError, ValueError):
+                d = None
+        if d is not None and d7_start <= d <= today:
+            bill_tok = inp + out
+            d7_tokens += bill_tok
+            pk = pool_fn(model) if callable(pool_fn) else "other"
+            d7_by_pool[pk] = d7_by_pool.get(pk, 0) + bill_tok
         if cost is None:
             partial = True
         else:
@@ -982,6 +999,14 @@ def collect_session(db_path: Path, hs=None, pricing_file: Path | str | None = No
     for bm in models:
         if bm["est_cost_usd"] is not None:
             bm["est_cost_usd"] = round(bm["est_cost_usd"], 4)
+    primary = max(models, key=lambda b: (b["input"] + b["output"] + b["cache_read"], b["model"]))
+    primary_pool = pool_fn(primary["model"]) if callable(pool_fn) else "other"
+    pool = primary_pool
+    if any(v > 0 for v in d7_by_pool.values()):
+        pool = max(
+            (pk for pk in pools_list if d7_by_pool.get(pk, 0) > 0),
+            key=lambda pk: (d7_by_pool.get(pk, 0), 1 if pk == primary_pool else 0, -pools_list.index(pk)),
+        )
     prompt = tot["input"] + tot["cache_read"]
     return {
         **tot,
@@ -992,6 +1017,9 @@ def collect_session(db_path: Path, hs=None, pricing_file: Path | str | None = No
         "cost_partial": partial,
         "cost_estimated": estimated,
         "pricing_source": pricing_source,
+        "pool": pool,
+        "d7_tokens": d7_tokens,
+        "d7_by_pool": d7_by_pool,
         "first_at": _iso(min(stamps)),
         "last_at": _iso(max(stamps)),
         "by_model": models,

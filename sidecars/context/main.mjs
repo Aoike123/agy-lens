@@ -24,6 +24,9 @@ import https from 'node:https';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { buildReport } from './context_report.mjs';
+import { defaultRoots, scan as scanHistoryNative } from './history_scanner.mjs';
+import { hasNodeSqlite } from './pb.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SCRIPT = join(HERE, 'context_report.py');
@@ -81,7 +84,7 @@ async function findPython() {
       }
     } catch { /* try the next candidate */ }
   }
-  throw new Error('Python 3 not found. Install it from python.org and restart Antigravity.');
+  throw new Error('SQLite runtime unavailable. Update Antigravity 2.0 (Node 22.5+) or install Python 3.10+.');
 }
 
 // --- language server ----------------------------------------------------------
@@ -906,10 +909,20 @@ let historyCache = null; // { at, pricingStamp, result }
 let historyInFlight = null;
 
 async function scanHistory() {
-  const { cmd, pre } = await findPython();
   mkdirSync(DATA_DIR, { recursive: true });
+  const pricingFile = existsSync(PRICING_PATH) ? PRICING_PATH : null;
+  if (await hasNodeSqlite()) {
+    return await scanHistoryNative(defaultRoots(GEMINI_DIR), {
+      cachePath: HISTORY_CACHE_PATH,
+      pricingFile,
+    });
+  }
+  if (!existsSync(HISTORY_SCRIPT)) {
+    throw new Error('SQLite runtime unavailable. Update Antigravity 2.0 (Node 22.5+) or install Python 3.10+.');
+  }
+  const { cmd, pre } = await findPython();
   const args = [...pre, HISTORY_SCRIPT, '--json', '--cache', HISTORY_CACHE_PATH];
-  if (existsSync(PRICING_PATH)) args.push('--pricing-file', PRICING_PATH);
+  if (pricingFile) args.push('--pricing-file', pricingFile);
   const out = await run(cmd, args, HISTORY_TIMEOUT_MS);
   return JSON.parse(out);
 }
@@ -964,13 +977,29 @@ async function report(conversationId, workspaceUri) {
   const cached = cache.get(conversationId);
   if (cached && cached.key === key) return cached.report;
 
-  const { cmd, pre } = await findPython();
-  const args = [...pre, SCRIPT, '--db', db, '--json'];
-  if (existsSync(CATALOG_PATH)) args.push('--model-catalog', CATALOG_PATH);
-  if (existsSync(PRICING_PATH)) args.push('--pricing-file', PRICING_PATH);
-  if (workspace) args.push('--workspace', workspace);
-  const out = await run(cmd, args);
-  const result = { ...JSON.parse(out), updatedAt: new Date().toISOString() };
+  const modelCatalogPath = existsSync(CATALOG_PATH) ? CATALOG_PATH : null;
+  const pricingFile = existsSync(PRICING_PATH) ? PRICING_PATH : null;
+  let parsed;
+  if (await hasNodeSqlite()) {
+    parsed = await buildReport({
+      dbPath: db,
+      conversationId,
+      workspace,
+      modelCatalogPath,
+      pricingFile,
+    });
+  } else if (existsSync(SCRIPT)) {
+    const { cmd, pre } = await findPython();
+    const args = [...pre, SCRIPT, '--db', db, '--json'];
+    if (modelCatalogPath) args.push('--model-catalog', modelCatalogPath);
+    if (pricingFile) args.push('--pricing-file', pricingFile);
+    if (workspace) args.push('--workspace', workspace);
+    const out = await run(cmd, args);
+    parsed = JSON.parse(out);
+  } else {
+    throw new Error('SQLite runtime unavailable. Update Antigravity 2.0 (Node 22.5+) or install Python 3.10+.');
+  }
+  const result = { ...parsed, updatedAt: new Date().toISOString() };
   cache.set(conversationId, { key, report: result });
   return result;
 }
