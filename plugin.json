@@ -1,6 +1,6 @@
 {
-  "name": "antigravity-usage-dashboard",
-  "title": "Usage Dashboard",
+  "name": "antigravity-pulse",
+  "title": "Pulse",
   "description": "A live side panel for the Antigravity desktop app: context window usage by category (computed like the agy CLI's /context), output speed, model quota (5-hour limit & reset countdown), per-conversation totals, categorized usage history, per-pool weekly quota calibration, and public-price cost estimates. Local by default, zero tokens per refresh.",
   "version": "2.0.0",
   "logo": "assets/logo.svg"

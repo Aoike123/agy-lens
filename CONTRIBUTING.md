@@ -1,10 +1,10 @@
 # Contributing / 贡献指南
 
-Thanks for helping improve Usage Dashboard! 欢迎提交 Issue 与 Pull Request（中文或英文均可）。
+Thanks for helping improve Pulse (antigravity-pulse)! 欢迎提交 Issue 与 Pull Request（中文或英文均可）。
 
 ## Setup
 
-1. Clone the repository into `~/.gemini/config/plugins/antigravity-usage-dashboard` (see [README](README.md#installation)).
+1. Clone the repository into `~/.gemini/config/plugins/antigravity-pulse` (see [README](README.md#installation)).
 2. Requirements: Python 3.10+ (standard library only) and Node.js 18+ for the tests. The sidecar itself runs on the Node bundled with Antigravity.
 3. After changing sidecar files, turn the plugin off and on again in **Customizations → Installed** to reload it.
 

@@ -6,7 +6,7 @@ All notable changes to this project are documented here. The format follows
 
 ## [2.0.0] - 2026-11-20
 
-Released as its own project, **antigravity-usage-dashboard** ("Usage Dashboard").
+Released as its own project, **antigravity-pulse** ("Pulse").
 
 ### Added
 
@@ -26,7 +26,7 @@ Released as its own project, **antigravity-usage-dashboard** ("Usage Dashboard")
 
 ### Changed
 
-- Plugin renamed from `desktop-context` ("Context Usage") to `antigravity-usage-dashboard` ("Usage Dashboard"); install folder is now `~/.gemini/config/plugins/antigravity-usage-dashboard`.
+- Plugin renamed from `desktop-context` ("Context Usage") to `antigravity-pulse` ("Pulse"); install folder is now `~/.gemini/config/plugins/antigravity-pulse`.
 - Panel front end split into `index.html`, `app.js` and `styles.css`.
 
 ## [1.0.0]
@@ -38,5 +38,5 @@ Original **Context Usage** panel by Dimitrios Ioannidis
 - Context window and model name from the app's live model catalog, with a built-in fallback table.
 - Zero tokens per refresh; conversation databases opened read-only.
 
-[2.0.0]: https://github.com/Aoike123/antigravity-usage-dashboard/releases/tag/v2.0.0
+[2.0.0]: https://github.com/Aoike123/antigravity-pulse/releases/tag/v2.0.0
 [1.0.0]: https://github.com/dimitr-io/antigravity-desktop-context

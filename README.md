@@ -1,11 +1,11 @@
-# Usage Dashboard · antigravity-usage-dashboard
+# Pulse · antigravity-pulse
 
-[![CI](https://github.com/Aoike123/antigravity-usage-dashboard/actions/workflows/ci.yml/badge.svg)](https://github.com/Aoike123/antigravity-usage-dashboard/actions/workflows/ci.yml)
+[![CI](https://github.com/Aoike123/antigravity-pulse/actions/workflows/ci.yml/badge.svg)](https://github.com/Aoike123/antigravity-pulse/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 **简体中文** · [English](#english)
 
-Antigravity 2.0 桌面应用的**用量仪表盘**侧边面板：上下文占用、输出速度、模型额度（每周 + 5 小时限额）、单会话累计、分类历史视图、自动对齐官方周额度占比与公开单价费用估算，一个面板全部看清。默认 100% 本机运行，刷新不消耗任何 Token。
+Antigravity 2.0 桌面应用的 **Pulse** 实时用量侧边面板：上下文占用、输出速度、模型额度（每周 + 5 小时限额）、单会话累计、分类历史视图、自动对齐官方周额度占比与公开单价费用估算，一个面板全部看清。默认 100% 本机运行，刷新不消耗任何 Token。
 
 ## 截图
 
@@ -60,16 +60,16 @@ Antigravity 2.0 桌面应用的**用量仪表盘**侧边面板：上下文占用
 
    ```bash
    # macOS / Linux
-   git clone https://github.com/Aoike123/antigravity-usage-dashboard.git ~/.gemini/config/plugins/antigravity-usage-dashboard
+   git clone https://github.com/Aoike123/antigravity-pulse.git ~/.gemini/config/plugins/antigravity-pulse
    ```
 
    ```powershell
    # Windows (PowerShell)
-   git clone https://github.com/Aoike123/antigravity-usage-dashboard.git "$HOME\.gemini\config\plugins\antigravity-usage-dashboard"
+   git clone https://github.com/Aoike123/antigravity-pulse.git "$HOME\.gemini\config\plugins\antigravity-pulse"
    ```
 
-2. 重启 Antigravity，打开 **Customizations → Installed**，启用 **Usage Dashboard**。
-3. 打开一个会话，在右侧面板中打开 **Usage Dashboard**。
+2. 重启 Antigravity，打开 **Customizations → Installed**，启用 **Pulse**。
+3. 打开一个会话，在右侧面板中打开 **Pulse**。
 
 更新：在该目录中执行 `git pull`，然后在 Customizations 中关闭再重新启用插件。
 
@@ -145,7 +145,7 @@ Originally derived from [dimitr-io/antigravity-desktop-context](https://github.c
 
 # English
 
-A **Usage Dashboard** side panel for the **Antigravity 2.0 desktop app**: context window usage, output speed, model quota (Weekly + 5-hour limits), per-conversation totals, categorized usage history, automatic official weekly quota attribution, and public-price USD cost estimates in one panel. 100% local by default, and refreshing costs zero tokens.
+**Pulse** — a live telemetry and usage side panel for the **Antigravity 2.0 desktop app**: context window usage, output speed, model quota (Weekly + 5-hour limits), per-conversation totals, categorized usage history, automatic official weekly quota attribution, and public-price USD cost estimates in one panel. 100% local by default, and refreshing costs zero tokens.
 
 ## Screenshots
 
@@ -200,16 +200,16 @@ Requires the Antigravity 2.0 desktop app and Python 3.10+ on your `PATH` (`pytho
 
    ```bash
    # macOS / Linux
-   git clone https://github.com/Aoike123/antigravity-usage-dashboard.git ~/.gemini/config/plugins/antigravity-usage-dashboard
+   git clone https://github.com/Aoike123/antigravity-pulse.git ~/.gemini/config/plugins/antigravity-pulse
    ```
 
    ```powershell
    # Windows (PowerShell)
-   git clone https://github.com/Aoike123/antigravity-usage-dashboard.git "$HOME\.gemini\config\plugins\antigravity-usage-dashboard"
+   git clone https://github.com/Aoike123/antigravity-pulse.git "$HOME\.gemini\config\plugins\antigravity-pulse"
    ```
 
-2. Restart Antigravity, open **Customizations → Installed**, and turn **Usage Dashboard** on.
-3. Open a conversation and open **Usage Dashboard** in the right-side pane.
+2. Restart Antigravity, open **Customizations → Installed**, and turn **Pulse** on.
+3. Open a conversation and open **Pulse** in the right-side pane.
 
 To update, run `git pull` inside that folder, then turn the plugin off and on again.
 

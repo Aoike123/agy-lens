@@ -1,4 +1,4 @@
-// Sidecar backend for the Context Usage panel.
+// Sidecar backend for the Pulse (antigravity-pulse) panel.
 //
 // Serves the panel (index.html, styles.css, app.js) and:
 // - /api/report   runs context_report.py (the same parser as the /context skill)
