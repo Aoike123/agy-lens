@@ -42,7 +42,7 @@ def f(fn: int, val) -> bytes:
     return varint(fn << 3 | 2) + varint(len(val)) + val
 
 
-def make_db(path: Path, calls: list[dict], planner_steps: bool = True) -> None:
+def make_db(path: Path, calls: list[dict], planner_steps: bool = True, first_input: str = "hello") -> None:
     """calls: dicts with ts (epoch s), model, display, input, output, cache, thinking, model_field ('planner'|'response'|'none')."""
     conn = sqlite3.connect(path)
     conn.execute(
@@ -65,7 +65,8 @@ def make_db(path: Path, calls: list[dict], planner_steps: bool = True) -> None:
             data += f(3, f(28, c["model"]))
         conn.execute("INSERT INTO gen_metadata (idx, data) VALUES (?, ?)", (i, data))
         # A user input step and the planner response step that this generation produced.
-        conn.execute("INSERT INTO steps (idx, step_type, metadata) VALUES (?, 14, ?)", (step, f(1, f(1, int(c["ts"])))))
+        conn.execute("INSERT INTO steps (idx, step_type, metadata, step_payload) VALUES (?, 14, ?, ?)",
+                     (step, f(1, f(1, int(c["ts"]))), f(1, 14) + f(19, f(2, first_input if i == 0 else "more"))))
         step += 1
         if planner_steps:
             conn.execute("INSERT INTO steps (idx, step_type, metadata) VALUES (?, 15, ?)",
@@ -131,7 +132,11 @@ class ScannerTest(unittest.TestCase):
     def test_contract_shape(self):
         make_db(self.desk / "a.db", [call(0)])
         r = self.scan()
-        self.assertEqual(set(r), {"totals", "by_model", "daily", "sources", "errors", "scanned_at", "elapsed_ms"})
+        self.assertEqual(set(r), {"totals", "by_model", "by_conversation", "daily", "sources", "errors", "scanned_at",
+                                  "elapsed_ms"})
+        self.assertEqual(set(r["by_conversation"][0]),
+                         {"id", "source", "title", "model", "display_name", "last_at", "input", "output", "cache_read",
+                          "thinking", "calls", "est_cost_usd"})
         self.assertEqual(set(r["totals"]), {"today", "d7", "d30", "all"})
         for t in r["totals"].values():
             self.assertEqual(set(t), {"input", "output", "cache_read", "thinking", "calls", "conversations", "est_cost_usd"})
@@ -168,6 +173,69 @@ class ScannerTest(unittest.TestCase):
         bm = {m["model"]: m for m in r["by_model"]}
         self.assertEqual(bm["gemini-2.5-pro"]["calls"], 2)
         self.assertEqual(bm["Mystery"]["display_name"], "Mystery")
+
+    def test_by_conversation(self):
+        self.cli.mkdir()
+        make_db(self.desk / "old.db", [call(5, model="gemini-2.5-pro"), call(4, model="gemini-2.5-pro")],
+                first_input="  Fix   the\nlogin bug please  ")
+        make_db(self.desk / "new.db", [
+            call(1, model="claude-sonnet-4-5", display="Claude Sonnet 4.5", inp=10, out=10, cache=10),
+            call(0, model="internal-x", display="Internal X", inp=9000, model_field="response"),
+        ], first_input="x" * 200)
+        make_db(self.cli / "titled.db", [call(2, model="mystery")], first_input="ignored, official title wins")
+        make_db(self.desk / "empty.db", [])
+        make_db(self.desk / "worker.db", [call(10)], first_input="")
+        make_db(self.desk / "sub.db", [call(11)], first_input="")
+        conn = sqlite3.connect(self.base / "conversation_summaries.db")  # sibling of both roots
+        conn.execute("CREATE TABLE conversation_summaries (conversation_id text, title text, preview text, agent_name text)")
+        conn.execute("INSERT INTO conversation_summaries VALUES ('titled', 'Official Title', '', ''), ('new', '', '', ''),"
+                     " ('worker', '', '', 'verifier'), ('sub', '', '', 'self')")
+        conn.commit()
+        conn.close()
+        r = self.scan()
+        convs = r["by_conversation"]
+        self.assertEqual([c["id"] for c in convs], ["new", "titled", "old", "worker", "sub"])  # newest first, empty skipped
+        new, titled, old, worker, sub = convs
+        self.assertEqual(worker["title"], "@verifier")
+        self.assertIsNone(sub["title"])
+        self.assertEqual(new["source"], "desktop")
+        self.assertEqual(titled["source"], "cli")
+        self.assertEqual(titled["title"], "Official Title")
+        self.assertEqual(old["title"], "Fix the login bug please")
+        self.assertEqual(len(new["title"]), hs.TITLE_MAX)
+        self.assertTrue(new["title"].endswith("…"))
+        self.assertEqual(new["model"], "internal-x")  # most tokens
+        self.assertEqual(new["display_name"], "Internal X")
+        self.assertEqual(new["calls"], 2)
+        self.assertEqual(new["input"], 9010)
+        self.assertEqual(new["thinking"], 10)
+        self.assertAlmostEqual(new["est_cost_usd"], round((10 * 3 + 10 * 15 + 10 * 0.3) / 1e6, 4))
+        self.assertIsNone(titled["est_cost_usd"])
+        self.assertEqual(datetime.fromisoformat(new["last_at"]).timestamp(), ts(0))
+        self.assertEqual(old["model"], "gemini-2.5-pro")
+        # Cached second scan yields the same list.
+        self.assertEqual(self.scan()["by_conversation"], convs)
+
+    def test_by_conversation_cap(self):
+        for i in range(hs.MAX_CONVERSATIONS + 5):
+            make_db(self.desk / f"c{i:03}.db", [{**call(0), "ts": ts(0) - i}])
+        convs = self.scan()["by_conversation"]
+        self.assertEqual(len(convs), hs.MAX_CONVERSATIONS)
+        self.assertEqual(convs[0]["id"], "c000")
+        self.assertEqual(convs[-1]["id"], f"c{hs.MAX_CONVERSATIONS - 1:03}")
+
+    def test_exported_helpers(self):
+        p = self.desk / "a.db"
+        make_db(p, [call(3), call(1)])
+        conn = hs.open_ro(p)
+        try:
+            self.assertEqual(hs.generation_timestamps(conn, 3, 123.0), [ts(3), ts(1), ts(1)])
+        finally:
+            conn.close()
+        self.assertEqual(hs.generation_time([], 0, 5.0), 5.0)
+        g = hs.parse_generation(f(1, f(4, f(2, 7) + f(9, 2)) + f(19, "resp-model") + f(21, "Resp")))
+        self.assertEqual(g, ("resp-model", "Resp", 7, 0, 0, 2))
+        self.assertIsNone(hs.parse_generation(b""))
 
     def test_zero_usage_calls_ignored(self):
         make_db(self.desk / "a.db", [call(0), call(0, inp=0, out=0, cache=0, think=0)])

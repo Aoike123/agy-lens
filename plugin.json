@@ -1,7 +1,7 @@
 {
-  "name": "desktop-context",
-  "title": "Context Usage",
-  "description": "The agy CLI's /context report as a live side panel: exact token usage by category, checkpoints and files in context. Zero tokens per refresh.",
-  "version": "1.0.0",
+  "name": "antigravity-usage-dashboard",
+  "title": "Usage Dashboard",
+  "description": "A live side panel for the Antigravity desktop app: context window usage by category (computed like the agy CLI's /context), output speed, model quota with the 5-hour limit and reset time, per-conversation token usage, and historical usage across all conversations. 100% local, zero tokens per refresh.",
+  "version": "2.0.0",
   "logo": "assets/logo.svg"
 }

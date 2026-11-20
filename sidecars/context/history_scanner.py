@@ -20,7 +20,7 @@ import sqlite3
 import sys
 import time
 
-CACHE_VERSION = 2
+CACHE_VERSION = 3
 
 # --- protobuf (minimal reader, same wire decoding as context_report.Msg) ------
 
@@ -135,6 +135,7 @@ def call_cost(model: str, inp: int, out: int, cache_read: int) -> float | None:
 # --- per-database parsing ----------------------------------------------------
 
 STEP_PLANNER_RESPONSE = 15
+MAX_CONVERSATIONS = 100
 DISPLAY_PREFIX = "display:"
 
 
@@ -152,14 +153,89 @@ def fingerprint(db: Path) -> list[int] | None:
     return fp
 
 
-def parse_db(db: Path) -> dict:
-    """Read one conversation DB read-only. Returns {"calls": [[ts, model, in, out, cache, think]], "names": {}}.
+def open_ro(db: Path) -> sqlite3.Connection:
+    """Open a SQLite database strictly read-only."""
+    return sqlite3.connect("file:" + Path(db).resolve().as_posix() + "?mode=ro", uri=True, timeout=0.5)
 
+
+def planner_timestamps(conn: sqlite3.Connection) -> list[float]:
+    """created_at (epoch seconds) of every PLANNER_RESPONSE step, in step order."""
+    try:
+        rows = conn.execute(
+            "SELECT metadata FROM steps WHERE step_type = ? ORDER BY idx", (STEP_PLANNER_RESPONSE,)
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return []
+    stamps: list[float] = []
+    for (md,) in rows:
+        created = Msg(md, STEP_MD_FIELDS).msg(1)  # metadata.created_at (Timestamp)
+        sec = created.int(1) if created is not None else 0
+        if sec > 0:
+            stamps.append(float(sec))
+    return stamps
+
+
+def generation_time(stamps: list[float], i: int, fallback_ts: float) -> float:
+    """Epoch seconds of the i-th gen_metadata row (0-based, idx order).
+
+    gen_metadata rows carry no timestamp; the i-th generation belongs to the i-th
+    PLANNER_RESPONSE step. Extra generations get the last step time; no steps -> fallback (file mtime).
+    """
+    if not stamps:
+        return fallback_ts
+    return stamps[i] if i < len(stamps) else stamps[-1]
+
+
+def generation_timestamps(conn: sqlite3.Connection, count: int, fallback_ts: float) -> list[float]:
+    """Per-call epoch timestamps for `count` gen_metadata rows (idx order). Exported for context_report."""
+    stamps = planner_timestamps(conn)
+    return [generation_time(stamps, i, fallback_ts) for i in range(count)]
+
+
+def parse_generation(data: bytes | None) -> tuple[str, str, int, int, int, int] | None:
+    """(model_id, display_name, input, output, cache_read, thinking) of one gen_metadata blob.
+
+    model_id is planner_config.model_name, else chat.response_model, else "" (display name only).
+    Returns None when the row has no usage. Exported for context_report.
+    """
+    if not data:
+        return None
+    gen = Msg(data, GEN_FIELDS)
+    chat = gen.msg(1, CHAT_FIELDS)
+    usage = chat.msg(4, USAGE_FIELDS) if chat is not None else None
+    if usage is None:
+        return None
+    planner = gen.msg(3, PLANNER_FIELDS)
+    model = (planner.str(28) if planner is not None else "") or chat.str(19)
+    return model, chat.str(21), usage.int(2), usage.int(3), usage.int(5), usage.int(9)
+
+
+TITLE_MAX = 80
+
+
+def first_user_text(conn: sqlite3.Connection) -> str | None:
+    """First user message of the conversation, whitespace-collapsed and truncated (title fallback)."""
+    try:
+        row = conn.execute("SELECT step_payload FROM steps WHERE step_type = 14 ORDER BY idx LIMIT 1").fetchone()
+    except sqlite3.OperationalError:
+        return None
+    if not row or not row[0]:
+        return None
+    ui = Msg(row[0], frozenset((19,))).msg(19, frozenset((2,)))  # user_input.user_response
+    text = " ".join(ui.str(2).split()) if ui is not None else ""
+    if not text:
+        return None
+    return text if len(text) <= TITLE_MAX else text[: TITLE_MAX - 1] + "…"
+
+
+def parse_db(db: Path) -> dict:
+    """Read one conversation DB read-only.
+
+    Returns {"calls": [[ts, model, in, out, cache, think]], "names": {model: display}, "first_input": str|None}.
     Raises sqlite3.Error / OSError on unreadable or corrupt databases.
     """
     fallback_ts = db.stat().st_mtime
-    uri = "file:" + db.resolve().as_posix() + "?mode=ro"
-    conn = sqlite3.connect(uri, uri=True, timeout=0.5)
+    conn = open_ro(db)
     try:
         try:
             gens = conn.execute("SELECT data FROM gen_metadata ORDER BY idx").fetchall()
@@ -168,54 +244,56 @@ def parse_db(db: Path) -> dict:
                 raise
             # Fresh conversation (no generation yet): valid, just empty. Real corruption still raises.
             conn.execute("SELECT 1 FROM sqlite_master LIMIT 1").fetchall()
-            return {"calls": [], "names": {}}
-        try:
-            planner_md = conn.execute(
-                "SELECT metadata FROM steps WHERE step_type = ? ORDER BY idx", (STEP_PLANNER_RESPONSE,)
-            ).fetchall()
-        except sqlite3.OperationalError:
-            planner_md = []
+            return {"calls": [], "names": {}, "first_input": None}
+        stamps = planner_timestamps(conn)
+        first_input = first_user_text(conn)
     finally:
         conn.close()
 
-    # gen_metadata rows carry no timestamp; the i-th generation belongs to the i-th
-    # PLANNER_RESPONSE step, whose metadata.created_at (field 1, Timestamp.seconds) we use.
-    stamps: list[float] = []
-    for (md,) in planner_md:
-        created = Msg(md, STEP_MD_FIELDS).msg(1)
-        sec = created.int(1) if created is not None else 0
-        if sec > 0:
-            stamps.append(float(sec))
-
     calls, names = [], {}
     for i, (data,) in enumerate(gens):
-        if not data:
+        g = parse_generation(data)
+        if g is None:
             continue
-        gen = Msg(data, GEN_FIELDS)
-        chat = gen.msg(1, CHAT_FIELDS)
-        if chat is None:
-            continue
-        usage = chat.msg(4, USAGE_FIELDS)
-        if usage is None:
-            continue
-        inp, out, cache, think = usage.int(2), usage.int(3), usage.int(5), usage.int(9)
+        model, display, inp, out, cache, think = g
         if not (inp or out or cache or think):
             continue  # aborted / in-flight generation with no billed usage
-        planner = gen.msg(3, PLANNER_FIELDS)
-        display = chat.str(21)
-        model = (planner.str(28) if planner is not None else "") or chat.str(19)
         if model:
             if display:
                 names[model] = display
         else:
             # Only a display name: resolved to a real model ID at aggregation time if one is known.
             model = DISPLAY_PREFIX + display if display else "unknown"
-        if stamps:
-            ts = stamps[i] if i < len(stamps) else stamps[-1]
-        else:
-            ts = fallback_ts
-        calls.append([ts, model, inp, out, cache, think])
-    return {"calls": calls, "names": names}
+        calls.append([generation_time(stamps, i, fallback_ts), model, inp, out, cache, think])
+    return {"calls": calls, "names": names, "first_input": first_input}
+
+
+def load_titles(roots: list[tuple[Path, str]]) -> tuple[dict[str, str], dict[str, str]]:
+    """({id: title}, {id: agent_name}) from the app's conversation_summaries.db next to each root (read-only)."""
+    titles: dict[str, str] = {}
+    agents: dict[str, str] = {}
+    for root, _ in roots:
+        p = root.parent / "conversation_summaries.db"
+        if not p.is_file():
+            continue
+        try:
+            conn = open_ro(p)
+            try:
+                cols = {r[1] for r in conn.execute("PRAGMA table_info(conversation_summaries)")}
+                sel = ", ".join(c if c in cols else "''" for c in ("conversation_id", "title", "preview", "agent_name"))
+                for cid, title, preview, agent in conn.execute(f"SELECT {sel} FROM conversation_summaries"):
+                    if not cid:
+                        continue
+                    t = " ".join(str(title or preview or "").split())
+                    if t and cid not in titles:
+                        titles[cid] = t if len(t) <= TITLE_MAX else t[: TITLE_MAX - 1] + "…"
+                    if agent and agent != "self" and cid not in agents:  # "self" = generic subagent, not a name
+                        agents[cid] = str(agent)
+            finally:
+                conn.close()
+        except sqlite3.Error:
+            continue
+    return titles, agents
 
 
 # --- cache -------------------------------------------------------------------
@@ -281,7 +359,7 @@ def scan(roots: list[tuple[Path, str]], cache_path: Path | None = None, days: in
     new_cache: dict = {}
     sources: dict[str, int] = {"desktop": 0, "cli": 0}
     errors = 0
-    per_db: list[tuple[str, dict]] = []
+    per_db: list[tuple[str, dict, str, str]] = []
 
     for root, label in roots:
         sources.setdefault(label, 0)
@@ -308,7 +386,7 @@ def scan(roots: list[tuple[Path, str]], cache_path: Path | None = None, days: in
                 entry = {"fp": fp, **parsed}
             new_cache[key] = entry
             sources[label] += 1
-            per_db.append((key, entry))
+            per_db.append((key, entry, label, db.stem))
 
     save_cache(cache_path, new_cache)
 
@@ -326,13 +404,20 @@ def scan(roots: list[tuple[Path, str]], cache_path: Path | None = None, days: in
     daily = {first_day + timedelta(days=i): [0, 0] for i in range(days)}
     day_cache: dict[int, date] = {}
 
-    for _, entry in per_db:
+    for _, entry, _, _ in per_db:
         names.update(entry.get("names") or {})
     by_display: dict[str, str] = {}
     for mid, disp in sorted(names.items()):
         by_display.setdefault(disp, mid)
+    convs: list[dict] = []
 
-    for key, entry in per_db:
+    for key, entry, label, stem in per_db:
+        conv = None
+        if entry["calls"]:
+            conv = {"id": stem, "source": label, "title": None, "model": None, "display_name": None,
+                    "last_at": None, "input": 0, "output": 0, "cache_read": 0, "thinking": 0, "calls": 0,
+                    "est_cost_usd": None, "_last": 0.0, "_models": {}, "_first_input": entry.get("first_input")}
+            convs.append(conv)
         for ts, model, inp, out, cache, think in entry["calls"]:
             if model.startswith(DISPLAY_PREFIX):
                 disp = model[len(DISPLAY_PREFIX):]
@@ -347,6 +432,15 @@ def scan(roots: list[tuple[Path, str]], cache_path: Path | None = None, days: in
                     d = today
                 day_cache[sec] = d
             cost = call_cost(model, inp, out, cache)
+            conv["input"] += inp
+            conv["output"] += out
+            conv["cache_read"] += cache
+            conv["thinking"] += think
+            conv["calls"] += 1
+            if cost is not None:
+                conv["est_cost_usd"] = (conv["est_cost_usd"] or 0.0) + cost
+            conv["_last"] = max(conv["_last"], ts)
+            conv["_models"][model] = conv["_models"].get(model, 0) + inp + out + cache
             for w, start in windows.items():
                 if d >= start and (w == "all" or d <= today):
                     t = totals[w]
@@ -385,9 +479,29 @@ def scan(roots: list[tuple[Path, str]], cache_path: Path | None = None, days: in
             bm["est_cost_usd"] = round(bm["est_cost_usd"], 4)
     models.sort(key=lambda b: (-(b["input"] + b["output"] + b["cache_read"]), b["model"]))
 
+    convs.sort(key=lambda c: (-c["_last"], c["id"]))
+    convs = convs[:MAX_CONVERSATIONS]
+    titles, agents = load_titles(roots) if convs else ({}, {})
+    for c in convs:
+        # Primary model = the one with the most tokens in this conversation.
+        c["model"] = max(c["_models"].items(), key=lambda kv: (kv[1], kv[0]))[0]
+        c["display_name"] = names.get(c["model"])
+        # Title: app's summary title -> first user message -> "@<agent name>" (subagents/swarm workers) -> null.
+        agent = agents.get(c["id"])
+        c["title"] = titles.get(c["id"]) or c["_first_input"] or ("@" + agent if agent else None)
+        try:
+            c["last_at"] = datetime.fromtimestamp(c["_last"]).astimezone().isoformat(timespec="seconds")
+        except (OverflowError, OSError, ValueError):
+            c["last_at"] = None
+        if c["est_cost_usd"] is not None:
+            c["est_cost_usd"] = round(c["est_cost_usd"], 4)
+        for k in ("_last", "_models", "_first_input"):
+            del c[k]
+
     return {
         "totals": totals,
         "by_model": models,
+        "by_conversation": convs,
         "daily": [{"date": d.isoformat(), "tokens": v[0], "calls": v[1]} for d, v in sorted(daily.items())],
         "sources": sources,
         "errors": errors,

@@ -7,6 +7,7 @@ protobufs from the conversation database (`steps` and `gen_metadata` tables).
 """
 
 import argparse
+from datetime import datetime
 import json
 import os
 from pathlib import Path
@@ -756,12 +757,12 @@ def parse_generation_speed(gen: Msg | None) -> dict | None:
     }
 
 
-def collect_speed(gens: list[Msg]) -> dict | None:
-    """Aggregate latest and weighted-average speed metrics across recent generations (newest-first)."""
-    entries = [e for g in gens if (e := parse_generation_speed(g)) is not None]
-    if not entries:
-        return None
+SPEED_RECENT = 8
+SPEED_RECENT_KEYS = ("streaming_tps", "e2e_tps", "ttft_sec", "streaming_sec", "total_sec", "output_tokens")
 
+
+def _speed_aggregate(entries: list[dict]) -> dict:
+    """Weighted averages + latest/recent over parsed speed entries (newest-first, non-empty)."""
     stream_entries = [e for e in entries if e["output_tokens"] > 0 and e["_streaming_sec"] is not None and e["_streaming_sec"] >= 0.05]
     avg_streaming_tps = (
         round(sum(e["output_tokens"] for e in stream_entries) / sum(e["_streaming_sec"] for e in stream_entries), 1)
@@ -776,18 +777,152 @@ def collect_speed(gens: list[Msg]) -> dict | None:
     )
     ttft_vals = [e["_ttft_sec"] for e in entries if e["_ttft_sec"] is not None]
     avg_ttft_sec = round(sum(ttft_vals) / len(ttft_vals), 2) if ttft_vals else None
-
-    latest = {k: v for k, v in entries[0].items() if not k.startswith("_")}
-    recent_keys = ("streaming_tps", "e2e_tps", "ttft_sec", "streaming_sec", "total_sec", "output_tokens")
-    recent = [{k: e[k] for k in recent_keys} for e in reversed(entries[:8])]
     return {
-        "latest": latest,
+        "latest": {k: v for k, v in entries[0].items() if not k.startswith("_")},
         "calls": len(entries),
         "avg_streaming_tps": avg_streaming_tps,
         "avg_e2e_tps": avg_e2e_tps,
         "avg_ttft_sec": avg_ttft_sec,
-        "total_output_tokens": sum(e["output_tokens"] for e in entries),
-        "recent": recent,
+        "output_tokens": sum(e["output_tokens"] for e in entries),
+        "recent": [{k: e[k] for k in SPEED_RECENT_KEYS} for e in reversed(entries[:SPEED_RECENT])],
+    }
+
+
+DISPLAY_PREFIX = "display:"  # same convention as history_scanner.parse_db
+
+
+def gen_model(gen: Msg | None) -> tuple[str, str]:
+    """(model id, display name) of one generation, resolved like history_scanner.parse_db:
+    planner_config.model_name, else chat.response_model, else "display:<display name>"."""
+    chat = gen.msg(1) if gen is not None else None
+    display = chat.str(21) if chat is not None else ""
+    model = model_id(gen) or (chat.str(19) if chat is not None else "")
+    if not model:
+        model = DISPLAY_PREFIX + display if display else "unknown"
+    return model, display
+
+
+def collect_speed(gens: list[Msg]) -> dict | None:
+    """Aggregate latest and weighted-average speed metrics across recent generations (newest-first),
+    overall and per model (by_model, most recently used model first)."""
+    names: dict[str, str] = {}
+    entries = []
+    for g in gens:
+        e = parse_generation_speed(g)
+        if e is None:
+            continue
+        model, display = gen_model(g)
+        if display and not model.startswith(DISPLAY_PREFIX):
+            names.setdefault(model, display)  # newest display name wins
+        e["_model"], e["_display"] = model, display
+        entries.append(e)
+    if not entries:
+        return None
+
+    by_display: dict[str, str] = {}
+    for mid, disp in sorted(names.items()):
+        by_display.setdefault(disp, mid)
+    groups: dict[str, list[dict]] = {}
+    for e in entries:
+        model = e["_model"]
+        if model.startswith(DISPLAY_PREFIX):
+            model = by_display.get(e["_display"], e["_display"])
+        groups.setdefault(model, []).append(e)  # dict order = most recent call first
+
+    agg = _speed_aggregate(entries)
+    out = {k: agg[k] for k in ("latest", "calls", "avg_streaming_tps", "avg_e2e_tps", "avg_ttft_sec")}
+    out["total_output_tokens"] = agg["output_tokens"]
+    out["recent"] = agg["recent"]
+    out["by_model"] = []
+    for model, es in groups.items():
+        a = _speed_aggregate(es)
+        disp = names.get(model) or next((e["_display"] for e in es if e["_display"]), None)
+        out["by_model"].append({"model": model, "display_name": disp, **a})
+    return out
+
+
+def _history_scanner():
+    """history_scanner.py (same folder) supplies the reference price table and per-call dating; None if unavailable."""
+    try:
+        import importlib.util
+        path = Path(__file__).resolve().parent / "history_scanner.py"
+        spec = importlib.util.spec_from_file_location("ctx_history_scanner", path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+    except Exception:
+        return None
+
+
+def _iso(ts: float) -> str | None:
+    try:
+        return datetime.fromtimestamp(ts).astimezone().isoformat(timespec="seconds")
+    except (OverflowError, OSError, ValueError):
+        return None
+
+
+def collect_session(db_path: Path, hs=None) -> dict | None:
+    """Usage summed over every billed generation of this conversation; None when there is none (or unreadable)."""
+    hs = hs or _history_scanner()
+    if hs is None:
+        return None
+    try:
+        parsed = hs.parse_db(db_path)
+    except (sqlite3.Error, OSError, ValueError, MemoryError):
+        return None
+    calls, names = parsed.get("calls") or [], parsed.get("names") or {}
+    if not calls:
+        return None
+    prefix = getattr(hs, "DISPLAY_PREFIX", "display:")
+    by_display: dict[str, str] = {}
+    for mid, disp in sorted(names.items()):
+        by_display.setdefault(disp, mid)
+
+    tot = {"input": 0, "output": 0, "cache_read": 0, "thinking": 0}
+    cost_sum, partial = None, False
+    by_model: dict[str, dict] = {}
+    stamps = []
+    for ts, model, inp, out, cache, think in calls:
+        display = names.get(model)
+        if model.startswith(prefix):
+            display = model[len(prefix):]
+            model = by_display.get(display, display)
+        cost = hs.call_cost(model, inp, out, cache)
+        tot["input"] += inp
+        tot["output"] += out
+        tot["cache_read"] += cache
+        tot["thinking"] += think
+        stamps.append(ts)
+        if cost is None:
+            partial = True
+        else:
+            cost_sum = (cost_sum or 0.0) + cost
+        bm = by_model.get(model)
+        if bm is None:
+            bm = by_model[model] = {"model": model, "display_name": names.get(model) or display, "input": 0,
+                                    "output": 0, "cache_read": 0, "calls": 0, "est_cost_usd": None}
+        bm["input"] += inp
+        bm["output"] += out
+        bm["cache_read"] += cache
+        bm["calls"] += 1
+        if cost is not None:
+            bm["est_cost_usd"] = (bm["est_cost_usd"] or 0.0) + cost
+
+    models = sorted(by_model.values(), key=lambda b: (-(b["input"] + b["output"] + b["cache_read"]), b["model"]))
+    for bm in models:
+        if bm["est_cost_usd"] is not None:
+            bm["est_cost_usd"] = round(bm["est_cost_usd"], 4)
+    prompt = tot["input"] + tot["cache_read"]
+    return {
+        **tot,
+        "calls": len(calls),
+        "total_tokens": tot["input"] + tot["output"],
+        "cache_hit_pct": round(tot["cache_read"] / prompt * 100.0, 1) if prompt > 0 else None,
+        "est_cost_usd": round(cost_sum, 4) if cost_sum is not None else None,
+        "cost_partial": partial,
+        "first_at": _iso(min(stamps)),
+        "last_at": _iso(max(stamps)),
+        "by_model": models,
     }
 
 
@@ -927,6 +1062,7 @@ def main():
             "skill_files": [{"path": p, "tokens": t} for p, t in st["skill_files"]],
             "system_files": [{"path": p} for p, _ in system_files],
             "speed": speed,
+            "session": collect_session(db_path),
         }, indent=2))
         return
 

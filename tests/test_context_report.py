@@ -4,6 +4,7 @@ Run with: python -m unittest discover tests
 """
 
 import importlib.util
+from datetime import datetime
 import json
 import os
 from pathlib import Path
@@ -110,8 +111,11 @@ def timing(ttft: bytes | None = None, streaming: bytes | None = None) -> bytes:
     return m(f(11, ttft) if ttft is not None else b"", f(12, streaming) if streaming is not None else b"")
 
 
-def speed_gen(output: int = 0, ttft: bytes | None = None, streaming: bytes | None = None, **usage_kw) -> "context_report.Msg":
-    return context_report.Msg(f(1, m(f(4, usage(output=output, **usage_kw)), timing(ttft, streaming))))
+def speed_gen(output: int = 0, ttft: bytes | None = None, streaming: bytes | None = None, response_model: str = "",
+              display: str = "", planner_model: str = "", **usage_kw) -> "context_report.Msg":
+    chat = m(f(4, usage(output=output, **usage_kw)), timing(ttft, streaming),
+             f(19, response_model) if response_model else b"", f(21, display) if display else b"")
+    return context_report.Msg(m(f(1, chat), f(3, f(28, planner_model)) if planner_model else b""))
 
 
 def tool_call(args: str) -> bytes:
@@ -366,7 +370,7 @@ class ReportTest(unittest.TestCase):
                            timing=timing(duration(0, 500_000_000), duration(2)))
         s = self.report()["speed"]
         self.assertEqual(set(s), {"latest", "calls", "avg_streaming_tps", "avg_e2e_tps", "avg_ttft_sec",
-                                  "total_output_tokens", "recent"})
+                                  "total_output_tokens", "recent", "by_model"})
         self.assertEqual(s["calls"], 2)
         self.assertEqual(s["latest"]["output_tokens"], 100)  # newest row
         self.assertEqual(s["latest"]["streaming_tps"], 50.0)
@@ -376,6 +380,11 @@ class ReportTest(unittest.TestCase):
         self.assertEqual(s["total_output_tokens"], 300)
         self.assertEqual([r["output_tokens"] for r in s["recent"]], [200, 100])  # oldest-first
         self.assertFalse(any(k.startswith("_") for k in s["latest"]))
+        self.assertEqual(len(s["by_model"]), 1)
+        bm = s["by_model"][0]
+        self.assertEqual((bm["model"], bm["display_name"], bm["calls"], bm["output_tokens"]), ("test-model", "Test Model", 2, 300))
+        self.assertEqual((bm["avg_streaming_tps"], bm["avg_e2e_tps"], bm["avg_ttft_sec"]), (50.0, 40.0, 0.75))
+        self.assertEqual((bm["latest"], bm["recent"]), (s["latest"], s["recent"]))
 
     def test_json_speed_null_without_timing_rows(self):
         self.basic_steps()
@@ -396,6 +405,64 @@ class ReportTest(unittest.TestCase):
         self.assertFalse(r["has_breakdown"])
         self.assertEqual(r["by_name"]["User messages"], 3)
         self.assertIn("Context Usage", self.run_report())
+
+    # --- per-conversation session usage ---
+
+    def planner_at(self, sec: int):
+        self.db.step(PLANNER_RESPONSE, metadata=f(1, f(1, sec)), payload_field=P_PLANNER, payload=planner("x"))
+
+    def test_json_session_sums_all_generations(self):
+        self.planner_at(1_700_000_000)
+        self.planner_at(1_700_000_100)
+        self.planner_at(1_700_000_200)
+        self.planner_at(1_700_000_300)
+        g = [group(7, 10, ("0: USER_INPUT", 10))]
+        self.db.generation(g, usage=usage(1000, 200, 3000), model="claude-opus-4-6-thinking", display_name="Opus")
+        self.db.generation(g, usage=usage(500, 100, 500), model="test-model", display_name="Test Model")
+        self.db.generation(g, usage=b"", model="test-model")  # aborted: no billed usage, skipped
+        self.db.generation(g, usage=usage(500, 100, 500), model="", display_name="Test Model")  # display-only
+        for _ in range(60):  # more than the 50 rows speed reads
+            self.db.generation(g, usage=usage(1, 1, 0), model="test-model")
+        s = self.report()["session"]
+        self.assertEqual(s["calls"], 63)
+        self.assertEqual((s["input"], s["output"], s["cache_read"], s["thinking"]), (2060, 460, 4000, 0))
+        self.assertEqual(s["total_tokens"], 2520)
+        self.assertEqual(s["cache_hit_pct"], round(4000 / 6060 * 100, 1))
+        self.assertEqual(s["est_cost_usd"], 0.0115)  # (1000*5 + 200*25 + 3000*0.5) / 1M; test-model unpriced
+        self.assertTrue(s["cost_partial"])
+        self.assertEqual(datetime.fromisoformat(s["first_at"]).timestamp(), 1_700_000_000)
+        self.assertEqual(datetime.fromisoformat(s["last_at"]).timestamp(), 1_700_000_300)  # extra calls reuse last stamp
+        self.assertEqual([b["model"] for b in s["by_model"]], ["claude-opus-4-6-thinking", "test-model"])
+        opus, test = s["by_model"]
+        self.assertEqual(opus, {"model": "claude-opus-4-6-thinking", "display_name": "Opus", "input": 1000, "output": 200,
+                                "cache_read": 3000, "calls": 1, "est_cost_usd": 0.0115})
+        self.assertEqual((test["display_name"], test["calls"], test["input"], test["est_cost_usd"]), ("Test Model", 62, 1060, None))
+
+    def test_json_session_fully_priced_and_mtime_fallback(self):
+        self.db.generation([], usage=usage(1_000_000, 0, 0), model="gemini-2.5-pro-x", display_name="")
+        s = self.report()["session"]
+        self.assertEqual((s["est_cost_usd"], s["cost_partial"], s["cache_hit_pct"]), (1.25, False, 0.0))
+        self.assertIsNotNone(s["first_at"])  # no PLANNER_RESPONSE stamps: DB mtime
+        self.assertEqual(s["by_model"][0]["display_name"], None)
+
+    def test_json_session_null_without_usage(self):
+        self.basic_steps()
+        self.db.generation([group(7, 10, ("0: USER_INPUT", 10))])  # zero usage
+        self.assertIsNone(self.report()["session"])
+
+    def test_json_session_null_without_gen_table(self):
+        self.db.close()
+        self.db_path.unlink()
+        self.db = ConversationDB(self.db_path, gen_table=False)
+        self.basic_steps()
+        self.assertIsNone(self.report()["session"])
+
+    def test_session_without_history_scanner(self):
+        self.db.generation([], usage=usage(1, 1, 1))
+        self.db.close()
+        broken = type("HS", (), {"parse_db": staticmethod(lambda p: (_ for _ in ()).throw(sqlite3.DatabaseError("x")))})
+        self.assertIsNone(context_report.collect_session(self.db_path, broken))
+        self.assertEqual(context_report.collect_session(self.db_path)["calls"], 1)
 
 
 class SpeedTest(unittest.TestCase):
@@ -475,6 +542,41 @@ class SpeedTest(unittest.TestCase):
         self.assertEqual([r["output_tokens"] for r in s["recent"]], [50, 900, 100])
         self.assertEqual(set(s["recent"][0]), {"streaming_tps", "e2e_tps", "ttft_sec", "streaming_sec", "total_sec",
                                                "output_tokens"})
+
+    def test_collect_by_model(self):
+        gens = [  # newest-first: a subagent-style flash call, then opus, flash, a display-only opus, and an unknown
+            speed_gen(output=200, streaming=duration(1), ttft=duration(1), response_model="gemini-flash", display="Flash"),
+            speed_gen(output=300, streaming=duration(3), ttft=duration(2), response_model="claude-opus", display="Opus"),
+            speed_gen(output=100, streaming=duration(1), ttft=duration(3), planner_model="gemini-flash",
+                      response_model="ignored-when-planner-set"),
+            speed_gen(output=100, streaming=duration(2), ttft=duration(4), display="Opus"),
+            speed_gen(output=50, streaming=duration(1)),
+            speed_gen(output=10, streaming=duration(1), display="Mystery"),
+            speed_gen(output=999, response_model="claude-opus"),  # no timing: skipped
+        ]
+        s = context_report.collect_speed(gens)
+        self.assertEqual(s["calls"], 6)
+        self.assertEqual(s["total_output_tokens"], 760)
+        bms = s["by_model"]
+        self.assertEqual([b["model"] for b in bms], ["gemini-flash", "claude-opus", "unknown", "Mystery"])
+        flash, opus, unknown, mystery = bms
+        self.assertEqual((flash["display_name"], flash["calls"], flash["output_tokens"]), ("Flash", 2, 300))
+        self.assertEqual((flash["avg_streaming_tps"], flash["avg_ttft_sec"]), (150.0, 2.0))
+        self.assertEqual(flash["latest"]["output_tokens"], 200)
+        self.assertEqual([r["output_tokens"] for r in flash["recent"]], [100, 200])
+        self.assertEqual((opus["display_name"], opus["calls"], opus["output_tokens"]), ("Opus", 2, 400))
+        self.assertEqual((opus["avg_streaming_tps"], opus["avg_e2e_tps"], opus["avg_ttft_sec"]), (80.0, round(400 / 11, 1), 3.0))
+        self.assertEqual((unknown["display_name"], unknown["calls"], unknown["avg_ttft_sec"]), (None, 1, None))
+        self.assertEqual((mystery["display_name"], mystery["calls"]), ("Mystery", 1))
+        self.assertEqual(set(flash), {"model", "display_name", "latest", "calls", "avg_streaming_tps", "avg_e2e_tps",
+                                      "avg_ttft_sec", "output_tokens", "recent"})
+        self.assertEqual(set(flash["latest"]), set(s["latest"]))
+
+    def test_collect_by_model_recent_capped(self):
+        gens = [speed_gen(output=n, streaming=duration(1), response_model="m") for n in range(12, 0, -1)]
+        bm = context_report.collect_speed(gens)["by_model"][0]
+        self.assertEqual([r["output_tokens"] for r in bm["recent"]], [5, 6, 7, 8, 9, 10, 11, 12])
+        self.assertEqual(bm["display_name"], None)
 
     def test_collect_recent_capped(self):
         gens = [speed_gen(output=n, streaming=duration(1)) for n in range(20, 0, -1)]  # newest = 20

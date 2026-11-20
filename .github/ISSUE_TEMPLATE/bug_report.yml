@@ -1,0 +1,62 @@
+name: Bug report / 问题反馈
+description: Something in the panel is wrong or broken. 面板显示错误或无法工作。
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please remove personal data (conversation IDs, emails, tokens, file paths) before posting.
+        提交前请删除个人信息（会话 ID、邮箱、令牌、文件路径）。
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area / 区域
+      options:
+        - Overview (context / output speed / this conversation) 概览
+        - Quota 额度
+        - History 历史
+        - Install / startup 安装 / 启动
+        - Other 其他
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened? / 发生了什么？
+      description: What you expected and what you saw. Screenshots help. 期望结果与实际结果，可附截图。
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce / 复现步骤
+  - type: input
+    id: plugin-version
+    attributes:
+      label: Plugin version / 插件版本
+      placeholder: "2.0.0"
+    validations:
+      required: true
+  - type: input
+    id: app-version
+    attributes:
+      label: Antigravity version / 应用版本
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: OS / 操作系统
+      options: [Windows, macOS, Linux]
+    validations:
+      required: true
+  - type: input
+    id: python
+    attributes:
+      label: Python version (`python --version`)
+  - type: textarea
+    id: logs
+    attributes:
+      label: Error message or output / 错误信息
+      description: e.g. the panel's error text, or `python sidecars/context/context_report.py --json` output (redacted).
+      render: text

@@ -1,0 +1,20 @@
+name: Feature request / 功能建议
+description: Suggest an improvement. 提出改进建议。
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve? / 想解决什么问题？
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution / 建议方案
+  - type: checkboxes
+    id: local
+    attributes:
+      label: Scope / 范围
+      options:
+        - label: This can work with local, read-only data (no external network, no app patching). 可以只依赖本地只读数据实现（无外部网络、不修改应用）。

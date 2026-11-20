@@ -149,17 +149,20 @@ const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
 const JWT_LIKE = /\b[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}\b/g;
 const BEARER = /\bBearer\s+[A-Za-z0-9._~+/=-]+|\bya29\.[A-Za-z0-9._~+/=-]+/g;
 
-// Deep copy with emails, token-like strings and secret-named string fields
-// replaced, for the debugging dump.
-export function redact(value, key = '') {
-  if (Array.isArray(value)) return value.map((v) => redact(v, key));
+// Deep copy with emails, token-like strings, secret-named string fields and
+// personal profile fields replaced, for the debugging dump.
+const PERSONAL_KEY = /picture|avatar|photo/i;
+const PERSON_PARENT = /^(userStatus|user_status|user|profile|account)$/;
+export function redact(value, key = '', parent = '') {
+  if (Array.isArray(value)) return value.map((v) => redact(v, key, parent));
   if (value && typeof value === 'object') {
     const out = {};
-    for (const [k, v] of Object.entries(value)) out[k] = redact(v, k);
+    for (const [k, v] of Object.entries(value)) out[k] = redact(v, k, key);
     return out;
   }
   if (typeof value === 'string') {
-    if (SECRET_KEY.test(key)) return '[redacted]';
+    if (SECRET_KEY.test(key) || PERSONAL_KEY.test(key)) return '[redacted]';
+    if (/^(name|displayName|display_name)$/.test(key) && PERSON_PARENT.test(parent)) return '[redacted]';
     return value.replace(EMAIL, '[email]').replace(BEARER, '[redacted]').replace(JWT_LIKE, '[redacted]');
   }
   return value;
@@ -195,19 +198,41 @@ function toIso(v) {
   return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }
 
-// Normalizes one model-like entry to {id, display_name, quota} where quota is
-// {remaining_fraction, reset_time} or null when the entry has no quota info.
+function rootOf(resp) {
+  if (!resp || typeof resp !== 'object' || Array.isArray(resp)) return null;
+  return resp.response && typeof resp.response === 'object' ? resp.response : resp;
+}
+
+function statusOf(resp) {
+  const root = rootOf(resp);
+  return root ? (pick(root, 'userStatus', 'user_status') || root) : null;
+}
+
+function modelConfigData(resp) {
+  return pick(statusOf(resp), 'cascadeModelConfigData', 'cascade_model_config_data');
+}
+
+function asList(container) {
+  if (Array.isArray(container)) return container.map((m) => [undefined, m]);
+  if (container && typeof container === 'object') return Object.entries(container);
+  return [];
+}
+
+// Normalizes one model-like entry to {id, display_name, provider, quota} where
+// quota is {remaining_fraction, reset_time} or null when it has no quota info.
+// display_name is null when the server gives none (internal models).
 function modelEntry(m, key) {
-  if (!m || typeof m !== 'object') return null;
+  if (!m || typeof m !== 'object' || Array.isArray(m)) return null;
   const alias = pick(m, 'modelOrAlias', 'model_or_alias');
   const id = String(
     (typeof key === 'string' && key) ||
+    pick(m, 'modelId', 'model_id') ||
     pick(alias, 'model', 'alias') ||
     (typeof m.model === 'string' ? m.model : undefined) ||
-    pick(m, 'modelId', 'model_id', 'id', 'name', 'label') || ''
+    pick(m, 'id', 'name', 'label') || ''
   );
   if (!id) return null;
-  const display = String(pick(m, 'displayName', 'display_name', 'label', 'name') || id);
+  const display = pick(m, 'displayName', 'display_name', 'label');
   const q = pick(m, 'quotaInfo', 'quota_info', 'quota');
   let quota = null;
   if (q && typeof q === 'object') {
@@ -218,79 +243,242 @@ function modelEntry(m, key) {
     if (frac === null && reset) frac = 0;
     quota = { remaining_fraction: frac, reset_time: reset };
   }
-  return { id, display_name: display, quota };
+  const provider = pick(m, 'modelProvider', 'model_provider');
+  return { id, display_name: display ? String(display) : null, provider: provider ? String(provider) : '', quota };
 }
 
 function listModels(resp) {
   const out = [];
-  if (!resp || typeof resp !== 'object') return out;
-  const root = resp.response && typeof resp.response === 'object' ? resp.response : resp;
-  const collect = (container) => {
-    if (Array.isArray(container)) container.forEach((m) => { const e = modelEntry(m); if (e) out.push(e); });
-    else if (container && typeof container === 'object') {
-      for (const [k, m] of Object.entries(container)) { const e = modelEntry(m, k); if (e) out.push(e); }
-    }
+  const root = rootOf(resp);
+  if (!root) return out;
+  const add = (container) => {
+    for (const [k, m] of asList(container)) { const e = modelEntry(m, k); if (e) out.push(e); }
   };
-  collect(root.models);
-  const status = pick(root, 'userStatus', 'user_status') || root;
-  const cfg = pick(status, 'cascadeModelConfigData', 'cascade_model_config_data');
-  collect(pick(cfg, 'clientModelConfigs', 'client_model_configs'));
-  collect(pick(status, 'clientModelConfigs', 'client_model_configs'));
+  add(root.models);
+  add(pick(modelConfigData(resp), 'clientModelConfigs', 'client_model_configs'));
+  add(pick(statusOf(resp), 'clientModelConfigs', 'client_model_configs'));
   return out;
 }
 
+// Model IDs the app's model picker shows, in picker order.
+function visibleModelIds(statusResp, modelsResp) {
+  const ids = new Set();
+  for (const resp of [modelsResp, statusResp]) {
+    const root = rootOf(resp);
+    for (const sort of asList(pick(root, 'agentModelSorts', 'agent_model_sorts')).map(([, s]) => s)) {
+      for (const g of asList(pick(sort, 'groups')).map(([, x]) => x)) {
+        for (const [, id] of asList(pick(g, 'modelIds', 'model_ids'))) if (typeof id === 'string') ids.add(id);
+      }
+    }
+  }
+  for (const resp of [statusResp, modelsResp]) {
+    for (const [, c] of asList(pick(modelConfigData(resp), 'clientModelConfigs', 'client_model_configs'))) {
+      const id = pick(c, 'modelId', 'model_id');
+      if (typeof id === 'string') ids.add(id);
+    }
+  }
+  return ids;
+}
+
+// groupedModels: family id -> {display_name, levels: [{suffix, display}]}
+function modelFamilies(statusResp, modelsResp) {
+  const fams = new Map();
+  for (const resp of [modelsResp, statusResp]) {
+    for (const src of [pick(rootOf(resp), 'groupedModels', 'grouped_models'), pick(modelConfigData(resp), 'groupedModels', 'grouped_models')]) {
+      if (!src || typeof src !== 'object' || Array.isArray(src)) continue;
+      for (const [fid, g] of Object.entries(src)) {
+        if (fams.has(fid) || !g || typeof g !== 'object') continue;
+        const levels = asList(pick(g, 'supportedThinkingLevels', 'supported_thinking_levels'))
+          .map(([, l]) => ({ suffix: String(pick(l, 'thinkingSuffix', 'thinking_suffix') || ''), display: String(pick(l, 'thinkingDisplayName', 'thinking_display_name') || '') }))
+          .filter((l) => l.suffix);
+        fams.set(fid, { display_name: String(pick(g, 'displayName', 'display_name') || fid), levels });
+      }
+    }
+  }
+  return fams;
+}
+
+function familyOf(fams, id) {
+  for (const [fid, f] of fams) {
+    if (id === fid) return { fid, f, level: null };
+    for (const l of f.levels) if (id === `${fid}-${l.suffix}`) return { fid, f, level: l.display || l.suffix };
+  }
+  return null;
+}
+
+const PROVIDER_ORDER = ['Gemini', 'Claude', 'GPT-OSS', 'OpenAI'];
+
+function providerName(m) {
+  const p = m.provider.toUpperCase();
+  const text = `${m.id} ${m.display_name || ''}`.toLowerCase();
+  if (p.includes('ANTHROPIC') || /claude/.test(text)) return 'Claude';
+  if (/gpt-oss|gpt_oss/.test(text)) return 'GPT-OSS';
+  if (p.includes('OPENAI') || /\bgpt/.test(text)) return 'OpenAI';
+  if (p.includes('GOOGLE') || /gemini/.test(text)) return 'Gemini';
+  return null;
+}
+
+function isTabModel(m) {
+  return /^tab[_-]/i.test(m.id);
+}
+
+const HOUR = 3600 * 1000;
+const SLACK = 2 * 60 * 1000;
+const LIMIT_LABELS = {
+  '5h': ['5-hour limit', '5 小时限额'],
+  daily: ['Daily limit', '每日限额'],
+  weekly: ['Weekly limit', '每周限额'],
+  none: ['Unlimited · no reset', '不限 · 无重置'],
+  unknown: ['Quota', '额度'],
+};
+
+// The LS reports no window length, so the limit kind is inferred from the
+// time left until reset (a rolling 5-hour window never resets later than 5h
+// from now).
+export function inferLimit(remaining_fraction, reset_time, now = Date.now()) {
+  let kind = 'unknown';
+  if (!reset_time) {
+    if (remaining_fraction === 1) kind = 'none';
+  } else {
+    const dt = Date.parse(reset_time) - now;
+    if (dt >= 0 && dt <= 5 * HOUR + SLACK) kind = '5h';
+    else if (dt > 0 && dt <= 24 * HOUR + SLACK) kind = 'daily';
+    else if (dt > 0 && dt <= 7 * 24 * HOUR + SLACK) kind = 'weekly';
+  }
+  const [label, label_zh] = LIMIT_LABELS[kind];
+  return { kind, inferred: kind !== 'unknown', label, label_zh, remaining_fraction, reset_time };
+}
+
 function findPlan(resp) {
-  if (!resp || typeof resp !== 'object') return null;
-  const root = resp.response && typeof resp.response === 'object' ? resp.response : resp;
-  const status = pick(root, 'userStatus', 'user_status') || root;
+  const status = statusOf(resp);
+  if (!status) return null;
   const planStatus = pick(status, 'planStatus', 'plan_status');
   const planInfo = pick(planStatus, 'planInfo', 'plan_info') || pick(status, 'planInfo', 'plan_info');
-  const tier = pick(status, 'userTier', 'user_tier');
   const name = pick(planInfo, 'planName', 'plan_name', 'teamsTier', 'teams_tier', 'name') ||
-    (typeof tier === 'string' ? tier : pick(tier, 'name', 'id')) ||
-    pick(status, 'planName', 'plan_name', 'tier');
+    pick(status, 'planName', 'plan_name');
   return name ? String(name) : null;
 }
 
-function poolLabel(models) {
-  const names = models.map((m) => m.display_name);
-  if (names.length <= 2) return names.join(' / ');
-  return `${names[0]} +${names.length - 1}`;
+function findTier(resp) {
+  const tier = pick(statusOf(resp), 'userTier', 'user_tier');
+  const name = typeof tier === 'string' ? tier : pick(tier, 'name', 'id');
+  return name ? String(name) : null;
+}
+
+function dedupeByName(models, exclude = new Set()) {
+  const seen = new Set(exclude);
+  const out = [];
+  for (const m of models) {
+    const name = m.display_name || m.id;
+    if (seen.has(name)) continue;
+    seen.add(name);
+    out.push({ id: m.id, display_name: name });
+  }
+  return out;
 }
 
 // Builds the /api/quota payload (without fetched_at) from the raw responses of
 // GetUserStatus and GetAvailableModels (either may be null).
-export function parseQuota(statusResp, modelsResp) {
+export function parseQuota(statusResp, modelsResp, now = Date.now()) {
   const byId = new Map();
   for (const e of [...listModels(modelsResp), ...listModels(statusResp)]) {
     const prev = byId.get(e.id);
     if (!prev) { byId.set(e.id, e); continue; }
     if (!prev.quota && e.quota) prev.quota = e.quota;
-    if (prev.display_name === prev.id && e.display_name !== e.id) prev.display_name = e.display_name;
+    if (!prev.display_name && e.display_name) prev.display_name = e.display_name;
+    if (!prev.provider && e.provider) prev.provider = e.provider;
   }
+  const visible = visibleModelIds(statusResp, modelsResp);
+  const hasPicker = visible.size > 0;
+  const isVisible = (m) => (hasPicker ? visible.has(m.id) : !!m.display_name && !isTabModel(m));
+  const order = [...visible];
+  const rank = (m) => { const i = order.indexOf(m.id); return i < 0 ? Infinity : i; };
+  const fams = modelFamilies(statusResp, modelsResp);
+
   const groups = new Map();
   for (const m of byId.values()) {
     if (!m.quota) continue;
-    const key = `${m.quota.remaining_fraction}|${m.quota.reset_time}`;
-    if (!groups.has(key)) groups.set(key, { ...m.quota, models: [] });
-    groups.get(key).models.push({ id: m.id, display_name: m.display_name });
+    const tab = isTabModel(m);
+    const key = `${tab ? 'tab' : 'm'}|${m.quota.remaining_fraction}|${m.quota.reset_time}`;
+    if (!groups.has(key)) groups.set(key, { tab, ...m.quota, members: [] });
+    groups.get(key).members.push(m);
   }
+
+  const usedIds = new Map();
   const pools = [...groups.values()].map((g) => {
-    g.models.sort((a, b) => a.display_name.localeCompare(b.display_name));
+    const members = g.members.slice().sort((a, b) => rank(a) - rank(b) || (a.display_name || a.id).localeCompare(b.display_name || b.id));
+    const shown = members.filter(isVisible);
+    const models = dedupeByName(shown);
+    const hidden_models = dedupeByName(members.filter((m) => !isVisible(m)), new Set(models.map((m) => m.display_name)));
+
+    const families = [];
+    const famIndex = new Map();
+    for (const m of shown) {
+      const fam = familyOf(fams, m.id);
+      const fkey = fam ? `f:${fam.fid}` : `n:${m.display_name || m.id}`;
+      if (!famIndex.has(fkey)) {
+        famIndex.set(fkey, families.length);
+        families.push(fam
+          ? { id: fam.fid, display_name: fam.f.display_name, levels: [] }
+          : { id: m.id, display_name: m.display_name || m.id, levels: [] });
+      }
+      const entry = families[famIndex.get(fkey)];
+      if (fam?.level && !entry.levels.includes(fam.level)) entry.levels.push(fam.level);
+    }
+
+    let kind = 'models';
+    let label;
+    let label_zh;
+    let slug;
+    if (g.tab) {
+      kind = 'tab';
+      label = 'Tab completion';
+      label_zh = 'Tab 补全';
+      slug = 'tab';
+    } else {
+      const provs = new Set((shown.length ? shown : members).map(providerName).filter(Boolean));
+      const names = [...provs].sort((a, b) => PROVIDER_ORDER.indexOf(a) - PROVIDER_ORDER.indexOf(b));
+      if (names.length) {
+        label = `${names.join(' / ')} models`;
+        label_zh = `${names.join(' / ')} 模型`;
+        if (names.length === 1 && names[0] === 'Gemini') slug = 'gemini';
+        else if (names.every((x) => x !== 'Gemini')) slug = 'claude_gpt';
+        else slug = names.join('_').toLowerCase().replace(/[^a-z0-9_]/g, '');
+      } else {
+        const list = models.length ? models : hidden_models;
+        label = list.length <= 2 ? list.map((m) => m.display_name).join(' / ') : `${list[0].display_name} +${list.length - 1}`;
+        label_zh = label;
+        slug = 'other';
+      }
+    }
+    const n = (usedIds.get(slug) || 0) + 1;
+    usedIds.set(slug, n);
+
     return {
-      id: g.models.map((m) => m.id).sort()[0],
-      label: poolLabel(g.models),
+      id: n > 1 ? `${slug}-${n}` : slug,
+      category: slug,
+      kind,
+      label,
+      label_zh,
       remaining_fraction: g.remaining_fraction,
       reset_time: g.reset_time,
-      models: g.models,
+      limits: [inferLimit(g.remaining_fraction, g.reset_time, now)],
+      models,
+      families,
+      hidden_models,
     };
   });
+  const last = (p) => (p.kind === 'tab' || p.limits[0].kind === 'none' ? 1 : 0);
   pools.sort((a, b) => {
     const fa = a.remaining_fraction ?? Infinity;
     const fb = b.remaining_fraction ?? Infinity;
-    return fa - fb || a.label.localeCompare(b.label);
+    return last(a) - last(b) || fa - fb || a.label.localeCompare(b.label);
   });
-  return { pools, plan: findPlan(statusResp) ?? findPlan(modelsResp) };
+  return {
+    pools,
+    plan: findPlan(statusResp) ?? findPlan(modelsResp),
+    tier: findTier(statusResp) ?? findTier(modelsResp),
+  };
 }
 
 let quotaCache = null; // { at, result }
@@ -309,7 +497,7 @@ async function fetchQuota() {
   if (!statusResp && !modelsResp) {
     const reason = status.reason || models.reason;
     const noLs = status.reason?.code === 'NO_LS';
-    return { pools: [], plan: null, fetched_at, error: noLs ? 'unavailable' : 'failed', message: reason?.message || 'request failed' };
+    return { pools: [], plan: null, tier: null, fetched_at, error: noLs ? 'unavailable' : 'failed', message: reason?.message || 'request failed' };
   }
   if (!quotaRawWritten) {
     quotaRawWritten = true;
@@ -453,7 +641,7 @@ if (!process.env.CONTEXT_PANEL_NO_SERVER) {
     try {
       return await quota(truthy(data?.refresh));
     } catch (err) {
-      return { pools: [], plan: null, fetched_at: new Date().toISOString(), error: 'failed', message: err.message };
+      return { pools: [], plan: null, tier: null, fetched_at: new Date().toISOString(), error: 'failed', message: err.message };
     }
   }, 'GET');
 
