@@ -29,7 +29,7 @@ Antigravity 2.0 桌面应用的**用量仪表盘**侧边面板：上下文占用
   - 请求预算：超出请求预算（通常 256,000 tokens）后应用会裁剪较早历史，面板会提示。
   - 检查点、知识文件 / 产物文件 / 技能文件 / 自动加载的系统文件。
   - 「复制为文本」按 CLI 输出格式复制报告。
-- **输出速度**：最近若干次调用的流式速度、端到端速度、首字延迟 TTFT、缓存命中率，以及本次回复的输出 Token（含思考 / 回复拆分）；同一会话使用多个模型（如主智能体与子智能体）时按模型分别显示。
+- **输出速度**：最近若干次调用的流式速度、端到端速度、首字延迟 TTFT、缓存命中率，以及本次回复的输出 Token（含思考 / 回复拆分）；同一会话中切换过模型时按模型分别显示。
 - **本会话累计**：当前会话所有模型调用的输入、输出、缓存读取、思考 Token、调用次数、缓存命中率、参考费用，以及按模型拆分。
 
 ### 额度
@@ -159,7 +159,7 @@ The panel has three tabs, and the UI switches between 中文 and English with on
   - Request budget: past the per-request budget (usually 256,000 tokens) the app trims older history, and the panel says so.
   - Checkpoints, knowledge / artifact / skill files and auto-loaded system files.
   - **Copy as text** copies the report as the CLI prints it.
-- **Output Speed**: streaming speed, end-to-end speed, time to first token (TTFT) and cache hit rate over the last calls, plus this reply's output tokens (thinking / response split); when a conversation uses several models (e.g. main agent and subagents), speed is also broken down per model.
+- **Output Speed**: streaming speed, end-to-end speed, time to first token (TTFT) and cache hit rate over the last calls, plus this reply's output tokens (thinking / response split); when the model was switched within a conversation, speed is also broken down per model.
 - **This conversation**: input, output, cache-read and thinking tokens, calls, cache hit rate and reference cost summed over every model call of the open conversation, with a per-model breakdown.
 
 ### Quota

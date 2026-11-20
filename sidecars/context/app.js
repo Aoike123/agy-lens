@@ -50,7 +50,7 @@
       readFailed: (m) => `无法读取这个对话：${m}`,
       speedTitle: '输出速度', speedWaiting: '模型完成一次回复后显示生成速度', speedCalls: (n) => `${n} 次调用`,
       streaming: '流式速度', e2e: '端到端', ttft: '首字延迟', cacheHit: '缓存命中', avgOf: (v) => `均值 ${v}`,
-      peak: (v) => `峰值 ${v} tok/s`, lastReply: (n) => `上次回复输出 ${n} tok`,
+      median: (v) => `中位数 ${v} tok/s`, sep: '。', lastReply: (n) => `上次回复输出 ${n} tok`,
       thinkingNote: (a, b) => `，思考 ${a} · 回复 ${b}`, streamNote: (v) => `，流式 ${v}`,
       speedTip: (s, e, t, o) => `流式 ${s} tok/s · 端到端 ${e} tok/s · 首字 ${t} · 输出 ${o} tok`,
       byModelSpeed: '按模型', agentMain: '主智能体', agentSub: '子智能体',
@@ -103,7 +103,7 @@
       readFailed: (m) => `Couldn't read this conversation: ${m}`,
       speedTitle: 'Output speed', speedWaiting: 'Generation speed appears after the model finishes a reply', speedCalls: (n) => `${n} calls`,
       streaming: 'Streaming', e2e: 'End to end', ttft: 'First token', cacheHit: 'Cache hit', avgOf: (v) => `avg ${v}`,
-      peak: (v) => `peak ${v} tok/s`, lastReply: (n) => `Last reply ${n} tok`,
+      median: (v) => `median ${v} tok/s`, sep: '. ', lastReply: (n) => `Last reply ${n} tok`,
       thinkingNote: (a, b) => `, thinking ${a} · response ${b}`, streamNote: (v) => `, streamed in ${v}`,
       speedTip: (s, e, t, o) => `streaming ${s} tok/s · end to end ${e} tok/s · first token ${t} · output ${o} tok`,
       byModelSpeed: 'By model', agentMain: 'main agent', agentSub: 'subagent',
@@ -123,7 +123,7 @@
       historyTitle: 'Usage history', scanning: 'Scanning all conversations, this can take a few seconds', historyFailed: 'History scan failed',
       periods: { today: 'Today', d7: 'Last 7 days', d30: 'Last 30 days', all: 'All time' },
       colPeriod: 'Period', colTokens: 'Tokens', colCalls: 'Calls', colCost: 'Ref. cost',
-      callsConvs: (c, n) => `${c} calls · ${n} conversations`, calls: (n) => `${n} calls`,
+      callsConvs: (c, n) => `${c} calls · ${n} conversations`, calls: (n) => `${n} ${n === '1' ? 'call' : 'calls'}`,
       tokensNoCache: 'tokens, excluding cache reads',
       refNote: 'Reference cost from public list prices, not your bill', refPartial: 'Some models have no public price and are left out, so ≥ marks a lower bound',
       noRefPrice: 'no reference price', partialTip: 'priced models only',
@@ -308,20 +308,23 @@
     return `<section><h2>${esc(title)} <span class="hint">${esc(hint)}</span></h2><ul class="files">${rows}</ul></section>`;
   }
 
-  /** Recent calls as bars: streaming tok/s on a zero baseline, latest in the accent. */
+  /** Recent calls as bars: streaming tok/s on a zero baseline, latest in the accent.
+      The scale tops out at 2× the median so one very short stream does not flatten the rest. */
   function trendBars(recent) {
     if (!Array.isArray(recent) || recent.length < 2) return '';
     const vals = recent.map((x) => (isNum(x.streaming_tps) ? x.streaming_tps : null));
-    const max = Math.max(0, ...vals.filter((v) => v != null));
-    if (!max) return '';
+    const sorted = vals.filter((v) => v != null).sort((a, b) => a - b);
+    if (!sorted.length || !sorted[sorted.length - 1]) return '';
+    const median = sorted[Math.floor((sorted.length - 1) / 2)];
+    const top = Math.min(sorted[sorted.length - 1], Math.max(median * 2, 1));
     const bars = recent.map((x, i) => {
       const v = vals[i];
       const tip = t('speedTip', fmtTps(x.streaming_tps), fmtTps(x.e2e_tps), fmtSec(x.ttft_sec), fmtTok(x.output_tokens));
-      const cls = [v == null ? 'none' : '', i === recent.length - 1 ? 'last' : ''].join(' ').trim();
-      const h = v == null ? 2 : Math.max(2, Math.round(v / max * 36));
+      const cls = [v == null ? 'none' : '', v != null && v > top ? 'clip' : '', i === recent.length - 1 ? 'last' : ''].join(' ').trim();
+      const h = v == null ? 2 : Math.max(2, Math.round(Math.min(v, top) / top * 36));
       return `<span class="${cls}" style="height:${h}px" title="${esc(tip)}"></span>`;
     }).join('');
-    return `<div class="trend"><div class="bars">${bars}</div><span class="lbl">${esc(t('peak', max.toFixed(0)))}</span></div>`;
+    return `<div class="trend"><div class="bars">${bars}</div><span class="lbl">${esc(t('median', median.toFixed(0)))}</span></div>`;
   }
 
   function speedByModel(list) {
@@ -331,13 +334,14 @@
       const name = m.display_name || m.model || '?';
       const agent = m.agent === 'main' ? t('agentMain') : m.agent === 'subagent' ? t('agentSub') : '';
       const bars = trendBars(m.recent);
-      const head = `<span class="ellipsis">${esc(name)}${agent ? ` <span class="dim">· ${esc(agent)}</span>` : ''}</span>`
-        + `<span class="rv num"><b>${fmtTps(m.avg_streaming_tps)}</b> tok/s · ${esc(fmtSec(m.avg_ttft_sec))} · ${esc(t('calls', fmtInt(m.calls)))}</span>`;
-      if (!bars) return `<li><div class="rh">${head}</div></li>`;
-      return `<li><details data-key="${esc(key)}"${openKeys.has(key) ? ' open' : ''}><summary class="rh" style="width:auto;display:flex">${head}</summary>
-        <div style="margin-top:8px">${bars}</div></details></li>`;
+      const head = `<span class="ellipsis" title="${esc(m.model || '')}">${esc(name)}${agent ? ` <span class="dim">· ${esc(agent)}</span>` : ''}</span>`
+        + `<span class="rv num"><b>${fmtTps(m.avg_streaming_tps)}</b> tok/s</span>`
+        + `<span class="sub num">${esc(t('ttft'))} ${esc(fmtSec(m.avg_ttft_sec))} · ${esc(t('calls', fmtInt(m.calls)))}</span>`;
+      if (!bars) return `<li><div class="spd-row">${head}</div></li>`;
+      return `<li><details data-key="${esc(key)}"${openKeys.has(key) ? ' open' : ''}><summary class="spd-row">${head}</summary>
+        <div class="spd-trend">${bars}</div></details></li>`;
     }).join('');
-    return `<h2 style="margin:16px 0 4px">${esc(t('byModelSpeed'))} <span class="hint">${esc(t('streaming'))} · ${esc(t('ttft'))}</span></h2><ul class="rank">${rows}</ul>`;
+    return `<h2 style="margin:16px 0 0">${esc(t('byModelSpeed'))} <span class="hint">${esc(t('streaming'))}</span></h2><ul class="spd">${rows}</ul>`;
   }
 
   function speed(r) {
@@ -499,7 +503,7 @@
   const fraction = (v) => (isNum(v) ? Math.min(1, Math.max(0, v)) : null);
   const levelOf = (f) => (f == null ? 'unknown' : f < 0.05 ? 'crit' : f < 0.2 ? 'warn' : '');
   const pctText = (f) => (f == null ? '—' : `${(f * 100).toFixed(f < 0.1 && f > 0 ? 1 : 0)}%`);
-  const isUnlimited = (l) => l.kind === 'none' || (!l.reset_time && (l.f == null || l.f >= 1));
+  const isUnlimited = (l) => l.kind === 'none' || (!l.reset_time && l.f != null && l.f >= 1);
 
   function resetText(iso) {
     const d = parseDate(iso);
@@ -550,7 +554,7 @@
   function limitHtml(l, single) {
     const name = limitLabel(l, single);
     if (isUnlimited(l)) {
-      return `<div class="limit free"><div class="limit-head"><span>${esc(name)}</span><span>${esc(t('unlimited'))}</span></div></div>`;
+      return `<div class="limit free"><div class="limit-head"><span>${esc(t('unlimited'))}</span></div></div>`;
     }
     const f = l.f;
     const resetTitle = l.reset_time ? t('resetAt', fmtTime(l.reset_time, true)) : '';
@@ -622,7 +626,7 @@
     return `<div class="headline">
       <div class="lbl">${esc(t('periods')[period])}</div>
       <div class="fig num" title="${esc(fmtInt(newTok(p)))}">${fmtTok(newTok(p))}<span class="unit">${esc(t('tokensNoCache'))}</span></div>
-      <div class="lbl num">${esc(t('callsConvs', fmtInt(p.calls), fmtInt(p.conversations)))} · ${costHtml(p.est_cost_usd, { partial, calls: p.calls, label: false })}</div>
+      <div class="lbl num">${esc(t('callsConvs', fmtInt(p.calls), fmtInt(p.conversations)))} · ${costHtml(p.est_cost_usd, { partial, calls: p.calls })}</div>
       <div class="lbl num">${esc(t('ioLine', fmtTok(p.input), fmtTok(p.output), fmtTok(p.cache_read)))}</div>
     </div>`;
   }
@@ -636,7 +640,7 @@
     }).join('');
     return `<table class="periods"><thead><tr><th>${esc(t('colPeriod'))}</th><th>${esc(t('colTokens'))}</th><th>${esc(t('colCalls'))}</th><th>${esc(t('colCost'))}</th></tr></thead>
       <tbody>${rows}</tbody></table>
-      <p class="note">${esc(t('refNote'))}${partial ? `. ${esc(t('refPartial'))}` : ''}</p>`;
+      <p class="note">${esc(t('refNote'))}${partial ? `${esc(t('sep'))}${esc(t('refPartial'))}` : ''}</p>`;
   }
 
   const parseDay = (s) => { const [y, m, d] = String(s).split('-').map(Number); return new Date(y, (m || 1) - 1, d || 1); };
@@ -650,7 +654,10 @@
     if (Number.isNaN(end.getTime())) return '';
     const firstActive = daily.find((d) => num(d.tokens) > 0 || num(d.calls) > 0);
     const spanDays = firstActive ? Math.round((end - parseDay(firstActive.date)) / 86400000) + 1 : 0;
-    const weeks = Math.min(HEAT_MAX_WEEKS, Math.max(HEAT_MIN_WEEKS, Math.ceil((spanDays + (6 - end.getDay())) / 7)));
+    // As many ~14px weeks as fit the panel, never fewer than needed to reach the first active day (capped).
+    const fit = Math.floor(((panes.history.clientWidth || 360) - 56) / 17);
+    const need = Math.ceil((spanDays + (6 - end.getDay())) / 7);
+    const weeks = Math.min(HEAT_MAX_WEEKS, Math.max(HEAT_MIN_WEEKS, fit, Math.min(need, HEAT_MAX_WEEKS)));
     const start = new Date(end.getFullYear(), end.getMonth(), end.getDate() - end.getDay() - 7 * (weeks - 1));
     const days = [];
     for (let i = 0; i < weeks * 7; i += 1) days.push(new Date(start.getFullYear(), start.getMonth(), start.getDate() + i));
@@ -691,10 +698,13 @@
     const max = Math.max(1, ...list.map(allTok));
     const seg = (v, cls) => (v > 0 ? `<span class="${cls}" style="width:${(v / max * 100).toFixed(2)}%"></span>` : '');
     const legend = `<div class="legend"><span><i class="seg-in"></i>${esc(t('legInput'))}</span><span><i class="seg-cache"></i>${esc(t('legCache'))}</span><span><i class="seg-out"></i>${esc(t('legOutput'))}</span></div>`;
+    const names = new Map();
+    list.forEach((m) => { const n = m.display_name || m.model; names.set(n, (names.get(n) || 0) + 1); });
     const rows = list.slice(0, 12).map((m) => {
+      const dup = names.get(m.display_name || m.model) > 1 && m.display_name;
       const tip = `${m.model}\n${t('ioLine', fmtInt(m.input), fmtInt(m.output), fmtInt(m.cache_read))}\n${t('calls', fmtInt(m.calls))}`;
       return `<li title="${esc(tip)}">
-        <div class="rh"><span class="ellipsis">${esc(m.display_name || m.model || '?')}</span>
+        <div class="rh"><span class="ellipsis">${esc(m.display_name || m.model || '?')}${dup ? ` <span class="dim mono">${esc(m.model)}</span>` : ''}</span>
           <span class="rv num"><b>${fmtTok(newTok(m))}</b> · ${esc(t('calls', fmtInt(m.calls)))}${isNum(m.est_cost_usd) ? ` · ${esc(fmtUsd(m.est_cost_usd))}` : ''}</span></div>
         <div class="hbar">${seg(num(m.input), 'seg-in')}${seg(num(m.cache_read), 'seg-cache')}${seg(num(m.output), 'seg-out')}</div>
       </li>`;
