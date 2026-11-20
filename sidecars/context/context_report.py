@@ -677,10 +677,118 @@ def load(db_path: Path) -> tuple[list[Step], Msg | None]:
     try:
         rows = conn.execute("SELECT idx, step_type, status, metadata, step_payload FROM steps ORDER BY idx").fetchall()
         steps = [Step(pos, r[4] or b"", r[1], r[2], r[3]) for pos, r in enumerate(rows)]
-        row = conn.execute("SELECT data FROM gen_metadata ORDER BY idx DESC LIMIT 1").fetchone()
+        rows = _gen_rows(conn, 1)
     finally:
         conn.close()
-    return steps, (Msg(row[0]) if row else None)
+    return steps, (Msg(rows[0][0]) if rows and rows[0][0] else None)
+
+
+def _gen_rows(conn: sqlite3.Connection, limit: int) -> list[tuple]:
+    """Newest-first gen_metadata rows; [] when the table does not exist (yet)."""
+    try:
+        return conn.execute("SELECT data FROM gen_metadata ORDER BY idx DESC LIMIT ?", (limit,)).fetchall()
+    except sqlite3.OperationalError as e:
+        if "no such table" in str(e):
+            return []
+        raise
+
+
+def load_generations(db_path: Path, limit: int = 50) -> list[Msg]:
+    """Load recent gen_metadata protobuf rows (newest-first) read-only."""
+    uri = "file:" + db_path.as_posix() + "?mode=ro"
+    conn = sqlite3.connect(uri, uri=True)
+    try:
+        rows = _gen_rows(conn, limit)
+    finally:
+        conn.close()
+    return [Msg(r[0]) for r in rows if r[0]]
+
+
+def pb_duration_sec(msg: Msg | None) -> float | None:
+    """Decode google.protobuf.Duration (seconds=1, nanos=2) into seconds."""
+    if msg is None or (not msg.has(1) and not msg.has(2)):
+        return None
+    sec = msg.int(1) if msg.has(1) else 0
+    nanos = msg.int(2) if msg.has(2) else 0
+    if sec < 0 or nanos < 0 or sec > 86400 or nanos >= 1_000_000_000:
+        return None
+    return sec + nanos / 1_000_000_000.0
+
+
+def parse_generation_speed(gen: Msg | None) -> dict | None:
+    """Extract output tokens, TTFT, streaming duration, and tok/s from one gen_metadata row."""
+    chat = gen.msg(1) if gen is not None else None
+    if chat is None:
+        return None
+    usage = chat.msg(4)
+    input_tok = usage.int(2) if usage is not None else 0
+    output_tok = usage.int(3) if usage is not None else 0
+    cache_read_tok = usage.int(5) if usage is not None else 0
+    thinking_tok = usage.int(9) if usage is not None else 0
+    response_tok = usage.int(10) if usage is not None else 0
+    if response_tok == 0 and output_tok > 0:
+        response_tok = max(0, output_tok - thinking_tok)
+
+    ttft = pb_duration_sec(chat.msg(11))
+    streaming = pb_duration_sec(chat.msg(12))
+    if ttft is None and streaming is None:
+        return None
+
+    total = (ttft + streaming) if (ttft is not None and streaming is not None) else (ttft if ttft is not None else streaming)
+    streaming_tps = round(output_tok / streaming, 1) if (output_tok > 0 and streaming is not None and streaming >= 0.05) else None
+    e2e_tps = round(output_tok / total, 1) if (output_tok > 0 and total is not None and total > 0) else None
+    total_input = input_tok + cache_read_tok
+    cache_hit_pct = round(cache_read_tok / total_input * 100.0, 1) if total_input > 0 else None
+
+    return {
+        "output_tokens": output_tok,
+        "thinking_tokens": thinking_tok,
+        "response_tokens": response_tok,
+        "ttft_sec": round(ttft, 2) if ttft is not None else None,
+        "streaming_sec": round(streaming, 2) if streaming is not None else None,
+        "total_sec": round(total, 2) if total is not None else None,
+        "streaming_tps": streaming_tps,
+        "e2e_tps": e2e_tps,
+        "cache_hit_pct": cache_hit_pct,
+        "_ttft_sec": ttft,
+        "_streaming_sec": streaming,
+        "_total_sec": total,
+    }
+
+
+def collect_speed(gens: list[Msg]) -> dict | None:
+    """Aggregate latest and weighted-average speed metrics across recent generations (newest-first)."""
+    entries = [e for g in gens if (e := parse_generation_speed(g)) is not None]
+    if not entries:
+        return None
+
+    stream_entries = [e for e in entries if e["output_tokens"] > 0 and e["_streaming_sec"] is not None and e["_streaming_sec"] >= 0.05]
+    avg_streaming_tps = (
+        round(sum(e["output_tokens"] for e in stream_entries) / sum(e["_streaming_sec"] for e in stream_entries), 1)
+        if stream_entries
+        else None
+    )
+    e2e_entries = [e for e in entries if e["output_tokens"] > 0 and e["_total_sec"] is not None and e["_total_sec"] > 0]
+    avg_e2e_tps = (
+        round(sum(e["output_tokens"] for e in e2e_entries) / sum(e["_total_sec"] for e in e2e_entries), 1)
+        if e2e_entries
+        else None
+    )
+    ttft_vals = [e["_ttft_sec"] for e in entries if e["_ttft_sec"] is not None]
+    avg_ttft_sec = round(sum(ttft_vals) / len(ttft_vals), 2) if ttft_vals else None
+
+    latest = {k: v for k, v in entries[0].items() if not k.startswith("_")}
+    recent_keys = ("streaming_tps", "e2e_tps", "ttft_sec", "streaming_sec", "total_sec", "output_tokens")
+    recent = [{k: e[k] for k in recent_keys} for e in reversed(entries[:8])]
+    return {
+        "latest": latest,
+        "calls": len(entries),
+        "avg_streaming_tps": avg_streaming_tps,
+        "avg_e2e_tps": avg_e2e_tps,
+        "avg_ttft_sec": avg_ttft_sec,
+        "total_output_tokens": sum(e["output_tokens"] for e in entries),
+        "recent": recent,
+    }
 
 
 # Native context windows from the model catalog, which the CLI fetches from the server
@@ -790,6 +898,7 @@ def main():
     system_files = detect_system_files(os.path.expanduser("~"), args.workspace, args.app_dir)
 
     if args.json:
+        speed = collect_speed(load_generations(db_path))
         print(json.dumps({
             "conversation_id": conv_id,
             "model": model,
@@ -817,6 +926,7 @@ def main():
             "artifact_files": [{"path": p, "tokens": t} for p, t in st["artifact_files"]],
             "skill_files": [{"path": p, "tokens": t} for p, t in st["skill_files"]],
             "system_files": [{"path": p} for p, _ in system_files],
+            "speed": speed,
         }, indent=2))
         return
 

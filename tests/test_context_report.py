@@ -50,14 +50,15 @@ def m(*parts: bytes) -> bytes:
 
 
 class ConversationDB:
-    def __init__(self, path: Path):
+    def __init__(self, path: Path, gen_table: bool = True):
         self.conn = sqlite3.connect(path)
         self.conn.execute(
             "CREATE TABLE steps (idx integer, step_type integer NOT NULL DEFAULT 0, status integer NOT NULL DEFAULT 0, "
             "has_subtrajectory numeric NOT NULL DEFAULT false, metadata blob, error_details blob, permissions blob, "
             "task_details blob, render_info blob, step_payload blob, step_format integer NOT NULL DEFAULT 0, PRIMARY KEY (idx))"
         )
-        self.conn.execute("CREATE TABLE gen_metadata (idx integer, data blob, size integer NOT NULL DEFAULT 0, PRIMARY KEY (idx))")
+        if gen_table:
+            self.conn.execute("CREATE TABLE gen_metadata (idx integer, data blob, size integer NOT NULL DEFAULT 0, PRIMARY KEY (idx))")
         self.n = 0
 
     def step(self, step_type: int, metadata: bytes = b"", payload_field: int | None = None, payload: bytes = b"", status: int = 3):
@@ -69,9 +70,9 @@ class ConversationDB:
         self.n += 1
 
     def generation(self, groups: list[bytes], max_context: int = 1_000_000, usage: bytes = b"", checkpoint_index: int = -1,
-                   model: str = "test-model", display_name: str = "Test Model"):
+                   model: str = "test-model", display_name: str = "Test Model", timing: bytes = b""):
         cwm = m(f(1, 0), f(3, m(*[f(1, g) for g in groups])), f(4, max_context))
-        chat = m(f(4, usage), f(9, m(f(2, checkpoint_index), f(10, cwm))), f(21, display_name) if display_name else b"")
+        chat = m(f(4, usage), f(9, m(f(2, checkpoint_index), f(10, cwm))), f(21, display_name) if display_name else b"", timing)
         data = m(f(1, chat), f(3, f(28, model)))
         self.conn.execute("INSERT INTO gen_metadata (idx, data) VALUES ((SELECT COUNT(*) FROM gen_metadata), ?)", (data,))
 
@@ -94,8 +95,23 @@ def planner(text: str) -> bytes:
     return f(1, text)
 
 
-def usage(input_tokens: int = 0, output: int = 0, cache_read: int = 0) -> bytes:
-    return m(f(2, input_tokens), f(3, output), f(5, cache_read))
+def usage(input_tokens: int = 0, output: int = 0, cache_read: int = 0, thinking: int = 0, response: int = 0) -> bytes:
+    return m(f(2, input_tokens), f(3, output), f(5, cache_read), f(9, thinking) if thinking else b"",
+             f(10, response) if response else b"")
+
+
+def duration(sec: int | None = None, nanos: int | None = None) -> bytes:
+    """google.protobuf.Duration: seconds=1, nanos=2 (negative ints encode as 64-bit two's complement)."""
+    return m(f(1, sec) if sec is not None else b"", f(2, nanos) if nanos is not None else b"")
+
+
+def timing(ttft: bytes | None = None, streaming: bytes | None = None) -> bytes:
+    """ChatModelMetadata time_to_first_token=11, streaming_duration=12."""
+    return m(f(11, ttft) if ttft is not None else b"", f(12, streaming) if streaming is not None else b"")
+
+
+def speed_gen(output: int = 0, ttft: bytes | None = None, streaming: bytes | None = None, **usage_kw) -> "context_report.Msg":
+    return context_report.Msg(f(1, m(f(4, usage(output=output, **usage_kw)), timing(ttft, streaming))))
 
 
 def tool_call(args: str) -> bytes:
@@ -339,6 +355,146 @@ class ReportTest(unittest.TestCase):
         lines = out.splitlines()
         self.assertEqual(lines[2], "Test Model · 300/200.0k tokens")  # stats above the grid
         self.assertTrue(lines[-3].startswith("□"))
+
+    # --- generation speed ---
+
+    def test_json_speed_from_generations(self):
+        self.basic_steps()
+        self.db.generation([group(7, 10, ("0: USER_INPUT", 10))], usage=usage(100, 200, 300),
+                           timing=timing(duration(1), duration(4)))
+        self.db.generation([group(7, 10, ("0: USER_INPUT", 10))], usage=usage(0, 100),
+                           timing=timing(duration(0, 500_000_000), duration(2)))
+        s = self.report()["speed"]
+        self.assertEqual(set(s), {"latest", "calls", "avg_streaming_tps", "avg_e2e_tps", "avg_ttft_sec",
+                                  "total_output_tokens", "recent"})
+        self.assertEqual(s["calls"], 2)
+        self.assertEqual(s["latest"]["output_tokens"], 100)  # newest row
+        self.assertEqual(s["latest"]["streaming_tps"], 50.0)
+        self.assertEqual(s["avg_streaming_tps"], 50.0)  # 300 / 6
+        self.assertEqual(s["avg_e2e_tps"], 40.0)  # 300 / 7.5
+        self.assertEqual(s["avg_ttft_sec"], 0.75)
+        self.assertEqual(s["total_output_tokens"], 300)
+        self.assertEqual([r["output_tokens"] for r in s["recent"]], [200, 100])  # oldest-first
+        self.assertFalse(any(k.startswith("_") for k in s["latest"]))
+
+    def test_json_speed_null_without_timing_rows(self):
+        self.basic_steps()
+        self.db.generation([group(7, 10, ("0: USER_INPUT", 10))], usage=usage(100, 200))  # no timing fields
+        self.assertIsNone(self.report()["speed"])
+
+    def test_json_speed_null_without_gen_rows(self):
+        self.basic_steps()
+        self.assertIsNone(self.report()["speed"])
+
+    def test_json_without_gen_metadata_table(self):
+        self.db.close()
+        self.db_path.unlink()
+        self.db = ConversationDB(self.db_path, gen_table=False)
+        self.basic_steps()
+        r = self.report()
+        self.assertIsNone(r["speed"])
+        self.assertFalse(r["has_breakdown"])
+        self.assertEqual(r["by_name"]["User messages"], 3)
+        self.assertIn("Context Usage", self.run_report())
+
+
+class SpeedTest(unittest.TestCase):
+    def dur(self, raw: bytes):
+        return context_report.pb_duration_sec(context_report.Msg(raw))
+
+    def test_duration_decoding(self):
+        self.assertEqual(self.dur(duration(3, 250_000_000)), 3.25)
+        self.assertEqual(self.dur(duration(nanos=400_000_000)), 0.4)
+        self.assertEqual(self.dur(duration(12)), 12.0)
+        self.assertEqual(self.dur(duration(0, 0)), 0.0)
+
+    def test_duration_invalid(self):
+        self.assertIsNone(context_report.pb_duration_sec(None))
+        self.assertIsNone(self.dur(b""))  # no fields
+        self.assertIsNone(self.dur(duration(-1)))
+        self.assertIsNone(self.dur(duration(1, -5)))
+        self.assertIsNone(self.dur(duration(nanos=1_000_000_000)))
+        self.assertIsNone(self.dur(duration(86_401)))
+        self.assertEqual(self.dur(duration(86_400)), 86_400.0)
+
+    def test_parse_no_timing(self):
+        self.assertIsNone(context_report.parse_generation_speed(None))
+        self.assertIsNone(context_report.parse_generation_speed(context_report.Msg(b"")))
+        self.assertIsNone(context_report.parse_generation_speed(speed_gen(output=100)))
+        self.assertIsNone(context_report.parse_generation_speed(speed_gen(output=100, ttft=b"", streaming=duration(-3))))
+
+    def test_parse_full(self):
+        e = context_report.parse_generation_speed(speed_gen(
+            output=300, thinking=100, input_tokens=250, cache_read=750,
+            ttft=duration(1, 500_000_000), streaming=duration(3)))
+        self.assertEqual(e["output_tokens"], 300)
+        self.assertEqual(e["thinking_tokens"], 100)
+        self.assertEqual(e["response_tokens"], 200)  # inferred from output - thinking
+        self.assertEqual(e["ttft_sec"], 1.5)
+        self.assertEqual(e["streaming_sec"], 3.0)
+        self.assertEqual(e["total_sec"], 4.5)
+        self.assertEqual(e["streaming_tps"], 100.0)
+        self.assertEqual(e["e2e_tps"], 66.7)
+        self.assertEqual(e["cache_hit_pct"], 75.0)
+
+    def test_parse_explicit_response_tokens_and_no_input(self):
+        e = context_report.parse_generation_speed(speed_gen(output=300, thinking=100, response=150, ttft=duration(1)))
+        self.assertEqual(e["response_tokens"], 150)
+        self.assertIsNone(e["cache_hit_pct"])
+        self.assertIsNone(e["streaming_sec"])
+        self.assertIsNone(e["streaming_tps"])
+        self.assertEqual((e["total_sec"], e["e2e_tps"]), (1.0, 300.0))
+
+    def test_parse_short_streaming(self):
+        e = context_report.parse_generation_speed(speed_gen(output=10, ttft=duration(1), streaming=duration(0, 40_000_000)))
+        self.assertIsNone(e["streaming_tps"])
+        self.assertEqual(e["streaming_sec"], 0.04)
+        self.assertIsNotNone(e["e2e_tps"])
+        e = context_report.parse_generation_speed(speed_gen(output=0, streaming=duration(2)))
+        self.assertIsNone(e["streaming_tps"])
+        self.assertIsNone(e["e2e_tps"])
+
+    def test_collect_empty(self):
+        self.assertIsNone(context_report.collect_speed([]))
+        self.assertIsNone(context_report.collect_speed([speed_gen(output=5), context_report.Msg(b"")]))
+
+    def test_collect_weighted_and_order(self):
+        gens = [  # newest-first
+            speed_gen(output=100, ttft=duration(1), streaming=duration(1)),
+            speed_gen(output=5),  # no timing: skipped entirely
+            speed_gen(output=900, ttft=duration(3), streaming=duration(9)),
+            speed_gen(output=50, ttft=duration(2), streaming=duration(0, 10_000_000)),  # too short to stream-rate
+        ]
+        s = context_report.collect_speed(gens)
+        self.assertEqual(s["calls"], 3)
+        self.assertEqual(s["latest"]["output_tokens"], 100)
+        self.assertEqual(s["avg_streaming_tps"], 100.0)  # (100 + 900) / (1 + 9), not mean of rates
+        self.assertEqual(s["avg_e2e_tps"], round(1050 / (2 + 12 + 2.01), 1))
+        self.assertEqual(s["avg_ttft_sec"], 2.0)
+        self.assertEqual(s["total_output_tokens"], 1050)
+        self.assertEqual([r["output_tokens"] for r in s["recent"]], [50, 900, 100])
+        self.assertEqual(set(s["recent"][0]), {"streaming_tps", "e2e_tps", "ttft_sec", "streaming_sec", "total_sec",
+                                               "output_tokens"})
+
+    def test_collect_recent_capped(self):
+        gens = [speed_gen(output=n, streaming=duration(1)) for n in range(20, 0, -1)]  # newest = 20
+        s = context_report.collect_speed(gens)
+        self.assertEqual(s["calls"], 20)
+        self.assertEqual([r["output_tokens"] for r in s["recent"]], [13, 14, 15, 16, 17, 18, 19, 20])
+
+    def test_load_generations_newest_first_and_missing_table(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "a.db"
+            db = ConversationDB(path)
+            db.generation([], model="old")
+            db.generation([], model="new")
+            db.close()
+            gens = context_report.load_generations(path)
+            self.assertEqual([context_report.model_id(g) for g in gens], ["new", "old"])
+            self.assertEqual(len(context_report.load_generations(path, limit=1)), 1)
+            path2 = Path(tmp) / "b.db"
+            ConversationDB(path2, gen_table=False).close()
+            self.assertEqual(context_report.load_generations(path2), [])
 
 
 class FormatTest(unittest.TestCase):
