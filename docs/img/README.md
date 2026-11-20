@@ -1,11 +1,9 @@
 # Screenshots
 
-Images referenced by the README. Expected files (PNG, panel at ~420 px wide, personal data redacted):
+Release screenshots referenced by the README (PNG, panel rendered at 420 px wide, 2× DPR, dark theme, personal data redacted):
 
 | File | Content |
 | --- | --- |
-| `overview.png` | Overview tab: context usage, Output Speed, This conversation |
-| `quota.png` | Quota tab: category pools with 5-hour limit bars |
-| `history.png` | History tab: totals, by model, by conversation, activity heatmap |
-
-`cli-vs-panel.png` shows the original 1.0 panel next to `agy /context` and is no longer referenced by the README.
+| `overview.png` | Overview tab: context usage dot grid, request budget, Output Speed (with buffered-burst filtering), This conversation totals & cost estimate |
+| `quota.png` | Quota tab: category pools with inferred 5-hour limit, 20-dot meter, deduplicated model families |
+| `history.png` | History tab: categorized views (Totals with per-pool weekly quota calibration, USD cost & Sync prices, period-adaptive activity heatmap, merged Top 5 models) |

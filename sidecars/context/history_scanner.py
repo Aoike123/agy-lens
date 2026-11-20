@@ -8,14 +8,16 @@ database's (and its -wal file's) mtime and size, so only changed databases are r
 
 Python stdlib only. Never writes to a conversation database.
 
-    python history_scanner.py --json [--cache PATH] [--root DIR[=label]]... [--days 365]
+    python history_scanner.py --json [--cache PATH] [--root DIR[=label]]... [--days 365] [--pricing-file PATH]
 """
 
 import argparse
 from datetime import date, datetime, timedelta
 import json
+import math
 import os
 from pathlib import Path
+import re
 import sqlite3
 import sys
 import time
@@ -89,47 +91,223 @@ USAGE_FIELDS = frozenset((2, 3, 5, 9))  # input, output, cache_read, thinking
 STEP_MD_FIELDS = frozenset((1,))  # created_at
 
 
-# --- pricing -----------------------------------------------------------------
+# --- pricing & pools ---------------------------------------------------------
 
-# REFERENCE ONLY: approximate public list prices in USD per 1M tokens
-# (input, output, cache_read), matched by model-ID prefix, first match wins.
-# Output includes thinking tokens (the API's output count already contains them).
-# Not your bill: plans, tiers, long-context surcharges and discounts are ignored.
-# Internal / unreleased model IDs are deliberately absent and price as null.
+# Built-in official public list prices in USD per 1M tokens
+# (input, output, cache_read), used offline or as fallback when no synced
+# pricing file is passed via --pricing-file. Output includes thinking tokens
+# (the API's output count already contains them).
 PRICES_USD_PER_1M: list[tuple[str, tuple[float, float, float]]] = [
     ("gemini-3.1-pro", (2.00, 12.00, 0.20)),
     ("gemini-3-pro", (2.00, 12.00, 0.20)),
     ("gemini-3-flash", (0.50, 3.00, 0.05)),
-    ("gemini-2.5-pro", (1.25, 10.00, 0.125)),
-    ("gemini-2.5-flash-lite", (0.10, 0.40, 0.01)),
-    ("gemini-2.5-flash", (0.30, 2.50, 0.03)),
+    ("gemini-2.5-pro", (1.25, 10.00, 0.3125)),
+    ("gemini-2.5-flash", (0.30, 2.50, 0.075)),
     ("gemini-2.0-flash-lite", (0.075, 0.30, 0.075)),
     ("gemini-2.0-flash", (0.10, 0.40, 0.025)),
-    ("claude-opus-4-6", (5.00, 25.00, 0.50)),
-    ("claude-opus-4-5", (5.00, 25.00, 0.50)),
+    ("claude-opus-4-6", (15.00, 75.00, 1.50)),
+    ("claude-opus-4-5", (15.00, 75.00, 1.50)),
     ("claude-opus-4-1", (15.00, 75.00, 1.50)),
     ("claude-opus-4", (15.00, 75.00, 1.50)),
+    ("claude-sonnet-4-6", (3.00, 15.00, 0.30)),
+    ("claude-sonnet-4-5", (3.00, 15.00, 0.30)),
     ("claude-sonnet-4", (3.00, 15.00, 0.30)),
     ("claude-3-7-sonnet", (3.00, 15.00, 0.30)),
-    ("claude-haiku-4-5", (1.00, 5.00, 0.10)),
+    ("claude-3-5-sonnet", (3.00, 15.00, 0.30)),
+    ("claude-haiku-4-5", (0.80, 4.00, 0.08)),
     ("claude-3-5-haiku", (0.80, 4.00, 0.08)),
-    ("gpt-oss-120b", (0.15, 0.60, 0.15)),
-    ("gpt-oss-20b", (0.05, 0.20, 0.05)),
+    ("gpt-oss-120b", (0.15, 0.60, 0.075)),
+    ("gpt-oss-20b", (0.05, 0.20, 0.025)),
 ]
 
+# Same-family fallback for preview / unreleased models (marked cost_estimated=True).
+# Target model IDs are resolved via custom_prices first, then built-in PRICES_USD_PER_1M.
+PREVIEW_FAMILY_FALLBACKS: list[tuple[str, str]] = [
+    ("claude-opus-5", "claude-opus-4-6"),
+    ("claude-opus", "claude-opus-4-6"),
+    ("claude-sonnet-5", "claude-sonnet-4-6"),
+    ("claude-sonnet", "claude-sonnet-4-6"),
+    ("claude-haiku", "claude-haiku-4-5"),
+    ("gemini-3.8-flash", "gemini-2.5-flash"),
+    ("gemini-3.5-flash", "gemini-2.5-flash"),
+    ("gemini-3.1-flash", "gemini-2.5-flash"),
+    ("gemini-2.5-flash-lite", "gemini-2.5-flash"),
+    ("gemini-flash-", "gemini-2.5-flash"),
+    ("gemini-4-", "gemini-2.5-pro"),
+]
 
-def price_for(model: str) -> tuple[float, float, float] | None:
-    for prefix, p in PRICES_USD_PER_1M:
-        if model.startswith(prefix):
-            return p
+POOLS = ("gemini", "claude_gpt", "other")
+_VER_DOT_RE = re.compile(r"(?<=\d)\.(?=\d)")
+
+
+def _norm_ver(s: str) -> str:
+    return _VER_DOT_RE.sub("-", s)
+
+
+def _norm_num(v) -> float | None:
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        return None
+    val = float(v)
+    return val if math.isfinite(val) and val >= 0.0 else None
+
+
+def _extract_price(v) -> tuple[float, float, float] | None:
+    if isinstance(v, (tuple, list)) and len(v) == 3:
+        vals = tuple(_norm_num(x) for x in v)
+        return vals if all(x is not None for x in vals) else None
+    if isinstance(v, dict):
+        inp = _norm_num(v.get("input"))
+        out = _norm_num(v.get("output"))
+        if inp is None or out is None:
+            return None
+        raw_cache = v.get("cache_read")
+        cache = inp * 0.1 if raw_cache is None else _norm_num(raw_cache)
+        if cache is None:
+            return None
+        return (inp, out, cache)
     return None
 
 
-def call_cost(model: str, inp: int, out: int, cache_read: int) -> float | None:
-    p = price_for(model)
-    if p is None:
+def load_pricing_file(path: Path | str | None) -> tuple[dict, str, str | None]:
+    """Load normalized pricing cache JSON -> (models_dict, source, fetched_at).
+
+    Missing or invalid files silently fall back to ({}, 'builtin', None).
+    """
+    if not path:
+        return {}, "builtin", None
+    try:
+        with open(Path(path).expanduser(), encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError, TypeError):
+        return {}, "builtin", None
+    if not isinstance(data, dict) or not isinstance(data.get("models"), dict):
+        return {}, "builtin", None
+    models: dict[str, dict[str, float]] = {}
+    for k, v in data["models"].items():
+        if not isinstance(k, str):
+            continue
+        key = k.strip().lower()
+        p = _extract_price(v)
+        if key and p is not None:
+            models[key] = {"input": p[0], "output": p[1], "cache_read": p[2]}
+    if not models:
+        return {}, "builtin", None
+    src = data.get("source")
+    source = src.strip() if isinstance(src, str) and src.strip() else "custom"
+    fa = data.get("fetched_at")
+    fetched_at = fa.strip() if isinstance(fa, str) and fa.strip() else None
+    return models, source, fetched_at
+
+
+def _match_slug(slug: str, key: str) -> int:
+    if not key:
+        return 0
+    if "-lite" in slug and "-lite" not in key:
+        return 0
+    if slug == key:
+        return 10000 + len(key)
+    ns, nk = _norm_ver(slug), _norm_ver(key)
+    if ns == nk:
+        return 5000 + len(key)
+    if slug.startswith(key + "-") or slug.startswith(key + ":"):
+        return len(key)
+    if ns.startswith(nk + "-") or ns.startswith(nk + ":"):
+        return len(key)
+    return 0
+
+
+def _lookup_custom(slug: str, custom_prices: dict | None) -> tuple[float, float, float] | None:
+    if not custom_prices:
         return None
-    return (inp * p[0] + out * p[1] + cache_read * p[2]) / 1_000_000.0
+    best_key: tuple[int, int] = (0, 0)
+    best_price: tuple[float, float, float] | None = None
+    for orig_k, raw_v in custom_prices.items():
+        if not isinstance(orig_k, str):
+            continue
+        kl = orig_k.strip().lower()
+        bare = kl.rsplit("/", 1)[-1]
+        sc = _match_slug(slug, bare)
+        if sc <= 0:
+            continue
+        p = _extract_price(raw_v)
+        if p is None:
+            continue
+        rank = (sc, 1 if "/" not in kl else 0)
+        if rank > best_key:
+            best_key, best_price = rank, p
+    return best_price
+
+
+def _lookup_builtin(slug: str) -> tuple[float, float, float] | None:
+    best_score = 0
+    best_price: tuple[float, float, float] | None = None
+    for prefix, p in PRICES_USD_PER_1M:
+        sc = _match_slug(slug, prefix)
+        if sc > best_score:
+            best_score, best_price = sc, p
+    return best_price
+
+
+def _lookup_direct(slug: str, custom_prices: dict | None = None) -> tuple[float, float, float] | None:
+    p = _lookup_custom(slug, custom_prices)
+    if p is not None:
+        return p
+    return _lookup_builtin(slug)
+
+
+def _preview_target(slug: str) -> str | None:
+    for prefix, target in PREVIEW_FAMILY_FALLBACKS:
+        if slug.startswith(prefix):
+            return target
+    if "orchestrator" in slug:
+        return "gemini-2.5-pro"
+    return None
+
+
+def price_info(model: str, custom_prices: dict | None = None) -> tuple[tuple[float, float, float] | None, bool]:
+    """Return ((in, out, cache_read) USD/1M or None, is_estimated) for a model ID."""
+    slug = (model or "").strip().lower().rsplit("/", 1)[-1]
+    if not slug or slug == "unknown" or slug.startswith("tab_"):
+        return None, False
+    p = _lookup_direct(slug, custom_prices)
+    if p is not None:
+        return p, False
+    target = _preview_target(slug)
+    if target is not None:
+        p = _lookup_direct(target, custom_prices)
+        if p is not None:
+            return p, True
+    return None, False
+
+
+def price_for(model: str, custom_prices: dict | None = None) -> tuple[float, float, float] | None:
+    return price_info(model, custom_prices)[0]
+
+
+def call_cost_info(model: str, inp: int, out: int, cache_read: int,
+                   custom_prices: dict | None = None) -> tuple[float | None, bool]:
+    """Return (cost_usd or None, is_estimated) for one call."""
+    p, estimated = price_info(model, custom_prices)
+    if p is None:
+        return None, False
+    return (inp * p[0] + out * p[1] + cache_read * p[2]) / 1_000_000.0, estimated
+
+
+def call_cost(model: str, inp: int, out: int, cache_read: int,
+              custom_prices: dict | None = None) -> float | None:
+    return call_cost_info(model, inp, out, cache_read, custom_prices)[0]
+
+
+def model_pool(model_id: str) -> str:
+    """Map a model ID to its quota pool: 'gemini', 'claude_gpt', or 'other'."""
+    s = (model_id or "").strip().lower()
+    if not s or s == "unknown" or s.startswith("tab_"):
+        return "other"
+    if "claude" in s or "gpt" in s or "openai" in s:
+        return "claude_gpt"
+    if "gemini" in s or "orchestrator" in s:
+        return "gemini"
+    return "other"
 
 
 # --- per-database parsing ----------------------------------------------------
@@ -349,7 +527,12 @@ def parse_root(spec: str) -> tuple[Path, str]:
 
 
 def _empty_totals() -> dict:
-    return {"input": 0, "output": 0, "cache_read": 0, "thinking": 0, "calls": 0, "conversations": 0, "est_cost_usd": None}
+    return {"input": 0, "output": 0, "cache_read": 0, "thinking": 0, "calls": 0, "conversations": 0,
+            "est_cost_usd": None, "cost_estimated": False}
+
+
+def _empty_pools() -> dict[str, int]:
+    return {p: 0 for p in POOLS}
 
 
 def _fmt_iso(ts: float | None) -> str | None:
@@ -362,13 +545,15 @@ def _fmt_iso(ts: float | None) -> str | None:
 
 
 def scan(roots: list[tuple[Path, str]], cache_path: Path | None = None, days: int = 365,
-         now: datetime | None = None, stats: dict | None = None) -> dict:
+         now: datetime | None = None, stats: dict | None = None,
+         pricing_file: Path | str | None = None) -> dict:
     t0 = time.perf_counter()
     now = now or datetime.now()
     today = now.date()
     days = max(1, days)
     stats = stats if stats is not None else {}
     stats.update(hits=0, misses=0)
+    custom_prices, pricing_source, pricing_fetched_at = load_pricing_file(pricing_file)
 
     old_cache = load_cache(cache_path)
     new_cache: dict = {}
@@ -417,7 +602,11 @@ def scan(roots: list[tuple[Path, str]], cache_path: Path | None = None, days: in
     names: dict[str, str] = {}
     first_day = today - timedelta(days=days - 1)
     daily = {first_day + timedelta(days=i): [0, 0] for i in range(days)}
-    day_cache: dict[int, date] = {}
+    hourly_today = [[0, 0] for _ in range(24)]
+    d7_by_pool = _empty_pools()
+    dt_cache: dict[int, tuple[date, int]] = {}
+    price_cache: dict[str, tuple[tuple[float, float, float] | None, bool]] = {}
+    pool_cache: dict[str, str] = {}
 
     for _, entry, _, _ in per_db:
         names.update(entry.get("names") or {})
@@ -426,12 +615,14 @@ def scan(roots: list[tuple[Path, str]], cache_path: Path | None = None, days: in
         by_display.setdefault(disp, mid)
     convs: list[dict] = []
 
+    d7_start = windows["d7"]
     for key, entry, label, stem in per_db:
         conv = None
         if entry["calls"]:
             conv = {"id": stem, "source": label, "title": None, "model": None, "display_name": None,
-                    "first_at": None, "last_at": None, "input": 0, "output": 0, "cache_read": 0, "thinking": 0,
-                    "calls": 0, "est_cost_usd": None, "cost_partial": False, "is_subagent": False, "by_model": [],
+                    "pool": "other", "first_at": None, "last_at": None, "input": 0, "output": 0, "cache_read": 0,
+                    "thinking": 0, "d7_tokens": 0, "d7_by_pool": _empty_pools(), "calls": 0, "est_cost_usd": None,
+                    "cost_partial": False, "cost_estimated": False, "is_subagent": False, "by_model": [],
                     "_first": None, "_last": float("-inf"), "_models": {}, "_first_input": entry.get("first_input")}
             convs.append(conv)
         for ts, model, inp, out, cache, think in entry["calls"]:
@@ -440,21 +631,38 @@ def scan(roots: list[tuple[Path, str]], cache_path: Path | None = None, days: in
                 model = by_display.get(disp, disp)
                 names.setdefault(model, disp)
             sec = int(ts)
-            d = day_cache.get(sec)
-            if d is None:
+            dh = dt_cache.get(sec)
+            if dh is None:
                 try:
-                    d = datetime.fromtimestamp(ts).date()
+                    dt = datetime.fromtimestamp(ts)
+                    dh = (dt.date(), dt.hour)
                 except (OverflowError, OSError, ValueError):
-                    d = today
-                day_cache[sec] = d
-            cost = call_cost(model, inp, out, cache)
+                    dh = (today, now.hour)
+                dt_cache[sec] = dh
+            d, hour = dh
+            pinfo = price_cache.get(model)
+            if pinfo is None:
+                pinfo = price_cache[model] = price_info(model, custom_prices)
+            p, is_est = pinfo
+            cost = (inp * p[0] + out * p[1] + cache * p[2]) / 1_000_000.0 if p is not None else None
+            pool = pool_cache.get(model)
+            if pool is None:
+                pool = pool_cache[model] = model_pool(model)
+            in_d7 = d7_start <= d <= today
             conv["input"] += inp
             conv["output"] += out
             conv["cache_read"] += cache
             conv["thinking"] += think
+            if in_d7:
+                d7_tok = inp + out
+                conv["d7_tokens"] += d7_tok
+                conv["d7_by_pool"][pool] += d7_tok
+                d7_by_pool[pool] += d7_tok
             conv["calls"] += 1
             if cost is not None:
                 conv["est_cost_usd"] = (conv["est_cost_usd"] or 0.0) + cost
+                if is_est:
+                    conv["cost_estimated"] = True
             else:
                 conv["cost_partial"] = True
             conv["_first"] = ts if conv["_first"] is None else min(conv["_first"], ts)
@@ -462,7 +670,8 @@ def scan(roots: list[tuple[Path, str]], cache_path: Path | None = None, days: in
             cm = conv["_models"].get(model)
             if cm is None:
                 cm = conv["_models"][model] = {"model": model, "display_name": None, "input": 0, "output": 0,
-                                               "cache_read": 0, "thinking": 0, "calls": 0, "est_cost_usd": None}
+                                               "cache_read": 0, "thinking": 0, "calls": 0, "est_cost_usd": None,
+                                               "cost_estimated": False}
             cm["input"] += inp
             cm["output"] += out
             cm["cache_read"] += cache
@@ -470,6 +679,8 @@ def scan(roots: list[tuple[Path, str]], cache_path: Path | None = None, days: in
             cm["calls"] += 1
             if cost is not None:
                 cm["est_cost_usd"] = (cm["est_cost_usd"] or 0.0) + cost
+                if is_est:
+                    cm["cost_estimated"] = True
             for w, start in windows.items():
                 if d >= start and (w == "all" or d <= today):
                     t = totals[w]
@@ -480,22 +691,33 @@ def scan(roots: list[tuple[Path, str]], cache_path: Path | None = None, days: in
                     t["calls"] += 1
                     if cost is not None:
                         t["est_cost_usd"] = (t["est_cost_usd"] or 0.0) + cost
+                        if is_est:
+                            t["cost_estimated"] = True
                     conv_sets[w].add(key)
             bm = by_model.get(model)
             if bm is None:
-                bm = by_model[model] = {"model": model, "display_name": None, "input": 0, "output": 0,
-                                        "cache_read": 0, "thinking": 0, "calls": 0, "est_cost_usd": None}
+                bm = by_model[model] = {"model": model, "display_name": None, "pool": pool, "input": 0, "output": 0,
+                                        "cache_read": 0, "thinking": 0, "d7_tokens": 0, "calls": 0,
+                                        "est_cost_usd": None, "cost_estimated": False}
             bm["input"] += inp
             bm["output"] += out
             bm["cache_read"] += cache
             bm["thinking"] += think
+            if in_d7:
+                bm["d7_tokens"] += inp + out
             bm["calls"] += 1
             if cost is not None:
                 bm["est_cost_usd"] = (bm["est_cost_usd"] or 0.0) + cost
+                if is_est:
+                    bm["cost_estimated"] = True
             slot = daily.get(d)
             if slot is not None:
                 slot[0] += inp + out + cache
                 slot[1] += 1
+            if d == today:
+                hslot = hourly_today[hour]
+                hslot[0] += inp + out + cache
+                hslot[1] += 1
 
     for w, t in totals.items():
         t["conversations"] = len(conv_sets[w])
@@ -520,6 +742,11 @@ def scan(roots: list[tuple[Path, str]], cache_path: Path | None = None, days: in
         # Primary model = the one with the most total tokens in this conversation.
         c["model"] = max(cmodels, key=lambda m: (m["input"] + m["output"] + m["cache_read"], m["model"]))["model"]
         c["display_name"] = names.get(c["model"])
+        primary_pool = pool_cache.get(c["model"]) or model_pool(c["model"])
+        if max(c["d7_by_pool"].values()) > 0:
+            c["pool"] = max(POOLS, key=lambda p: (c["d7_by_pool"][p], 1 if p == primary_pool else 0, -POOLS.index(p)))
+        else:
+            c["pool"] = primary_pool
         cmodels.sort(key=lambda m: (-(m["input"] + m["output"]), m["model"]))
         c["by_model"] = cmodels
         # Title: app's summary title -> first user message -> "@<agent name>" (named subagents) -> null.
@@ -539,6 +766,10 @@ def scan(roots: list[tuple[Path, str]], cache_path: Path | None = None, days: in
         "by_model": models,
         "by_conversation": convs,
         "daily": [{"date": d.isoformat(), "tokens": v[0], "calls": v[1]} for d, v in sorted(daily.items())],
+        "hourly_today": [{"hour": h, "tokens": v[0], "calls": v[1]} for h, v in enumerate(hourly_today)],
+        "d7_by_pool": d7_by_pool,
+        "pricing_source": pricing_source,
+        "pricing_fetched_at": pricing_fetched_at,
         "sources": sources,
         "errors": errors,
         "scanned_at": datetime.now().astimezone().isoformat(timespec="seconds"),
@@ -555,10 +786,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--root", action="append", default=[], metavar="DIR[=label]",
                     help="Conversation folder to scan (repeatable); replaces the default desktop/cli roots")
     ap.add_argument("--days", type=int, default=365, help="Number of days in the daily series (default 365)")
+    ap.add_argument("--pricing-file", help="Optional normalized pricing cache JSON (overrides built-in list prices)")
     args = ap.parse_args(argv)
 
     roots = [parse_root(r) for r in args.root] if args.root else default_roots()
-    report = scan(roots, Path(args.cache).expanduser() if args.cache else None, args.days)
+    report = scan(roots, Path(args.cache).expanduser() if args.cache else None, args.days,
+                  pricing_file=args.pricing_file)
     print(json.dumps(report, separators=(",", ":")))
     return 0
 

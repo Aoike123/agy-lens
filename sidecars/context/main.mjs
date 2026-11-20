@@ -6,8 +6,10 @@
 //                 window and display name come from the app's live model
 //                 catalog (GetAvailableModels), like the agy CLI.
 // - /api/quota    model quota pools from the app's language server
-//                 (GetUserStatus / GetAvailableModels).
+//                 (GetUserStatus / GetAvailableModels / RetrieveUserQuotaSummary).
 // - /api/history  token usage across all conversations (history_scanner.py).
+// - /api/pricing  opt-in public model pricing sync (LiteLLM / OpenRouter,
+//                 cached 24h in DATA_DIR/pricing-cache.json).
 //
 // The only channel to the language server is lsRequest(), which uses the
 // address and CSRF token the app hands the sidecar in its environment.
@@ -16,7 +18,7 @@
 // this module without starting the sidecar server.
 
 import { execFile } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import https from 'node:https';
 import { homedir } from 'node:os';
@@ -36,6 +38,12 @@ const QUOTA_TTL_MS = 60 * 1000;
 const HISTORY_CACHE_PATH = join(DATA_DIR, 'history-cache.json');
 const HISTORY_TTL_MS = 60 * 1000;
 const HISTORY_TIMEOUT_MS = 60 * 1000;
+const PRICING_PATH = join(DATA_DIR, 'pricing-cache.json');
+const PRICING_TTL_MS = 24 * 60 * 60 * 1000;
+const PRICING_TIMEOUT_MS = 10 * 1000;
+const PRICING_MAX_BYTES = 20 * 1024 * 1024;
+const PRICING_LITELLM_URL = 'https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json';
+const PRICING_OPENROUTER_URL = 'https://openrouter.ai/api/v1/models';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const LS_METADATA = { ideName: 'antigravity', extensionName: 'antigravity' };
 
@@ -331,6 +339,12 @@ const LIMIT_LABELS = {
   none: ['Unlimited · no reset', '不限 · 无重置'],
   unknown: ['Quota', '额度'],
 };
+const LIMIT_ORDER = { weekly: 0, '5h': 1, daily: 2, unknown: 3, none: 4 };
+const SUMMARY_POOL_LABELS = {
+  gemini: ['Gemini models', 'Gemini 模型'],
+  claude_gpt: ['Claude / GPT-OSS models', 'Claude / GPT-OSS 模型'],
+  other: ['Other models', '其他模型'],
+};
 
 // The LS reports no window length, so the limit kind is inferred from the
 // time left until reset (a rolling 5-hour window never resets later than 5h
@@ -347,6 +361,111 @@ export function inferLimit(remaining_fraction, reset_time, now = Date.now()) {
   }
   const [label, label_zh] = LIMIT_LABELS[kind];
   return { kind, inferred: kind !== 'unknown', label, label_zh, remaining_fraction, reset_time };
+}
+
+function summaryCategory(bucketId, groupName) {
+  for (const raw of [bucketId, groupName]) {
+    const text = String(raw || '').toLowerCase();
+    if (!text) continue;
+    if (/gemini|google/.test(text)) return 'gemini';
+    if (/(?:^|[^a-z0-9])3p(?:$|[^a-z0-9])|claude|gpt|third/.test(text)) return 'claude_gpt';
+  }
+  return 'other';
+}
+
+function summaryLimitKind(bucketId, displayName) {
+  const text = `${bucketId || ''} ${displayName || ''}`.toLowerCase();
+  if (/weekly|(?:^|[^a-z0-9])7[-_\s]?d(?:ay)?s?(?:$|[^a-z0-9])/.test(text)) return 'weekly';
+  if (/(?:^|[^a-z0-9])(?:5[-_\s]?h(?:our)?s?|five)(?:$|[^a-z0-9])/.test(text)) return '5h';
+  if (/daily|(?:^|[^a-z0-9])24[-_\s]?h(?:our)?s?(?:$|[^a-z0-9])/.test(text)) return 'daily';
+  return null;
+}
+
+function sortLimits(limits) {
+  return limits.slice().sort((a, b) => (LIMIT_ORDER[a.kind] ?? 9) - (LIMIT_ORDER[b.kind] ?? 9));
+}
+
+function mergeLimitLists(existing, incoming) {
+  const byKind = new Map();
+  const hasExplicitIncoming = incoming.some((l) => !l.inferred);
+  for (const l of existing) {
+    if (hasExplicitIncoming && l.inferred && (l.kind === 'none' || l.kind === 'unknown')) continue;
+    byKind.set(l.kind, l);
+  }
+  for (const l of incoming) {
+    const prev = byKind.get(l.kind);
+    if (!prev) { byKind.set(l.kind, l); continue; }
+    if (prev.inferred && !l.inferred) { byKind.set(l.kind, l); continue; }
+    if (prev.inferred === l.inferred && prev.remaining_fraction === null && l.remaining_fraction !== null) {
+      byKind.set(l.kind, l);
+    }
+  }
+  return sortLimits([...byKind.values()]);
+}
+
+// Parses RetrieveUserQuotaSummary defensively across response.groups,
+// quotaSummary.groups, groups, or top-level buckets.
+export function parseQuotaSummary(summaryResp, now = Date.now()) {
+  const byCategory = {};
+  const weekly = {};
+  const root = rootOf(summaryResp);
+  if (!root) return { byCategory, weekly };
+  const container = pick(root, 'quotaSummary', 'quota_summary') || root;
+  const groups = pick(container, 'groups', 'quotaGroups', 'quota_groups');
+  const topBuckets = pick(container, 'buckets', 'quotaBuckets', 'quota_buckets');
+
+  const bucketPairs = [];
+  if (Array.isArray(groups)) {
+    for (const g of groups) {
+      if (!g || typeof g !== 'object') continue;
+      const gName = pick(g, 'displayName', 'display_name', 'name', 'groupId', 'group_id', 'id');
+      const bs = pick(g, 'buckets', 'quotaBuckets', 'quota_buckets');
+      if (Array.isArray(bs)) {
+        for (const b of bs) bucketPairs.push([b, gName ? String(gName) : '']);
+      }
+    }
+  }
+  if (Array.isArray(topBuckets)) {
+    for (const b of topBuckets) bucketPairs.push([b, '']);
+  }
+
+  for (const [b, groupName] of bucketPairs) {
+    if (!b || typeof b !== 'object' || Array.isArray(b)) continue;
+    const bucketId = pick(b, 'bucketId', 'bucket_id', 'id');
+    const displayName = pick(b, 'displayName', 'display_name', 'label', 'name');
+    const q = pick(b, 'quotaInfo', 'quota_info', 'quota') || b;
+    const reset = toIso(pick(q, 'resetTime', 'reset_time', 'resetAt'));
+    let frac = toFraction(pick(q, 'remainingFraction', 'remaining_fraction', 'fractionRemaining'));
+    if (frac === null && reset) frac = 0;
+    if (frac === null && !reset) continue;
+
+    const category = summaryCategory(bucketId, groupName || displayName);
+    const explicitKind = summaryLimitKind(bucketId, displayName);
+    const limit = explicitKind
+      ? {
+          kind: explicitKind,
+          inferred: false,
+          label: LIMIT_LABELS[explicitKind][0],
+          label_zh: LIMIT_LABELS[explicitKind][1],
+          remaining_fraction: frac,
+          reset_time: reset,
+        }
+      : { ...inferLimit(frac, reset, now), inferred: true };
+
+    if (!byCategory[category]) {
+      const [defEn, defZh] = SUMMARY_POOL_LABELS[category] || SUMMARY_POOL_LABELS.other;
+      const label = category === 'other' && groupName ? groupName : defEn;
+      const label_zh = category === 'other' && groupName ? groupName : defZh;
+      byCategory[category] = { category, label, label_zh, limits: [] };
+    }
+    byCategory[category].limits = mergeLimitLists(byCategory[category].limits, [limit]);
+  }
+
+  for (const [cat, entry] of Object.entries(byCategory)) {
+    const wk = entry.limits.find((l) => l.kind === 'weekly' && l.remaining_fraction !== null);
+    if (wk) weekly[cat] = { remaining_fraction: wk.remaining_fraction, reset_time: wk.reset_time };
+  }
+  return { byCategory, weekly };
 }
 
 function findPlan(resp) {
@@ -378,8 +497,8 @@ function dedupeByName(models, exclude = new Set()) {
 }
 
 // Builds the /api/quota payload (without fetched_at) from the raw responses of
-// GetUserStatus and GetAvailableModels (either may be null).
-export function parseQuota(statusResp, modelsResp, now = Date.now()) {
+// GetUserStatus, GetAvailableModels and RetrieveUserQuotaSummary (any may be null).
+export function parseQuota(statusResp, modelsResp, now = Date.now(), summaryResp = null) {
   const byId = new Map();
   for (const e of [...listModels(modelsResp), ...listModels(statusResp)]) {
     const prev = byId.get(e.id);
@@ -468,14 +587,48 @@ export function parseQuota(statusResp, modelsResp, now = Date.now()) {
       hidden_models,
     };
   });
-  const last = (p) => (p.kind === 'tab' || p.limits[0].kind === 'none' ? 1 : 0);
-  pools.sort((a, b) => {
-    const fa = a.remaining_fraction ?? Infinity;
-    const fb = b.remaining_fraction ?? Infinity;
-    return last(a) - last(b) || fa - fb || a.label.localeCompare(b.label);
-  });
+  const summary = parseQuotaSummary(summaryResp, now);
+  const matchedSummaryCats = new Set();
+  for (const pool of pools) {
+    const sumEntry = summary.byCategory[pool.category];
+    if (!sumEntry) continue;
+    matchedSummaryCats.add(pool.category);
+    pool.limits = mergeLimitLists(pool.limits, sumEntry.limits);
+    const primary = pool.limits.find((l) => l.kind === '5h') || pool.limits[0];
+    if (primary) {
+      pool.remaining_fraction = primary.remaining_fraction;
+      pool.reset_time = primary.reset_time;
+    }
+  }
+  for (const [cat, sumEntry] of Object.entries(summary.byCategory)) {
+    if (matchedSummaryCats.has(cat) || !sumEntry.limits.length) continue;
+    const n = (usedIds.get(cat) || 0) + 1;
+    usedIds.set(cat, n);
+    const primary = sumEntry.limits.find((l) => l.kind === '5h') || sumEntry.limits[0];
+    pools.push({
+      id: n > 1 ? `${cat}-${n}` : cat,
+      category: cat,
+      kind: 'models',
+      label: sumEntry.label,
+      label_zh: sumEntry.label_zh,
+      remaining_fraction: primary ? primary.remaining_fraction : null,
+      reset_time: primary ? primary.reset_time : null,
+      limits: sumEntry.limits,
+      models: [],
+      families: [],
+      hidden_models: [],
+    });
+  }
+
+  const last = (p) => (p.kind === 'tab' || (p.limits.length === 1 && p.limits[0].kind === 'none') ? 1 : 0);
+  const minFrac = (p) => {
+    const fracs = p.limits.map((l) => l.remaining_fraction).filter((f) => typeof f === 'number');
+    return fracs.length ? Math.min(...fracs) : (p.remaining_fraction ?? Infinity);
+  };
+  pools.sort((a, b) => last(a) - last(b) || minFrac(a) - minFrac(b) || a.label.localeCompare(b.label));
   return {
     pools,
+    weekly: summary.weekly,
     plan: findPlan(statusResp) ?? findPlan(modelsResp),
     tier: findTier(statusResp) ?? findTier(modelsResp),
   };
@@ -484,35 +637,54 @@ export function parseQuota(statusResp, modelsResp, now = Date.now()) {
 let quotaCache = null; // { at, result }
 let quotaInFlight = null;
 let quotaRawWritten = false;
+let quotaRawHasSummary = false;
+
+function shouldWriteQuotaRaw(hasSummary) {
+  if (!existsSync(QUOTA_RAW_PATH)) return true;
+  if (!hasSummary) return false;
+  if (quotaRawHasSummary) return false;
+  try {
+    const existing = JSON.parse(readFileSync(QUOTA_RAW_PATH, 'utf8'));
+    if (existing && typeof existing === 'object' && existing.RetrieveUserQuotaSummary && !existing.RetrieveUserQuotaSummary.error) {
+      quotaRawHasSummary = true;
+      return false;
+    }
+  } catch { /* corrupt file -> rewrite */ }
+  return true;
+}
 
 async function fetchQuota() {
   const fetched_at = new Date().toISOString();
   const body = { metadata: LS_METADATA };
-  const [status, models] = await Promise.allSettled([
+  const [status, models, summary] = await Promise.allSettled([
     lsRequest('GetUserStatus', body),
     lsRequest('GetAvailableModels', body),
+    lsRequest('RetrieveUserQuotaSummary', body),
   ]);
   const statusResp = status.status === 'fulfilled' ? status.value : null;
   const modelsResp = models.status === 'fulfilled' ? models.value : null;
-  if (!statusResp && !modelsResp) {
-    const reason = status.reason || models.reason;
+  const summaryResp = summary.status === 'fulfilled' ? summary.value : null;
+  if (!statusResp && !modelsResp && !summaryResp) {
+    const reason = status.reason || models.reason || summary.reason;
     const noLs = status.reason?.code === 'NO_LS';
-    return { pools: [], plan: null, tier: null, fetched_at, error: noLs ? 'unavailable' : 'failed', message: reason?.message || 'request failed' };
+    return { pools: [], weekly: {}, plan: null, tier: null, fetched_at, error: noLs ? 'unavailable' : 'failed', message: reason?.message || 'request failed' };
   }
-  if (!quotaRawWritten) {
+  if ((!quotaRawWritten || summaryResp) && shouldWriteQuotaRaw(!!summaryResp)) {
     quotaRawWritten = true;
+    if (summaryResp) quotaRawHasSummary = true;
     try {
       mkdirSync(DATA_DIR, { recursive: true });
       writeFileSync(QUOTA_RAW_PATH, JSON.stringify(redact({
         written_at: fetched_at,
         GetUserStatus: statusResp ?? { error: status.reason?.message },
         GetAvailableModels: modelsResp ?? { error: models.reason?.message },
+        RetrieveUserQuotaSummary: summaryResp ?? { error: summary.reason?.message },
       }), null, 2));
     } catch (err) {
       console.error('[context] could not write quota-raw.json:', err.message);
     }
   }
-  const parsed = parseQuota(statusResp, modelsResp);
+  const parsed = parseQuota(statusResp, modelsResp, Date.now(), summaryResp);
   const result = { ...parsed, fetched_at };
   if (!parsed.pools.length) {
     result.error = 'unavailable';
@@ -536,24 +708,221 @@ async function quota(refresh) {
   return quotaInFlight;
 }
 
+// --- pricing ------------------------------------------------------------------
+
+const LITELLM_ALLOWED_PROVIDER = /^(?:anthropic|gemini|google|openai|vertex_ai(?:-[a-z-]+)?)$/;
+const LITELLM_ALLOWED_PREFIX = /^(?:anthropic|gemini|google|openai|vertex_ai)\//;
+const LITELLM_SKIP_ID = /^(?:us|eu|au|jp|apac|global)\.|^anthropic\.|^ft:|\/ft:|(?:^|[:/_-])batch(?:$|[:/_-])|:(?:free|extended|thinking|nitro|floor)$|-v\d+:\d+$|@/;
+const LITELLM_ALLOWED_MODE = /^(?:chat|completion|responses|image_generation)$/;
+const OPENROUTER_SKIP_ID = /:(?:batch|free|extended|thinking|nitro|floor)$/;
+const OPENROUTER_ALLOWED_PREFIX = /^(?:anthropic|google|openai)\//;
+const RELEVANT_MODEL = /(?:claude|gemini|gpt)/;
+
+function perMillion(v) {
+  if (v === undefined || v === null || v === '') return null;
+  const n = Number(v);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return Number((n * 1e6).toFixed(6));
+}
+
+// Normalizes LiteLLM's model_prices_and_context_window.json into
+// { [lowerId]: { input, output, cache_read } } (USD per 1M tokens).
+export function parseLiteLLMPricing(json) {
+  const out = {};
+  if (!json || typeof json !== 'object' || Array.isArray(json)) return out;
+  for (const [key, m] of Object.entries(json)) {
+    if (!m || typeof m !== 'object' || Array.isArray(m)) continue;
+    const id = String(key).trim().toLowerCase();
+    if (!id || id === 'sample_spec') continue;
+    const provider = typeof m.litellm_provider === 'string' ? m.litellm_provider.trim().toLowerCase() : '';
+    if (provider && !LITELLM_ALLOWED_PROVIDER.test(provider)) continue;
+    if (id.includes('/')) {
+      if (!LITELLM_ALLOWED_PREFIX.test(id)) continue;
+      if (id.indexOf('/') !== id.lastIndexOf('/')) continue;
+    }
+    if (LITELLM_SKIP_ID.test(id)) continue;
+    if (!RELEVANT_MODEL.test(id)) continue;
+    if (typeof m.mode === 'string' && m.mode && !LITELLM_ALLOWED_MODE.test(m.mode.toLowerCase())) continue;
+
+    const input = perMillion(m.input_cost_per_token);
+    const output = perMillion(m.output_cost_per_token);
+    if (input === null || output === null || (input === 0 && output === 0)) continue;
+    const rawCache = perMillion(m.cache_read_input_token_cost);
+    const cache_read = rawCache !== null ? rawCache : Number((input * 0.1).toFixed(6));
+    out[id] = { input, output, cache_read };
+  }
+  return out;
+}
+
+// Normalizes OpenRouter's /api/v1/models payload into
+// { [lowerId]: { input, output, cache_read } } (USD per 1M tokens).
+export function parseOpenRouterPricing(json) {
+  const out = {};
+  const list = Array.isArray(json) ? json : (Array.isArray(json?.data) ? json.data : null);
+  if (!list) return out;
+  for (const m of list) {
+    if (!m || typeof m !== 'object' || !m.id || !m.pricing || typeof m.pricing !== 'object') continue;
+    const id = String(m.id).trim().toLowerCase();
+    if (!id || OPENROUTER_SKIP_ID.test(id)) continue;
+    if (!RELEVANT_MODEL.test(id) && !OPENROUTER_ALLOWED_PREFIX.test(id)) continue;
+
+    const input = perMillion(m.pricing.prompt);
+    const output = perMillion(m.pricing.completion);
+    if (input === null || output === null || (input === 0 && output === 0)) continue;
+    const rawCache = perMillion(m.pricing.input_cache_read);
+    const cache_read = rawCache !== null ? rawCache : Number((input * 0.1).toFixed(6));
+    out[id] = { input, output, cache_read };
+  }
+  return out;
+}
+
+function fetchHttpsJson(url, timeoutMs = PRICING_TIMEOUT_MS, redirects = 3) {
+  const deadline = Date.now() + timeoutMs;
+  const parsed = new URL(url);
+  if (parsed.protocol !== 'https:') return Promise.reject(new Error('non-https URL rejected'));
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (err, val) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (err) reject(err); else resolve(val);
+    };
+    const req = https.get(parsed, {
+      headers: { Accept: 'application/json' },
+      timeout: timeoutMs,
+    }, (res) => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location && redirects > 0) {
+        res.resume();
+        const remaining = Math.max(1000, deadline - Date.now());
+        const next = new URL(res.headers.location, parsed).href;
+        clearTimeout(timer);
+        settled = true;
+        fetchHttpsJson(next, remaining, redirects - 1).then(resolve, reject);
+        return;
+      }
+      if (res.statusCode < 200 || res.statusCode >= 300) {
+        res.resume();
+        finish(new Error(`HTTP ${res.statusCode}`));
+        return;
+      }
+      const chunks = [];
+      let total = 0;
+      res.on('data', (chunk) => {
+        total += chunk.length;
+        if (total > PRICING_MAX_BYTES) {
+          req.destroy(new Error('response too large'));
+          return;
+        }
+        chunks.push(chunk);
+      });
+      res.on('end', () => {
+        try {
+          finish(null, JSON.parse(Buffer.concat(chunks).toString('utf8')));
+        } catch (e) {
+          finish(e);
+        }
+      });
+      res.on('error', (e) => finish(e));
+    });
+    const timer = setTimeout(() => req.destroy(new Error('timeout')), timeoutMs);
+    req.on('timeout', () => req.destroy(new Error('timeout')));
+    req.on('error', (e) => finish(e));
+  });
+}
+
+function writeJsonAtomic(path, data) {
+  mkdirSync(dirname(path), { recursive: true });
+  const text = JSON.stringify(data);
+  const tmp = `${path}.${process.pid}.${Date.now()}.tmp`;
+  try {
+    writeFileSync(tmp, text);
+    renameSync(tmp, path);
+  } catch {
+    try { unlinkSync(tmp); } catch { /* ignore */ }
+    writeFileSync(path, text);
+  }
+}
+
+function readPricingMeta(now = Date.now()) {
+  try {
+    if (!existsSync(PRICING_PATH)) {
+      return { source: 'builtin', fetched_at: null, count: 0, stale: true };
+    }
+    const raw = JSON.parse(readFileSync(PRICING_PATH, 'utf8'));
+    if (!raw || typeof raw !== 'object' || !raw.models || typeof raw.models !== 'object' || Array.isArray(raw.models)) {
+      return { source: 'builtin', fetched_at: null, count: 0, stale: true };
+    }
+    const count = Object.keys(raw.models).length;
+    const source = raw.source === 'litellm' || raw.source === 'openrouter' ? raw.source : 'builtin';
+    const fetched_at = typeof raw.fetched_at === 'string' && !Number.isNaN(Date.parse(raw.fetched_at)) ? raw.fetched_at : null;
+    const age = fetched_at ? now - Date.parse(fetched_at) : Infinity;
+    const stale = count === 0 || !fetched_at || age >= PRICING_TTL_MS;
+    return { source: count > 0 ? source : 'builtin', fetched_at, count, stale };
+  } catch {
+    return { source: 'builtin', fetched_at: null, count: 0, stale: true };
+  }
+}
+
+let pricingInFlight = null;
+
+async function syncPricing() {
+  const errors = [];
+  const attempts = [
+    ['litellm', PRICING_LITELLM_URL, parseLiteLLMPricing],
+    ['openrouter', PRICING_OPENROUTER_URL, parseOpenRouterPricing],
+  ];
+  for (const [source, url, parse] of attempts) {
+    try {
+      const raw = await fetchHttpsJson(url, PRICING_TIMEOUT_MS);
+      const models = parse(raw);
+      const count = Object.keys(models).length;
+      if (count === 0) throw new Error('empty pricing table');
+      const fetched_at = new Date().toISOString();
+      writeJsonAtomic(PRICING_PATH, { source, fetched_at, models });
+      historyCache = null;
+      cache.clear();
+      return { source, fetched_at, count, stale: false };
+    } catch (err) {
+      errors.push(`${source}: ${err.message}`);
+    }
+  }
+  const meta = readPricingMeta();
+  return { ...meta, error: 'failed', message: errors.join('; ') };
+}
+
+async function pricing({ refresh = false, sync = false } = {}) {
+  const meta = readPricingMeta();
+  if (!refresh && !(sync && meta.stale)) return meta;
+  if (!pricingInFlight) {
+    pricingInFlight = syncPricing().finally(() => { pricingInFlight = null; });
+  }
+  return pricingInFlight;
+}
+
 // --- history ------------------------------------------------------------------
 
-let historyCache = null; // { at, result }
+let historyCache = null; // { at, pricingStamp, result }
 let historyInFlight = null;
 
 async function scanHistory() {
   const { cmd, pre } = await findPython();
   mkdirSync(DATA_DIR, { recursive: true });
-  const out = await run(cmd, [...pre, HISTORY_SCRIPT, '--json', '--cache', HISTORY_CACHE_PATH], HISTORY_TIMEOUT_MS);
+  const args = [...pre, HISTORY_SCRIPT, '--json', '--cache', HISTORY_CACHE_PATH];
+  if (existsSync(PRICING_PATH)) args.push('--pricing-file', PRICING_PATH);
+  const out = await run(cmd, args, HISTORY_TIMEOUT_MS);
   return JSON.parse(out);
 }
 
 async function history(refresh) {
-  if (!refresh && historyCache && Date.now() - historyCache.at < HISTORY_TTL_MS) return historyCache.result;
+  const pricingStamp = fileStamp(PRICING_PATH);
+  if (!refresh && historyCache && historyCache.pricingStamp === pricingStamp && Date.now() - historyCache.at < HISTORY_TTL_MS) {
+    return historyCache.result;
+  }
   if (!historyInFlight) {
     historyInFlight = scanHistory()
       .then((result) => {
-        historyCache = { at: Date.now(), result };
+        historyCache = { at: Date.now(), pricingStamp: fileStamp(PRICING_PATH), result };
         return result;
       })
       .finally(() => { historyInFlight = null; });
@@ -591,13 +960,14 @@ async function report(conversationId, workspaceUri) {
   }
   await refreshCatalog();
   const workspace = workspacePath(workspaceUri);
-  const key = [fileStamp(db), fileStamp(`${db}-wal`), workspace, fileStamp(CATALOG_PATH)].join('|');
+  const key = [fileStamp(db), fileStamp(`${db}-wal`), workspace, fileStamp(CATALOG_PATH), fileStamp(PRICING_PATH)].join('|');
   const cached = cache.get(conversationId);
   if (cached && cached.key === key) return cached.report;
 
   const { cmd, pre } = await findPython();
   const args = [...pre, SCRIPT, '--db', db, '--json'];
   if (existsSync(CATALOG_PATH)) args.push('--model-catalog', CATALOG_PATH);
+  if (existsSync(PRICING_PATH)) args.push('--pricing-file', PRICING_PATH);
   if (workspace) args.push('--workspace', workspace);
   const out = await run(cmd, args);
   const result = { ...JSON.parse(out), updatedAt: new Date().toISOString() };
@@ -667,7 +1037,7 @@ if (!process.env.CONTEXT_PANEL_NO_SERVER) {
     try {
       return await quota(truthy(data?.refresh));
     } catch (err) {
-      return { pools: [], plan: null, tier: null, fetched_at: new Date().toISOString(), error: 'failed', message: err.message };
+      return { pools: [], weekly: {}, plan: null, tier: null, fetched_at: new Date().toISOString(), error: 'failed', message: err.message };
     }
   }, 'GET');
 
@@ -676,6 +1046,14 @@ if (!process.env.CONTEXT_PANEL_NO_SERVER) {
       return await history(truthy(data?.refresh));
     } catch (err) {
       return { error: 'failed', message: err.message };
+    }
+  }, 'GET');
+
+  app.api('/api/pricing', async (data) => {
+    try {
+      return await pricing({ refresh: truthy(data?.refresh), sync: truthy(data?.sync) });
+    } catch (err) {
+      return { ...readPricingMeta(), error: 'failed', message: err.message };
     }
   }, 'GET');
 

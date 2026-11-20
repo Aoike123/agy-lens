@@ -10,7 +10,7 @@ Thanks for helping improve Usage Dashboard! 欢迎提交 Issue 与 Pull Request�
 
 ## Project layout
 
-- `sidecars/context/main.mjs` — sidecar backend (`/api/report`, `/api/quota`, `/api/history`).
+- `sidecars/context/main.mjs` — sidecar backend (`/api/report`, `/api/quota`, `/api/history`, `/api/pricing`).
 - `sidecars/context/index.html`, `app.js`, `styles.css` — panel UI. Every user-facing string goes in the `I18N` table in `app.js` with both `zh` and `en` entries.
 - `sidecars/context/context_report.py` — per-conversation parser.
 - `sidecars/context/history_scanner.py` — multi-conversation scanner.
@@ -29,7 +29,7 @@ CI runs the same checks on Ubuntu, Windows and macOS.
 
 ## Guidelines
 
-- **Stay local and read-only.** Open databases read-only, make no network calls other than the app's local language server via `lsRequest()`, and never patch the app (`app.asar`) or inject scripts.
+- **Stay local-first and read-only.** Open databases read-only, make no default network calls other than the app's local language server via `lsRequest()` (external requests must be explicit opt-in read-only fetches like `/api/pricing`, with zero user data sent), and never patch the app (`app.asar`) or inject scripts.
 - **No new dependencies.** Python code uses only the standard library; the sidecar uses only Node built-ins and the app's `sidecar_sdk`.
 - **Additive API changes.** Keep the JSON contracts between the scripts, the backend and the UI backwards compatible.
 - **Never commit personal data.** Redact conversation IDs, tokens, emails and file paths from raw responses, logs and screenshots.

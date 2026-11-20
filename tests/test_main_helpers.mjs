@@ -7,7 +7,17 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 process.env.CONTEXT_PANEL_NO_SERVER = '1';
-const { NO_CACHE_HEADERS, inferLimit, parseQuota, redact, stampAssetUrls, truthy } = await import('../sidecars/context/main.mjs');
+const {
+  NO_CACHE_HEADERS,
+  inferLimit,
+  parseLiteLLMPricing,
+  parseOpenRouterPricing,
+  parseQuota,
+  parseQuotaSummary,
+  redact,
+  stampAssetUrls,
+  truthy,
+} = await import('../sidecars/context/main.mjs');
 
 const NOW = Date.parse('2026-11-20T10:00:00Z');
 const G = { remainingFraction: 0.72, resetTime: '2026-11-20T10:56:17Z' };
@@ -159,7 +169,7 @@ test('parseQuota: omitted fraction with reset = 0, empty quotaInfo = null, times
 
 test('parseQuota survives garbage', () => {
   for (const junk of [null, undefined, 42, 'x', [], {}, { models: 'nope' }, { userStatus: null }, { response: { models: [null, 1, 'x'] } }]) {
-    assert.deepEqual(parseQuota(junk, junk, NOW), { pools: [], plan: null, tier: null });
+    assert.deepEqual(parseQuota(junk, junk, NOW, junk), { pools: [], weekly: {}, plan: null, tier: null });
   }
 });
 
@@ -214,4 +224,230 @@ test('stampAssetUrls busts cache on styles.css and app.js without touching other
   assert.ok(out.includes(`src="/app.js?v=old"`));
   assert.ok(out.includes(`data-src="app.js" data-href="styles.css"`));
   assert.ok(out.includes(`href="https://example.com/styles.css"`));
+});
+
+test('parseLiteLLMPricing normalizes per-1M USD prices and filters noisy providers', () => {
+  const sample = {
+    sample_spec: { input_cost_per_token: 0.001, output_cost_per_token: 0.002 },
+    'Claude-Opus-4-6': {
+      litellm_provider: 'anthropic',
+      mode: 'chat',
+      input_cost_per_token: 0.000005,
+      output_cost_per_token: 0.000025,
+      cache_read_input_token_cost: 0.0000005,
+    },
+    'anthropic/claude-sonnet-4-6': {
+      litellm_provider: 'anthropic',
+      mode: 'chat',
+      input_cost_per_token: 0.000003,
+      output_cost_per_token: 0.000015,
+      // cache_read absent -> defaults to input * 0.1 = 0.3
+    },
+    'gemini-2.5-pro': {
+      litellm_provider: 'gemini',
+      mode: 'chat',
+      input_cost_per_token: 0.00000125,
+      output_cost_per_token: 0.00001,
+      cache_read_input_token_cost: 0.0000003125,
+    },
+    'vertex_ai/gemini-3.8-flash': {
+      litellm_provider: 'vertex_ai-language-models',
+      mode: 'chat',
+      input_cost_per_token: 0.000000825,
+      output_cost_per_token: 0.000004125,
+      cache_read_input_token_cost: 0.0000000825,
+    },
+    'openai/gpt-oss-120b': {
+      input_cost_per_token: 0.00000015,
+      output_cost_per_token: 0.0000006,
+      cache_read_input_token_cost: 0,
+    },
+    // Filtered out: Bedrock/Azure/regional/batch/free/non-chat/other providers/zero/negative
+    'us.anthropic.claude-opus-4-6-v1': { litellm_provider: 'bedrock_converse', mode: 'chat', input_cost_per_token: 5.5e-6, output_cost_per_token: 2.75e-5 },
+    'anthropic.claude-sonnet-4-6': { litellm_provider: 'bedrock_converse', mode: 'chat', input_cost_per_token: 3e-6, output_cost_per_token: 1.5e-5 },
+    'azure_ai/claude-opus-4-6': { litellm_provider: 'azure_ai', mode: 'chat', input_cost_per_token: 5e-6, output_cost_per_token: 2.5e-5 },
+    'vertex_ai/global/gemini-2.5-pro': { litellm_provider: 'vertex_ai', mode: 'chat', input_cost_per_token: 1.25e-6, output_cost_per_token: 1e-5 },
+    'vertex_ai/claude-opus-4-6@20260205': { litellm_provider: 'vertex_ai', mode: 'chat', input_cost_per_token: 5e-6, output_cost_per_token: 2.5e-5 },
+    'mistral/mistral-large': { litellm_provider: 'mistral', mode: 'chat', input_cost_per_token: 2e-6, output_cost_per_token: 6e-6 },
+    'gemini-embedding-001': { litellm_provider: 'gemini', mode: 'embedding', input_cost_per_token: 1e-7, output_cost_per_token: 0 },
+    'gpt-4o-batch': { litellm_provider: 'openai', mode: 'chat', input_cost_per_token: 1e-6, output_cost_per_token: 2e-6 },
+    'ft:gpt-4o': { litellm_provider: 'openai', mode: 'chat', input_cost_per_token: 3e-6, output_cost_per_token: 1e-5 },
+    'gemini-free': { litellm_provider: 'gemini', mode: 'chat', input_cost_per_token: 0, output_cost_per_token: 0 },
+    'gemini-bad': { litellm_provider: 'gemini', mode: 'chat', input_cost_per_token: -1, output_cost_per_token: 1e-6 },
+  };
+  const r = parseLiteLLMPricing(sample);
+  assert.deepEqual(Object.keys(r).sort(), [
+    'anthropic/claude-sonnet-4-6',
+    'claude-opus-4-6',
+    'gemini-2.5-pro',
+    'openai/gpt-oss-120b',
+    'vertex_ai/gemini-3.8-flash',
+  ]);
+  assert.deepEqual(r['claude-opus-4-6'], { input: 5, output: 25, cache_read: 0.5 });
+  assert.deepEqual(r['anthropic/claude-sonnet-4-6'], { input: 3, output: 15, cache_read: 0.3 });
+  assert.deepEqual(r['gemini-2.5-pro'], { input: 1.25, output: 10, cache_read: 0.3125 });
+  assert.deepEqual(r['vertex_ai/gemini-3.8-flash'], { input: 0.825, output: 4.125, cache_read: 0.0825 });
+  assert.deepEqual(r['openai/gpt-oss-120b'], { input: 0.15, output: 0.6, cache_read: 0 });
+
+  for (const junk of [null, undefined, 42, 'x', [], {}]) {
+    assert.deepEqual(parseLiteLLMPricing(junk), {});
+  }
+});
+
+test('parseOpenRouterPricing normalizes per-1M USD prices and filters variants', () => {
+  const sample = {
+    data: [
+      { id: 'Anthropic/Claude-Opus-4.6', pricing: { prompt: '0.000005', completion: '0.000025', input_cache_read: '0.0000005' } },
+      { id: 'anthropic/claude-opus-4.6:batch', pricing: { prompt: '0.0000025', completion: '0.0000125' } },
+      { id: 'google/gemini-3.8-flash', pricing: { prompt: '0.000000825', completion: '0.000004125', input_cache_read: '0.0000000825' } },
+      { id: 'google/gemini-3.1-flash-image', pricing: { prompt: '0.0000005', completion: '0.000003' } },
+      { id: 'google/gemini-2.5-pro:free', pricing: { prompt: '0', completion: '0' } },
+      { id: 'openai/gpt-oss-120b', pricing: { prompt: '0.00000015', completion: '0.0000006', input_cache_read: '-1' } },
+      { id: 'openrouter/auto', pricing: { prompt: '-1', completion: '-1' } },
+      { id: 'meta-llama/llama-3.3-70b-instruct', pricing: { prompt: '0.0000002', completion: '0.0000008' } },
+      null,
+      { id: 'openai/missing-pricing' },
+    ],
+  };
+  const r = parseOpenRouterPricing(sample);
+  assert.deepEqual(Object.keys(r).sort(), [
+    'anthropic/claude-opus-4.6',
+    'google/gemini-3.1-flash-image',
+    'google/gemini-3.8-flash',
+    'openai/gpt-oss-120b',
+  ]);
+  assert.deepEqual(r['anthropic/claude-opus-4.6'], { input: 5, output: 25, cache_read: 0.5 });
+  assert.deepEqual(r['google/gemini-3.8-flash'], { input: 0.825, output: 4.125, cache_read: 0.0825 });
+  assert.deepEqual(r['google/gemini-3.1-flash-image'], { input: 0.5, output: 3, cache_read: 0.05 });
+  assert.deepEqual(r['openai/gpt-oss-120b'], { input: 0.15, output: 0.6, cache_read: 0.015 });
+
+  for (const junk of [null, undefined, 42, 'x', {}, { data: 'bad' }, { data: [null, {}] }]) {
+    assert.deepEqual(parseOpenRouterPricing(junk), {});
+  }
+});
+
+test('parseQuotaSummary handles groups, quotaSummary, top-level buckets, proto3 zero and fallback', () => {
+  const documented = {
+    response: {
+      groups: [
+        {
+          displayName: 'Gemini Limit Remaining',
+          buckets: [
+            { bucketId: 'gemini-5h', displayName: 'Five Hour Limit Remaining', remainingFraction: 1.0, resetTime: '2026-11-20T15:00:00Z' },
+            { bucketId: 'gemini-weekly', displayName: 'Weekly Limit Remaining', remainingFraction: 0.833, resetTime: '2026-11-27T00:00:00Z' },
+          ],
+        },
+        {
+          displayName: 'Third Party Limit Remaining',
+          buckets: [
+            // proto3 omits remainingFraction when 0
+            { bucketId: '3p-weekly', displayName: 'Weekly Limit Remaining', resetTime: '2026-11-26T00:00:00Z' },
+            { bucketId: '3p-5h', displayName: 'Five Hour Limit Remaining', remainingFraction: 0.65, resetTime: '2026-11-20T14:42:42Z' },
+          ],
+        },
+      ],
+    },
+  };
+  const s = parseQuotaSummary(documented, NOW);
+  // Ordered weekly first, then 5h; both inferred: false.
+  assert.deepEqual(s.byCategory.gemini.limits.map((l) => [l.kind, l.inferred, l.remaining_fraction]), [
+    ['weekly', false, 0.833],
+    ['5h', false, 1],
+  ]);
+  assert.deepEqual(s.byCategory.claude_gpt.limits.map((l) => [l.kind, l.inferred, l.remaining_fraction]), [
+    ['weekly', false, 0],
+    ['5h', false, 0.65],
+  ]);
+  assert.deepEqual(s.weekly, {
+    gemini: { remaining_fraction: 0.833, reset_time: '2026-11-27T00:00:00.000Z' },
+    claude_gpt: { remaining_fraction: 0, reset_time: '2026-11-26T00:00:00.000Z' },
+  });
+
+  // quotaSummary.groups + daily + unknown bucket falling back to inferLimit (inferred: true).
+  const qs = parseQuotaSummary({
+    quotaSummary: {
+      groups: [
+        {
+          displayName: 'Custom Group',
+          buckets: [
+            { bucketId: 'custom-24h', displayName: 'Daily Limit', remainingFraction: 0.4, resetTime: '2026-11-21T08:00:00Z' },
+            { bucketId: 'mystery', displayName: 'Mystery', remainingFraction: 0.5, resetTime: '2026-11-20T13:00:00Z' },
+          ],
+        },
+      ],
+    },
+  }, NOW);
+  assert.equal(qs.byCategory.other.label, 'Custom Group');
+  assert.deepEqual(qs.byCategory.other.limits.map((l) => [l.kind, l.inferred]), [
+    ['5h', true],
+    ['daily', false],
+  ]);
+  assert.deepEqual(qs.weekly, {});
+
+  // Top-level buckets + bare groups.
+  const top = parseQuotaSummary({
+    buckets: [
+      { bucketId: 'google-7d', remainingFraction: 0.9, resetTime: '2026-11-25T00:00:00Z' },
+    ],
+  }, NOW);
+  assert.equal(top.weekly.gemini.remaining_fraction, 0.9);
+  assert.equal(top.byCategory.gemini.limits[0].inferred, false);
+
+  for (const junk of [null, undefined, 42, 'x', [], {}, { groups: 'bad' }]) {
+    assert.deepEqual(parseQuotaSummary(junk, NOW), { byCategory: {}, weekly: {} });
+  }
+});
+
+test('parseQuota merges RetrieveUserQuotaSummary limits and exposes top-level weekly', () => {
+  const summary = {
+    response: {
+      groups: [
+        {
+          displayName: 'Gemini Limit Remaining',
+          buckets: [
+            { bucketId: 'gemini-weekly', displayName: 'Weekly Limit Remaining', remainingFraction: 0.8, resetTime: '2026-11-27T00:00:00Z' },
+            { bucketId: 'gemini-5h', displayName: 'Five Hour Limit Remaining', remainingFraction: 0.72, resetTime: '2026-11-20T10:56:17Z' },
+          ],
+        },
+        {
+          displayName: 'Claude / GPT Limit Remaining',
+          buckets: [
+            { bucketId: '3p-weekly', displayName: 'Weekly Limit Remaining', remainingFraction: 0.41, resetTime: '2026-11-26T00:00:00Z' },
+            { bucketId: '3p-5h', displayName: 'Five Hour Limit Remaining', remainingFraction: 0.69, resetTime: '2026-11-20T14:42:42Z' },
+          ],
+        },
+      ],
+    },
+  };
+  const r = parseQuota(STATUS, MODELS, NOW, summary);
+  assert.deepEqual(r.pools.map((p) => p.category), ['claude_gpt', 'gemini', 'tab']);
+  assert.deepEqual(r.weekly, {
+    gemini: { remaining_fraction: 0.8, reset_time: '2026-11-27T00:00:00.000Z' },
+    claude_gpt: { remaining_fraction: 0.41, reset_time: '2026-11-26T00:00:00.000Z' },
+  });
+  const [claude, gemini, tab] = r.pools;
+  // Deduplicated by kind, ordered weekly then 5h, preferring explicit (inferred: false).
+  assert.deepEqual(claude.limits.map((l) => [l.kind, l.inferred, l.remaining_fraction]), [
+    ['weekly', false, 0.41],
+    ['5h', false, 0.69],
+  ]);
+  assert.deepEqual(gemini.limits.map((l) => [l.kind, l.inferred, l.remaining_fraction]), [
+    ['weekly', false, 0.8],
+    ['5h', false, 0.72],
+  ]);
+  assert.equal(gemini.models.length, 3);
+  assert.equal(tab.limits[0].kind, 'none');
+
+  // Summary-only pool creation when GetUserStatus/GetAvailableModels are absent.
+  const only = parseQuota(null, null, NOW, summary);
+  assert.deepEqual(only.pools.map((p) => p.category), ['claude_gpt', 'gemini']);
+  assert.equal(only.pools[0].limits[0].kind, 'weekly');
+  assert.deepEqual(only.pools[0].models, []);
+  assert.equal(only.weekly.claude_gpt.remaining_fraction, 0.41);
+
+  // Null summary keeps inferred 5h and empty weekly map.
+  const without = parseQuota(STATUS, MODELS, NOW, null);
+  assert.deepEqual(without.weekly, {});
+  assert.equal(without.pools[0].limits.length, 1);
+  assert.equal(without.pools[0].limits[0].inferred, true);
 });

@@ -369,21 +369,25 @@ class ReportTest(unittest.TestCase):
         self.db.generation([group(7, 10, ("0: USER_INPUT", 10))], usage=usage(0, 100),
                            timing=timing(duration(0, 500_000_000), duration(2)))
         s = self.report()["speed"]
-        self.assertEqual(set(s), {"latest", "calls", "avg_streaming_tps", "avg_e2e_tps", "avg_ttft_sec",
-                                  "total_output_tokens", "recent", "by_model"})
+        self.assertEqual(set(s), {"latest", "calls", "avg_streaming_tps", "median_streaming_tps", "avg_e2e_tps",
+                                  "avg_ttft_sec", "total_output_tokens", "recent", "by_model"})
         self.assertEqual(s["calls"], 2)
         self.assertEqual(s["latest"]["output_tokens"], 100)  # newest row
         self.assertEqual(s["latest"]["streaming_tps"], 50.0)
+        self.assertFalse(s["latest"]["buffered"])
         self.assertEqual(s["avg_streaming_tps"], 50.0)  # 300 / 6
+        self.assertEqual(s["median_streaming_tps"], 50.0)
         self.assertEqual(s["avg_e2e_tps"], 40.0)  # 300 / 7.5
         self.assertEqual(s["avg_ttft_sec"], 0.75)
         self.assertEqual(s["total_output_tokens"], 300)
         self.assertEqual([r["output_tokens"] for r in s["recent"]], [200, 100])  # oldest-first
+        self.assertTrue(all(r["buffered"] is False for r in s["recent"]))
         self.assertFalse(any(k.startswith("_") for k in s["latest"]))
         self.assertEqual(len(s["by_model"]), 1)
         bm = s["by_model"][0]
         self.assertEqual((bm["model"], bm["display_name"], bm["calls"], bm["output_tokens"]), ("test-model", "Test Model", 2, 300))
-        self.assertEqual((bm["avg_streaming_tps"], bm["avg_e2e_tps"], bm["avg_ttft_sec"]), (50.0, 40.0, 0.75))
+        self.assertEqual((bm["avg_streaming_tps"], bm["median_streaming_tps"], bm["avg_e2e_tps"], bm["avg_ttft_sec"]),
+                         (50.0, 50.0, 40.0, 0.75))
         self.assertEqual((bm["latest"], bm["recent"]), (s["latest"], s["recent"]))
 
     def test_json_speed_null_without_timing_rows(self):
@@ -428,22 +432,57 @@ class ReportTest(unittest.TestCase):
         self.assertEqual((s["input"], s["output"], s["cache_read"], s["thinking"]), (2060, 460, 4000, 0))
         self.assertEqual(s["total_tokens"], 2520)
         self.assertEqual(s["cache_hit_pct"], round(4000 / 6060 * 100, 1))
-        self.assertEqual(s["est_cost_usd"], 0.0115)  # (1000*5 + 200*25 + 3000*0.5) / 1M; test-model unpriced
+        self.assertEqual(s["est_cost_usd"], 0.0345)  # (1000*15 + 200*75 + 3000*1.5) / 1M; test-model unpriced
         self.assertTrue(s["cost_partial"])
+        self.assertFalse(s["cost_estimated"])
+        self.assertEqual(s["pricing_source"], "builtin")
         self.assertEqual(datetime.fromisoformat(s["first_at"]).timestamp(), 1_700_000_000)
         self.assertEqual(datetime.fromisoformat(s["last_at"]).timestamp(), 1_700_000_300)  # extra calls reuse last stamp
         self.assertEqual([b["model"] for b in s["by_model"]], ["claude-opus-4-6-thinking", "test-model"])
         opus, test = s["by_model"]
         self.assertEqual(opus, {"model": "claude-opus-4-6-thinking", "display_name": "Opus", "input": 1000, "output": 200,
-                                "cache_read": 3000, "calls": 1, "est_cost_usd": 0.0115})
-        self.assertEqual((test["display_name"], test["calls"], test["input"], test["est_cost_usd"]), ("Test Model", 62, 1060, None))
+                                "cache_read": 3000, "calls": 1, "est_cost_usd": 0.0345, "cost_estimated": False})
+        self.assertEqual((test["display_name"], test["calls"], test["input"], test["est_cost_usd"], test["cost_estimated"]),
+                         ("Test Model", 62, 1060, None, False))
 
     def test_json_session_fully_priced_and_mtime_fallback(self):
         self.db.generation([], usage=usage(1_000_000, 0, 0), model="gemini-2.5-pro-x", display_name="")
         s = self.report()["session"]
-        self.assertEqual((s["est_cost_usd"], s["cost_partial"], s["cache_hit_pct"]), (1.25, False, 0.0))
+        self.assertEqual((s["est_cost_usd"], s["cost_partial"], s["cost_estimated"], s["pricing_source"], s["cache_hit_pct"]),
+                         (1.25, False, False, "builtin", 0.0))
         self.assertIsNotNone(s["first_at"])  # no PLANNER_RESPONSE stamps: DB mtime
-        self.assertEqual(s["by_model"][0]["display_name"], None)
+        self.assertEqual((s["by_model"][0]["display_name"], s["by_model"][0]["cost_estimated"]), (None, False))
+
+    def test_json_session_pricing_file_and_preview_estimate(self):
+        g = [group(7, 10, ("0: USER_INPUT", 10))]
+        self.db.generation(g, usage=usage(100_000, 10_000, 0), model="claude-opus-4-6-thinking", display_name="Opus 4.6")
+        self.db.generation(g, usage=usage(200_000, 20_000, 0), model="claude-opus-5-5-medium", display_name="Opus 5.5")
+
+        # Built-in: opus 4.6 exact (15/75), opus 5.5 same-family estimated (15/75)
+        s0 = self.report()["session"]
+        self.assertEqual((s0["pricing_source"], s0["cost_partial"], s0["cost_estimated"]), ("builtin", False, True))
+        self.assertEqual(s0["est_cost_usd"], 6.75)  # (1.5 + 0.75) + (3.0 + 1.5)
+        bm0 = {b["model"]: b for b in s0["by_model"]}
+        self.assertEqual((bm0["claude-opus-4-6-thinking"]["est_cost_usd"], bm0["claude-opus-4-6-thinking"]["cost_estimated"]), (2.25, False))
+        self.assertEqual((bm0["claude-opus-5-5-medium"]["est_cost_usd"], bm0["claude-opus-5-5-medium"]["cost_estimated"]), (4.5, True))
+
+        # Synced pricing file overrides both the released model and the preview family target
+        pricing = self.home / "pricing-cache.json"
+        pricing.write_text(json.dumps({
+            "source": "litellm",
+            "fetched_at": "2026-11-20T12:00:00Z",
+            "models": {"anthropic/claude-opus-4-6": {"input": 10.0, "output": 50.0, "cache_read": 1.0}},
+        }), encoding="utf-8")
+        s1 = self.report("--pricing-file", str(pricing))["session"]
+        self.assertEqual((s1["pricing_source"], s1["cost_partial"], s1["cost_estimated"]), ("litellm", False, True))
+        self.assertEqual(s1["est_cost_usd"], 4.5)  # (1.0 + 0.5) + (2.0 + 1.0)
+        bm1 = {b["model"]: b for b in s1["by_model"]}
+        self.assertEqual((bm1["claude-opus-4-6-thinking"]["est_cost_usd"], bm1["claude-opus-4-6-thinking"]["cost_estimated"]), (1.5, False))
+        self.assertEqual((bm1["claude-opus-5-5-medium"]["est_cost_usd"], bm1["claude-opus-5-5-medium"]["cost_estimated"]), (3.0, True))
+
+        # Missing pricing file silently falls back to builtin
+        s2 = self.report("--pricing-file", str(self.home / "nope.json"))["session"]
+        self.assertEqual((s2["pricing_source"], s2["est_cost_usd"]), ("builtin", 6.75))
 
     def test_json_session_null_without_usage(self):
         self.basic_steps()
@@ -513,10 +552,22 @@ class SpeedTest(unittest.TestCase):
         self.assertEqual((e["total_sec"], e["e2e_tps"]), (1.0, 300.0))
 
     def test_parse_short_streaming(self):
-        e = context_report.parse_generation_speed(speed_gen(output=10, ttft=duration(1), streaming=duration(0, 40_000_000)))
+        # Under 0.5s streaming: excluded from streaming_tps, keeps e2e and timing fields.
+        e = context_report.parse_generation_speed(speed_gen(output=300, ttft=duration(1), streaming=duration(0, 490_000_000)))
         self.assertIsNone(e["streaming_tps"])
-        self.assertEqual(e["streaming_sec"], 0.04)
-        self.assertIsNotNone(e["e2e_tps"])
+        self.assertEqual(e["streaming_sec"], 0.49)
+        self.assertEqual(e["total_sec"], 1.49)
+        self.assertEqual(e["output_tokens"], 300)
+        self.assertEqual(e["e2e_tps"], round(300 / 1.49, 1))
+        # Under 20 output tokens: excluded from streaming_tps even when streaming >= 0.5s.
+        e = context_report.parse_generation_speed(speed_gen(output=19, ttft=duration(1), streaming=duration(1)))
+        self.assertIsNone(e["streaming_tps"])
+        self.assertEqual(e["streaming_sec"], 1.0)
+        self.assertEqual(e["e2e_tps"], 9.5)
+        # Exact threshold: 20 tokens in 0.5s counts as valid streaming.
+        e = context_report.parse_generation_speed(speed_gen(output=20, ttft=duration(1), streaming=duration(0, 500_000_000)))
+        self.assertEqual(e["streaming_tps"], 40.0)
+        # Zero output tokens: neither streaming_tps nor e2e_tps.
         e = context_report.parse_generation_speed(speed_gen(output=0, streaming=duration(2)))
         self.assertIsNone(e["streaming_tps"])
         self.assertIsNone(e["e2e_tps"])
@@ -530,18 +581,94 @@ class SpeedTest(unittest.TestCase):
             speed_gen(output=100, ttft=duration(1), streaming=duration(1)),
             speed_gen(output=5),  # no timing: skipped entirely
             speed_gen(output=900, ttft=duration(3), streaming=duration(9)),
-            speed_gen(output=50, ttft=duration(2), streaming=duration(0, 10_000_000)),  # too short to stream-rate
+            speed_gen(output=50, ttft=duration(2), streaming=duration(0, 200_000_000)),  # < 0.5s: buffered
         ]
         s = context_report.collect_speed(gens)
         self.assertEqual(s["calls"], 3)
         self.assertEqual(s["latest"]["output_tokens"], 100)
+        self.assertFalse(s["latest"]["buffered"])
         self.assertEqual(s["avg_streaming_tps"], 100.0)  # (100 + 900) / (1 + 9), not mean of rates
-        self.assertEqual(s["avg_e2e_tps"], round(1050 / (2 + 12 + 2.01), 1))
+        self.assertEqual(s["median_streaming_tps"], 100.0)
+        self.assertEqual(s["avg_e2e_tps"], round(1050 / (2 + 12 + 2.2), 1))
         self.assertEqual(s["avg_ttft_sec"], 2.0)
         self.assertEqual(s["total_output_tokens"], 1050)
         self.assertEqual([r["output_tokens"] for r in s["recent"]], [50, 900, 100])
+        self.assertEqual([r["buffered"] for r in s["recent"]], [True, False, False])
+        self.assertIsNone(s["recent"][0]["streaming_tps"])
         self.assertEqual(set(s["recent"][0]), {"streaming_tps", "e2e_tps", "ttft_sec", "streaming_sec", "total_sec",
-                                               "output_tokens"})
+                                               "output_tokens", "buffered"})
+
+    def test_collect_outlier_filtering_and_buffered_flag(self):
+        # Newest call is a buffered flush (> 3x median); next 3 are normal ~100 tok/s; plus a 3x boundary call and a short burst.
+        gens = [  # newest-first
+            speed_gen(output=855, ttft=duration(30), streaming=duration(0, 510_000_000)),  # 1676.5 tok/s -> outlier
+            speed_gen(output=300, ttft=duration(2), streaming=duration(1)),                # 300.0 == 3x raw_med (100) -> kept
+            speed_gen(output=100, ttft=duration(2), streaming=duration(1)),                # 100.0
+            speed_gen(output=100, ttft=duration(2), streaming=duration(1)),                # 100.0
+            speed_gen(output=100, ttft=duration(2), streaming=duration(1)),                # 100.0
+            speed_gen(output=295, ttft=duration(10), streaming=duration(0, 190_000_000)),  # < 0.5s -> buffered
+        ]
+        s = context_report.collect_speed(gens)
+        self.assertEqual(s["calls"], 6)
+        # Valid raw rates: [1676.5, 300.0, 100.0, 100.0, 100.0], raw_med = 100.0; only 1676.5 > 300.0 is filtered.
+        self.assertEqual(s["avg_streaming_tps"], 150.0)  # (300 + 100 + 100 + 100) / 4
+        self.assertEqual(s["median_streaming_tps"], 100.0)
+        # Latest (index 0) was flagged as outlier: streaming_tps cleared, buffered=True, e2e preserved.
+        self.assertIsNone(s["latest"]["streaming_tps"])
+        self.assertTrue(s["latest"]["buffered"])
+        self.assertEqual(s["latest"]["e2e_tps"], round(855 / 30.51, 1))
+        # Recent is oldest-first: short burst (True), 3x100 (False), 300 (False), 1676.5 outlier (True).
+        self.assertEqual([r["buffered"] for r in s["recent"]], [True, False, False, False, False, True])
+        self.assertEqual([r["streaming_tps"] for r in s["recent"]], [None, 100.0, 100.0, 100.0, 300.0, None])
+
+        # With fewer than 3 valid entries, outlier filtering does not trigger.
+        small = context_report.collect_speed([
+            speed_gen(output=1000, ttft=duration(1), streaming=duration(1)),  # 1000 tok/s
+            speed_gen(output=100, ttft=duration(1), streaming=duration(1)),   # 100 tok/s
+        ])
+        self.assertEqual(small["latest"]["streaming_tps"], 1000.0)
+        self.assertFalse(small["latest"]["buffered"])
+        self.assertEqual(small["median_streaming_tps"], 550.0)
+
+    def test_collect_by_model_outlier_isolation(self):
+        # Case 1: fast Gemini (400 tok/s) alongside many slower Claude calls (100 tok/s).
+        # Overall median is 100 (3x=300), so overall filters 400; Gemini's own scope keeps 400 untouched.
+        gens = [
+            speed_gen(output=400, ttft=duration(1), streaming=duration(1), response_model="gemini-fast", display="Gemini"),
+            speed_gen(output=400, ttft=duration(1), streaming=duration(1), response_model="gemini-fast", display="Gemini"),
+            speed_gen(output=400, ttft=duration(1), streaming=duration(1), response_model="gemini-fast", display="Gemini"),
+            *[speed_gen(output=100, ttft=duration(1), streaming=duration(1), response_model="claude-std", display="Claude")
+              for _ in range(5)],
+        ]
+        s = context_report.collect_speed(gens)
+        self.assertEqual(s["avg_streaming_tps"], 100.0)
+        self.assertTrue(s["latest"]["buffered"])
+        self.assertIsNone(s["latest"]["streaming_tps"])
+        by_id = {b["model"]: b for b in s["by_model"]}
+        gem, cla = by_id["gemini-fast"], by_id["claude-std"]
+        self.assertEqual((gem["avg_streaming_tps"], gem["median_streaming_tps"]), (400.0, 400.0))
+        self.assertEqual(gem["latest"]["streaming_tps"], 400.0)
+        self.assertFalse(gem["latest"]["buffered"])
+        self.assertTrue(all(r["buffered"] is False and r["streaming_tps"] == 400.0 for r in gem["recent"]))
+        self.assertEqual((cla["avg_streaming_tps"], cla["median_streaming_tps"]), (100.0, 100.0))
+
+        # Case 2: many fast Gemini calls (400 tok/s) + Claude (80 tok/s) with one Claude buffered burst (350 tok/s).
+        # Overall doesn't flag 350 (<= 3*400), but Claude's own scope flags 350 (> 3*80=240).
+        gens2 = [
+            speed_gen(output=350, ttft=duration(5), streaming=duration(1), response_model="claude-std", display="Claude"),
+            *[speed_gen(output=80, ttft=duration(1), streaming=duration(1), response_model="claude-std", display="Claude")
+              for _ in range(3)],
+            *[speed_gen(output=400, ttft=duration(1), streaming=duration(1), response_model="gemini-fast", display="Gemini")
+              for _ in range(5)],
+        ]
+        s2 = context_report.collect_speed(gens2)
+        self.assertFalse(s2["latest"]["buffered"])
+        self.assertEqual(s2["latest"]["streaming_tps"], 350.0)
+        cla2 = {b["model"]: b for b in s2["by_model"]}["claude-std"]
+        self.assertTrue(cla2["latest"]["buffered"])
+        self.assertIsNone(cla2["latest"]["streaming_tps"])
+        self.assertEqual((cla2["avg_streaming_tps"], cla2["median_streaming_tps"]), (80.0, 80.0))
+        self.assertEqual([r["buffered"] for r in cla2["recent"]], [False, False, False, True])
 
     def test_collect_by_model(self):
         gens = [  # newest-first: a subagent-style flash call, then opus, flash, a display-only opus, and an unknown
@@ -551,7 +678,7 @@ class SpeedTest(unittest.TestCase):
                       response_model="ignored-when-planner-set"),
             speed_gen(output=100, streaming=duration(2), ttft=duration(4), display="Opus"),
             speed_gen(output=50, streaming=duration(1)),
-            speed_gen(output=10, streaming=duration(1), display="Mystery"),
+            speed_gen(output=10, streaming=duration(1), display="Mystery"),  # < 20 tok -> buffered
             speed_gen(output=999, response_model="claude-opus"),  # no timing: skipped
         ]
         s = context_report.collect_speed(gens)
@@ -561,15 +688,18 @@ class SpeedTest(unittest.TestCase):
         self.assertEqual([b["model"] for b in bms], ["gemini-flash", "claude-opus", "unknown", "Mystery"])
         flash, opus, unknown, mystery = bms
         self.assertEqual((flash["display_name"], flash["calls"], flash["output_tokens"]), ("Flash", 2, 300))
-        self.assertEqual((flash["avg_streaming_tps"], flash["avg_ttft_sec"]), (150.0, 2.0))
+        self.assertEqual((flash["avg_streaming_tps"], flash["median_streaming_tps"], flash["avg_ttft_sec"]), (150.0, 150.0, 2.0))
         self.assertEqual(flash["latest"]["output_tokens"], 200)
         self.assertEqual([r["output_tokens"] for r in flash["recent"]], [100, 200])
         self.assertEqual((opus["display_name"], opus["calls"], opus["output_tokens"]), ("Opus", 2, 400))
-        self.assertEqual((opus["avg_streaming_tps"], opus["avg_e2e_tps"], opus["avg_ttft_sec"]), (80.0, round(400 / 11, 1), 3.0))
+        self.assertEqual((opus["avg_streaming_tps"], opus["median_streaming_tps"], opus["avg_e2e_tps"], opus["avg_ttft_sec"]),
+                         (80.0, 75.0, round(400 / 11, 1), 3.0))
         self.assertEqual((unknown["display_name"], unknown["calls"], unknown["avg_ttft_sec"]), (None, 1, None))
-        self.assertEqual((mystery["display_name"], mystery["calls"]), ("Mystery", 1))
-        self.assertEqual(set(flash), {"model", "display_name", "latest", "calls", "avg_streaming_tps", "avg_e2e_tps",
-                                      "avg_ttft_sec", "output_tokens", "recent"})
+        self.assertEqual((mystery["display_name"], mystery["calls"], mystery["avg_streaming_tps"], mystery["median_streaming_tps"]),
+                         ("Mystery", 1, None, None))
+        self.assertTrue(mystery["latest"]["buffered"])
+        self.assertEqual(set(flash), {"model", "display_name", "latest", "calls", "avg_streaming_tps", "median_streaming_tps",
+                                      "avg_e2e_tps", "avg_ttft_sec", "output_tokens", "recent"})
         self.assertEqual(set(flash["latest"]), set(s["latest"]))
 
     def test_collect_by_model_recent_capped(self):

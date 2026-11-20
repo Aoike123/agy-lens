@@ -105,8 +105,9 @@ class ScannerTest(unittest.TestCase):
     def roots(self):
         return [(self.desk, "desktop"), (self.cli, "cli")]
 
-    def scan(self, days=30, stats=None, cache=True):
-        return hs.scan(self.roots(), self.cache if cache else None, days, now=NOW, stats=stats)
+    def scan(self, days=30, stats=None, cache=True, pricing_file=None):
+        return hs.scan(self.roots(), self.cache if cache else None, days, now=NOW, stats=stats,
+                       pricing_file=pricing_file)
 
     def test_windows_and_totals(self):
         make_db(self.desk / "a.db", [call(0), call(3), call(10), call(100)])
@@ -126,26 +127,39 @@ class ScannerTest(unittest.TestCase):
         self.assertEqual(t["d30"]["conversations"], 2)
         self.assertEqual(r["sources"], {"desktop": 2, "cli": 0})
         self.assertEqual(r["errors"], 0)
-        # gemini-2.5-pro reference price: 1.25 in / 10 out / 0.125 cache per 1M.
-        expected = (100 * 1.25 + 10 * 10 + 1000 * 0.125) / 1e6
-        self.assertAlmostEqual(t["d30"]["est_cost_usd"], round(expected * 3 + (1.25 + 20 + 0.375) / 1e6, 4), places=6)
+        # gemini-2.5-pro built-in list price: 1.25 in / 10 out / 0.3125 cache per 1M.
+        expected = (100 * 1.25 + 10 * 10 + 1000 * 0.3125) / 1e6
+        self.assertAlmostEqual(t["d30"]["est_cost_usd"],
+                               round(expected * 3 + (1.25 + 20 + 3 * 0.3125) / 1e6, 4), places=6)
+        self.assertFalse(t["d30"]["cost_estimated"])
+        self.assertEqual(r["pricing_source"], "builtin")
+        self.assertIsNone(r["pricing_fetched_at"])
+        self.assertEqual(r["d7_by_pool"], {"gemini": 223, "claude_gpt": 0, "other": 0})
 
     def test_contract_shape(self):
         make_db(self.desk / "a.db", [call(0)])
         r = self.scan()
-        self.assertEqual(set(r), {"totals", "by_model", "by_conversation", "daily", "sources", "errors", "scanned_at",
+        self.assertEqual(set(r), {"totals", "by_model", "by_conversation", "daily", "hourly_today", "d7_by_pool",
+                                  "pricing_source", "pricing_fetched_at", "sources", "errors", "scanned_at",
                                   "elapsed_ms"})
+        self.assertEqual(set(r["d7_by_pool"]), {"gemini", "claude_gpt", "other"})
         self.assertEqual(set(r["by_conversation"][0]),
-                         {"id", "source", "title", "model", "display_name", "first_at", "last_at", "input", "output",
-                          "cache_read", "thinking", "calls", "est_cost_usd", "cost_partial", "is_subagent", "by_model"})
+                         {"id", "source", "title", "model", "display_name", "pool", "first_at", "last_at", "input",
+                          "output", "cache_read", "thinking", "d7_tokens", "d7_by_pool", "calls", "est_cost_usd",
+                          "cost_partial", "cost_estimated", "is_subagent", "by_model"})
         self.assertEqual(set(r["by_conversation"][0]["by_model"][0]),
-                         {"model", "display_name", "input", "output", "cache_read", "thinking", "calls", "est_cost_usd"})
+                         {"model", "display_name", "input", "output", "cache_read", "thinking", "calls",
+                          "est_cost_usd", "cost_estimated"})
         self.assertEqual(set(r["totals"]), {"today", "d7", "d30", "all"})
         for t in r["totals"].values():
-            self.assertEqual(set(t), {"input", "output", "cache_read", "thinking", "calls", "conversations", "est_cost_usd"})
+            self.assertEqual(set(t), {"input", "output", "cache_read", "thinking", "calls", "conversations",
+                                      "est_cost_usd", "cost_estimated"})
         self.assertEqual(set(r["by_model"][0]),
-                         {"model", "display_name", "input", "output", "cache_read", "thinking", "calls", "est_cost_usd"})
+                         {"model", "display_name", "pool", "input", "output", "cache_read", "thinking", "d7_tokens",
+                          "calls", "est_cost_usd", "cost_estimated"})
         self.assertEqual(set(r["daily"][0]), {"date", "tokens", "calls"})
+        self.assertEqual(len(r["hourly_today"]), 24)
+        self.assertEqual(set(r["hourly_today"][0]), {"hour", "tokens", "calls"})
         datetime.fromisoformat(r["scanned_at"])
         self.assertIsInstance(r["elapsed_ms"], int)
 
@@ -222,6 +236,9 @@ class ScannerTest(unittest.TestCase):
         self.assertEqual(new["output"], 20)
         self.assertEqual(new["cache_read"], 50100)
         self.assertEqual(new["thinking"], 5)
+        self.assertEqual(new["d7_tokens"], 9030)
+        self.assertEqual(worker["d7_tokens"], 0)  # 10 days ago
+        self.assertEqual(sub["d7_tokens"], 0)  # 11 days ago
         expected_claude_cost = round((10 * 3 + 10 * 15 + 50000 * 0.3) / 1e6, 4)
         self.assertAlmostEqual(new["est_cost_usd"], expected_claude_cost)
         self.assertTrue(new["cost_partial"])  # mixed priced + unpriced
@@ -238,16 +255,53 @@ class ScannerTest(unittest.TestCase):
         self.assertEqual([m["model"] for m in new["by_model"]], ["internal-x", "claude-sonnet-4-5"])
         self.assertEqual(new["by_model"][0], {
             "model": "internal-x", "display_name": "Internal X",
-            "input": 9000, "output": 10, "cache_read": 100, "thinking": 3, "calls": 1, "est_cost_usd": None,
+            "input": 9000, "output": 10, "cache_read": 100, "thinking": 3, "calls": 1,
+            "est_cost_usd": None, "cost_estimated": False,
         })
         self.assertEqual(new["by_model"][1], {
             "model": "claude-sonnet-4-5", "display_name": "Claude Sonnet 4.5",
-            "input": 10, "output": 10, "cache_read": 50000, "thinking": 2, "calls": 1, "est_cost_usd": expected_claude_cost,
+            "input": 10, "output": 10, "cache_read": 50000, "thinking": 2, "calls": 1,
+            "est_cost_usd": expected_claude_cost, "cost_estimated": False,
         })
         # Cached second scan yields the exact same list with zero cache misses.
         r2 = self.scan(stats=st)
         self.assertEqual((st["hits"], st["misses"]), (6, 0))
         self.assertEqual(r2["by_conversation"], convs)
+
+    def test_d7_tokens_spanning_window(self):
+        # One conversation spanning older-than-7d calls, exact 7-day boundary (days_ago=6),
+        # today (days_ago=0), and a future timestamp (days_ago=-1, excluded from d7).
+        make_db(self.desk / "span.db", [
+            call(10, model="model-a", inp=5000, out=500, cache=90000),   # outside d7
+            call(7, model="model-a", inp=4000, out=400, cache=80000),    # 7 days ago = outside d7 ([today-6, today])
+            call(6, model="model-a", inp=300, out=30, cache=50000),      # exact d7 start (included)
+            call(0, model="model-b", inp=200, out=20, cache=40000),      # today (included)
+            call(-1, model="model-b", inp=900, out=90, cache=10000),     # future (excluded from d7)
+        ])
+        make_db(self.desk / "ancient.db", [
+            call(20, model="model-a", inp=8000, out=800, cache=70000),   # outside d7
+        ])
+        st = {}
+        r = self.scan(stats=st)
+        d7_total = r["totals"]["d7"]["input"] + r["totals"]["d7"]["output"]
+        self.assertEqual(d7_total, 550)  # (300+30) + (200+20), cache_read excluded
+
+        bc = {c["id"]: c for c in r["by_conversation"]}
+        self.assertEqual(bc["span"]["d7_tokens"], 550)
+        self.assertEqual(bc["ancient"]["d7_tokens"], 0)
+        self.assertEqual(sum(c["d7_tokens"] for c in r["by_conversation"]), d7_total)
+
+        bm = {m["model"]: m for m in r["by_model"]}
+        self.assertEqual(bm["model-a"]["d7_tokens"], 330)
+        self.assertEqual(bm["model-b"]["d7_tokens"], 220)
+        self.assertEqual(sum(m["d7_tokens"] for m in r["by_model"]), d7_total)
+
+        # Cache v3 hits on second scan and preserves d7_tokens.
+        r2 = self.scan(stats=st)
+        self.assertEqual((st["hits"], st["misses"]), (2, 0))
+        self.assertEqual(hs.CACHE_VERSION, 3)
+        self.assertEqual(r2["by_model"], r["by_model"])
+        self.assertEqual(r2["by_conversation"], r["by_conversation"])
 
     def test_by_conversation_by_model_tie_break(self):
         make_db(self.desk / "tie.db", [
@@ -303,6 +357,46 @@ class ScannerTest(unittest.TestCase):
         self.assertEqual(sum(d["calls"] for d in daily), 3)
         self.assertEqual([d["date"] for d in daily], sorted(d["date"] for d in daily))
         self.assertEqual(daily[1]["tokens"], 0)
+
+    def test_hourly_today(self):
+        h0 = NOW.replace(hour=0, minute=5, second=0).timestamp()
+        h14a = NOW.replace(hour=14, minute=10, second=0).timestamp()
+        h14b = NOW.replace(hour=14, minute=55, second=0).timestamp()
+        h23 = NOW.replace(hour=23, minute=59, second=30).timestamp()
+        yest14 = (NOW - timedelta(days=1)).replace(hour=14, minute=0, second=0).timestamp()
+        tmrw14 = (NOW + timedelta(days=1)).replace(hour=14, minute=0, second=0).timestamp()
+        make_db(self.desk / "a.db", [
+            {**call(0, inp=10, out=5, cache=100), "ts": h0},
+            {**call(0, inp=20, out=10, cache=200), "ts": h14a},
+            {**call(1, inp=999, out=999, cache=9999), "ts": yest14},  # yesterday: excluded
+            {**call(-1, inp=888, out=888, cache=8888), "ts": tmrw14},  # tomorrow: excluded
+        ])
+        make_db(self.desk / "b.db", [
+            {**call(0, inp=30, out=15, cache=300), "ts": h14b},
+            {**call(0, inp=40, out=20, cache=400), "ts": h23},
+        ])
+        st = {}
+        r = self.scan(days=7, stats=st)
+        ht = r["hourly_today"]
+        self.assertEqual(len(ht), 24)
+        self.assertEqual([x["hour"] for x in ht], list(range(24)))
+        self.assertEqual(ht[0], {"hour": 0, "tokens": 115, "calls": 1})
+        self.assertEqual(ht[14], {"hour": 14, "tokens": 575, "calls": 2})  # (20+10+200) + (30+15+300)
+        self.assertEqual(ht[23], {"hour": 23, "tokens": 460, "calls": 1})
+        # All other hours zero-filled.
+        for h in range(24):
+            if h not in (0, 14, 23):
+                self.assertEqual(ht[h], {"hour": h, "tokens": 0, "calls": 0})
+        # Totals match daily[-1] and totals["today"].
+        today_tot = r["totals"]["today"]
+        self.assertEqual(sum(x["tokens"] for x in ht), r["daily"][-1]["tokens"])
+        self.assertEqual(sum(x["tokens"] for x in ht), today_tot["input"] + today_tot["output"] + today_tot["cache_read"])
+        self.assertEqual(sum(x["calls"] for x in ht), r["daily"][-1]["calls"])
+        self.assertEqual(sum(x["calls"] for x in ht), today_tot["calls"])
+        # Cache v3 hits and preserves hourly_today.
+        r2 = self.scan(days=7, stats=st)
+        self.assertEqual((st["hits"], st["misses"]), (2, 0))
+        self.assertEqual(r2["hourly_today"], ht)
 
     def test_mtime_fallback_without_planner_steps(self):
         p = self.desk / "a.db"
@@ -365,6 +459,8 @@ class ScannerTest(unittest.TestCase):
         self.assertEqual(r["totals"]["all"]["calls"], 0)
         self.assertEqual(r["by_model"], [])
         self.assertEqual(len(r["daily"]), 5)
+        self.assertEqual(len(r["hourly_today"]), 24)
+        self.assertTrue(all(h["tokens"] == 0 and h["calls"] == 0 for h in r["hourly_today"]))
 
     def test_cli_root_and_labels(self):
         self.cli.mkdir()
@@ -416,10 +512,124 @@ class ScannerTest(unittest.TestCase):
         self.assertEqual(hs.parse_root("/tmp/conv"), (Path("/tmp/conv"), "desktop"))
 
     def test_price_lookup(self):
-        self.assertEqual(hs.price_for("gemini-2.5-flash-lite-preview"), (0.10, 0.40, 0.01))
-        self.assertEqual(hs.price_for("gemini-2.5-flash"), (0.30, 2.50, 0.03))
-        self.assertIsNotNone(hs.price_for("gpt-oss-120b-medium"))
-        self.assertIsNone(hs.price_for("gemini-pro-orchestrator"))
+        # Exact released models -> cost_estimated=False.
+        self.assertEqual(hs.price_info("gemini-2.5-pro"), ((1.25, 10.00, 0.3125), False))
+        self.assertEqual(hs.price_info("gemini-2.5-flash"), ((0.30, 2.50, 0.075), False))
+        self.assertEqual(hs.price_info("gemini-3-flash"), ((0.50, 3.00, 0.05), False))
+        self.assertEqual(hs.price_info("claude-opus-4-6-thinking"), ((15.00, 75.00, 1.50), False))
+        self.assertEqual(hs.price_info("claude-sonnet-4-6"), ((3.00, 15.00, 0.30), False))
+        self.assertEqual(hs.price_info("claude-haiku-4-5"), ((0.80, 4.00, 0.08), False))
+        self.assertEqual(hs.price_info("gpt-oss-120b-medium"), ((0.15, 0.60, 0.075), False))
+        # Backward-compatible call_cost / price_for.
+        self.assertEqual(hs.price_for("gemini-2.5-flash"), (0.30, 2.50, 0.075))
+        self.assertAlmostEqual(hs.call_cost("claude-opus-4-6-thinking", 1_000_000, 0, 0), 15.0)
+        # Same-family preview fallbacks -> cost_estimated=True.
+        self.assertEqual(hs.price_info("claude-opus-5-5-medium"), ((15.00, 75.00, 1.50), True))
+        self.assertEqual(hs.price_info("claude-sonnet-5-0"), ((3.00, 15.00, 0.30), True))
+        self.assertEqual(hs.price_info("gemini-4-hydrogen-tiered-high"), ((1.25, 10.00, 0.3125), True))
+        self.assertEqual(hs.price_info("gemini-pro-orchestrator-neon"), ((1.25, 10.00, 0.3125), True))
+        self.assertEqual(hs.price_info("gemini-3.8-flash-n"), ((0.30, 2.50, 0.075), True))
+        self.assertEqual(hs.price_info("gemini-3.5-flash-lite"), ((0.30, 2.50, 0.075), True))
+        self.assertEqual(hs.price_info("gemini-3.1-flash"), ((0.30, 2.50, 0.075), True))
+        self.assertEqual(hs.price_info("gemini-2.5-flash-lite-preview"), ((0.30, 2.50, 0.075), True))
+        self.assertEqual(hs.price_info("gemini-flash-worker-agy"), ((0.30, 2.50, 0.075), True))
+        # Unpriced / tab / unknown -> (None, False).
+        self.assertEqual(hs.call_cost_info("tab_flash_lite_preview", 1000, 100, 0), (None, False))
+        self.assertEqual(hs.call_cost_info("unknown", 1000, 100, 0), (None, False))
+        self.assertEqual(hs.call_cost_info("internal-x", 1000, 100, 0), (None, False))
+
+    def test_pricing_file_and_custom_override(self):
+        # Missing / corrupt / empty pricing files fall back silently to builtin.
+        self.assertEqual(hs.load_pricing_file(None), ({}, "builtin", None))
+        self.assertEqual(hs.load_pricing_file(self.base / "missing.json"), ({}, "builtin", None))
+        bad = self.base / "bad.json"
+        bad.write_text("{not json", encoding="utf-8")
+        self.assertEqual(hs.load_pricing_file(bad), ({}, "builtin", None))
+        empty = self.base / "empty.json"
+        empty.write_text(json.dumps({"source": "litellm", "models": {}}), encoding="utf-8")
+        self.assertEqual(hs.load_pricing_file(empty), ({}, "builtin", None))
+
+        pf = self.base / "pricing-cache.json"
+        pf.write_text(json.dumps({
+            "source": "openrouter",
+            "fetched_at": "2026-06-15T10:00:00Z",
+            "models": {
+                "anthropic/claude-opus-4.6": {"input": 5.0, "output": 25.0, "cache_read": 0.5},
+                "google/gemini-2.5-pro": {"input": 2.0, "output": 12.0, "cache_read": 0.4},
+                "google/gemini-2.5-flash-lite": {"input": 0.1, "output": 0.4, "cache_read": 0.02},
+            },
+        }), encoding="utf-8")
+        models, src, fetched = hs.load_pricing_file(pf)
+        self.assertEqual((src, fetched), ("openrouter", "2026-06-15T10:00:00Z"))
+        # Exact match strips provider prefix & matches dot/dash version -> estimated=False.
+        self.assertEqual(hs.call_cost_info("claude-opus-4-6-thinking", 1_000_000, 0, 0, models), (5.0, False))
+        # Direct custom entry promotes gemini-2.5-flash-lite to exact -> estimated=False.
+        self.assertEqual(hs.call_cost_info("gemini-2.5-flash-lite", 1_000_000, 0, 0, models), (0.1, False))
+        # Preview fallback resolves target against custom_prices -> estimated=True.
+        self.assertEqual(hs.call_cost_info("claude-opus-5-5-medium", 1_000_000, 0, 0, models), (5.0, True))
+        self.assertEqual(hs.call_cost_info("gemini-4-hydrogen-tiered-high", 1_000_000, 0, 0, models), (2.0, True))
+
+        # End-to-end via scan() and CLI --pricing-file.
+        make_db(self.desk / "mix.db", [
+            call(0, model="claude-opus-4-6-thinking", inp=1_000_000, out=0, cache=0),
+            call(2, model="gemini-4-hydrogen-tiered-high", inp=1_000_000, out=0, cache=0),
+        ])
+        r = self.scan(pricing_file=pf)
+        self.assertEqual(r["pricing_source"], "openrouter")
+        self.assertEqual(r["pricing_fetched_at"], "2026-06-15T10:00:00Z")
+        # Today has only exact claude-opus-4-6-thinking -> cost_estimated=False.
+        self.assertEqual(r["totals"]["today"]["est_cost_usd"], 5.0)
+        self.assertFalse(r["totals"]["today"]["cost_estimated"])
+        # d7 includes preview gemini-4-hydrogen -> 5.0 + 2.0 = 7.0, cost_estimated=True.
+        self.assertEqual(r["totals"]["d7"]["est_cost_usd"], 7.0)
+        self.assertTrue(r["totals"]["d7"]["cost_estimated"])
+        bm = {m["model"]: m for m in r["by_model"]}
+        self.assertFalse(bm["claude-opus-4-6-thinking"]["cost_estimated"])
+        self.assertTrue(bm["gemini-4-hydrogen-tiered-high"]["cost_estimated"])
+        self.assertTrue(r["by_conversation"][0]["cost_estimated"])
+
+        out = subprocess.run(
+            [sys.executable, str(SCRIPT), "--json", "--cache", str(self.cache), "--root", f"{self.desk}=desktop",
+             "--pricing-file", str(pf)],
+            capture_output=True, text=True, check=True,
+        ).stdout
+        cli_r = json.loads(out)
+        self.assertEqual(cli_r["pricing_source"], "openrouter")
+        self.assertEqual(cli_r["pricing_fetched_at"], "2026-06-15T10:00:00Z")
+        self.assertEqual(cli_r["totals"]["all"]["est_cost_usd"], 7.0)
+
+    def test_model_pool_and_d7_by_pool(self):
+        self.assertEqual(hs.model_pool("gemini-4-hydrogen-tiered-high"), "gemini")
+        self.assertEqual(hs.model_pool("gemini-pro-orchestrator-neon"), "gemini")
+        self.assertEqual(hs.model_pool("Orchestrator (Neon)"), "gemini")
+        self.assertEqual(hs.model_pool("claude-opus-5-5-medium"), "claude_gpt")
+        self.assertEqual(hs.model_pool("gpt-oss-120b-medium"), "claude_gpt")
+        self.assertEqual(hs.model_pool("openai/gpt-4o"), "claude_gpt")
+        self.assertEqual(hs.model_pool("tab_flash_lite_preview"), "other")
+        self.assertEqual(hs.model_pool("unknown"), "other")
+        self.assertEqual(hs.model_pool("internal-x"), "other")
+
+        make_db(self.desk / "multi.db", [
+            call(0, model="gemini-4-hydrogen-tiered-high", inp=1000, out=200, cache=9000),  # gemini d7 = 1200
+            call(1, model="claude-opus-5-5-medium", inp=400, out=100, cache=5000),          # claude_gpt d7 = 500
+            call(10, model="claude-opus-5-5-medium", inp=9000, out=900, cache=5000),        # >7d excluded from d7
+        ])
+        make_db(self.desk / "other.db", [
+            call(2, model="internal-x", inp=300, out=50, cache=1000),                       # other d7 = 350
+            call(3, model="gpt-oss-120b-medium", inp=200, out=50, cache=1000),              # claude_gpt d7 = 250
+        ])
+        r = self.scan()
+        self.assertEqual(r["d7_by_pool"], {"gemini": 1200, "claude_gpt": 750, "other": 350})
+        self.assertEqual(sum(r["d7_by_pool"].values()),
+                         r["totals"]["d7"]["input"] + r["totals"]["d7"]["output"])
+        bc = {c["id"]: c for c in r["by_conversation"]}
+        self.assertEqual(bc["multi"]["pool"], "gemini")  # highest d7 pool (1200 > 500)
+        self.assertEqual(bc["multi"]["d7_by_pool"], {"gemini": 1200, "claude_gpt": 500, "other": 0})
+        self.assertEqual(bc["other"]["pool"], "other")   # highest d7 pool (350 > 250)
+        self.assertEqual(bc["other"]["d7_by_pool"], {"gemini": 0, "claude_gpt": 250, "other": 350})
+        for p in ("gemini", "claude_gpt", "other"):
+            self.assertEqual(sum(c["d7_by_pool"][p] for c in r["by_conversation"]), r["d7_by_pool"][p])
+            self.assertEqual(sum(m["d7_tokens"] for m in r["by_model"] if m["pool"] == p), r["d7_by_pool"][p])
 
     def test_perf_200_dbs(self):
         for i in range(200):

@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import re
 import sqlite3
+import statistics
 import sys
 from urllib.parse import unquote, urlparse
 
@@ -716,6 +717,11 @@ def pb_duration_sec(msg: Msg | None) -> float | None:
     return sec + nanos / 1_000_000_000.0
 
 
+MIN_STREAM_TOKENS = 20
+MIN_STREAM_SEC = 0.5
+STREAM_OUTLIER_MULT = 3.0
+
+
 def parse_generation_speed(gen: Msg | None) -> dict | None:
     """Extract output tokens, TTFT, streaming duration, and tok/s from one gen_metadata row."""
     chat = gen.msg(1) if gen is not None else None
@@ -736,7 +742,11 @@ def parse_generation_speed(gen: Msg | None) -> dict | None:
         return None
 
     total = (ttft + streaming) if (ttft is not None and streaming is not None) else (ttft if ttft is not None else streaming)
-    streaming_tps = round(output_tok / streaming, 1) if (output_tok > 0 and streaming is not None and streaming >= 0.05) else None
+    streaming_tps = (
+        round(output_tok / streaming, 1)
+        if (output_tok >= MIN_STREAM_TOKENS and streaming is not None and streaming >= MIN_STREAM_SEC)
+        else None
+    )
     e2e_tps = round(output_tok / total, 1) if (output_tok > 0 and total is not None and total > 0) else None
     total_input = input_tok + cache_read_tok
     cache_hit_pct = round(cache_read_tok / total_input * 100.0, 1) if total_input > 0 else None
@@ -762,11 +772,32 @@ SPEED_RECENT_KEYS = ("streaming_tps", "e2e_tps", "ttft_sec", "streaming_sec", "t
 
 
 def _speed_aggregate(entries: list[dict]) -> dict:
-    """Weighted averages + latest/recent over parsed speed entries (newest-first, non-empty)."""
-    stream_entries = [e for e in entries if e["output_tokens"] > 0 and e["_streaming_sec"] is not None and e["_streaming_sec"] >= 0.05]
+    """Weighted averages, median, and latest/recent over parsed speed entries (newest-first, non-empty).
+
+    Buffered-outlier filtering is computed per aggregate scope without mutating `entries`, so
+    overall and per-model scopes stay isolated.
+    """
+    valid_idx = [i for i, e in enumerate(entries) if e["streaming_tps"] is not None]
+    outliers: set[int] = set()
+    if len(valid_idx) >= 3:
+        raw_med = statistics.median(entries[i]["streaming_tps"] for i in valid_idx)
+        outliers = {i for i in valid_idx if entries[i]["streaming_tps"] > STREAM_OUTLIER_MULT * raw_med}
+        if len(outliers) == len(valid_idx):
+            outliers.clear()
+    clean_idx = [i for i in valid_idx if i not in outliers]
+
     avg_streaming_tps = (
-        round(sum(e["output_tokens"] for e in stream_entries) / sum(e["_streaming_sec"] for e in stream_entries), 1)
-        if stream_entries
+        round(
+            sum(entries[i]["output_tokens"] for i in clean_idx)
+            / sum(entries[i]["_streaming_sec"] for i in clean_idx),
+            1,
+        )
+        if clean_idx
+        else None
+    )
+    median_streaming_tps = (
+        round(statistics.median(entries[i]["streaming_tps"] for i in clean_idx), 1)
+        if clean_idx
         else None
     )
     e2e_entries = [e for e in entries if e["output_tokens"] > 0 and e["_total_sec"] is not None and e["_total_sec"] > 0]
@@ -777,14 +808,30 @@ def _speed_aggregate(entries: list[dict]) -> dict:
     )
     ttft_vals = [e["_ttft_sec"] for e in entries if e["_ttft_sec"] is not None]
     avg_ttft_sec = round(sum(ttft_vals) / len(ttft_vals), 2) if ttft_vals else None
+
+    latest = {k: v for k, v in entries[0].items() if not k.startswith("_")}
+    if 0 in outliers:
+        latest["streaming_tps"] = None
+    latest["buffered"] = latest["streaming_tps"] is None
+
+    recent = []
+    for i in range(min(len(entries), SPEED_RECENT) - 1, -1, -1):
+        e = entries[i]
+        row = {k: e[k] for k in SPEED_RECENT_KEYS}
+        if i in outliers:
+            row["streaming_tps"] = None
+        row["buffered"] = row["streaming_tps"] is None
+        recent.append(row)
+
     return {
-        "latest": {k: v for k, v in entries[0].items() if not k.startswith("_")},
+        "latest": latest,
         "calls": len(entries),
         "avg_streaming_tps": avg_streaming_tps,
+        "median_streaming_tps": median_streaming_tps,
         "avg_e2e_tps": avg_e2e_tps,
         "avg_ttft_sec": avg_ttft_sec,
         "output_tokens": sum(e["output_tokens"] for e in entries),
-        "recent": [{k: e[k] for k in SPEED_RECENT_KEYS} for e in reversed(entries[:SPEED_RECENT])],
+        "recent": recent,
     }
 
 
@@ -830,7 +877,7 @@ def collect_speed(gens: list[Msg]) -> dict | None:
         groups.setdefault(model, []).append(e)  # dict order = most recent call first
 
     agg = _speed_aggregate(entries)
-    out = {k: agg[k] for k in ("latest", "calls", "avg_streaming_tps", "avg_e2e_tps", "avg_ttft_sec")}
+    out = {k: agg[k] for k in ("latest", "calls", "avg_streaming_tps", "median_streaming_tps", "avg_e2e_tps", "avg_ttft_sec")}
     out["total_output_tokens"] = agg["output_tokens"]
     out["recent"] = agg["recent"]
     out["by_model"] = []
@@ -861,7 +908,7 @@ def _iso(ts: float) -> str | None:
         return None
 
 
-def collect_session(db_path: Path, hs=None) -> dict | None:
+def collect_session(db_path: Path, hs=None, pricing_file: Path | str | None = None) -> dict | None:
     """Usage summed over every billed generation of this conversation; None when there is none (or unreadable)."""
     hs = hs or _history_scanner()
     if hs is None:
@@ -873,13 +920,21 @@ def collect_session(db_path: Path, hs=None) -> dict | None:
     calls, names = parsed.get("calls") or [], parsed.get("names") or {}
     if not calls:
         return None
+
+    load_pricing = getattr(hs, "load_pricing_file", None)
+    if callable(load_pricing):
+        custom_prices, pricing_source, _ = load_pricing(pricing_file)
+    else:
+        custom_prices, pricing_source = {}, "builtin"
+    cost_info_fn = getattr(hs, "call_cost_info", None)
+
     prefix = getattr(hs, "DISPLAY_PREFIX", "display:")
     by_display: dict[str, str] = {}
     for mid, disp in sorted(names.items()):
         by_display.setdefault(disp, mid)
 
     tot = {"input": 0, "output": 0, "cache_read": 0, "thinking": 0}
-    cost_sum, partial = None, False
+    cost_sum, partial, estimated = None, False, False
     by_model: dict[str, dict] = {}
     stamps = []
     for ts, model, inp, out, cache, think in calls:
@@ -887,7 +942,10 @@ def collect_session(db_path: Path, hs=None) -> dict | None:
         if model.startswith(prefix):
             display = model[len(prefix):]
             model = by_display.get(display, display)
-        cost = hs.call_cost(model, inp, out, cache)
+        if callable(cost_info_fn):
+            cost, is_est = cost_info_fn(model, inp, out, cache, custom_prices)
+        else:
+            cost, is_est = hs.call_cost(model, inp, out, cache), False
         tot["input"] += inp
         tot["output"] += out
         tot["cache_read"] += cache
@@ -897,16 +955,28 @@ def collect_session(db_path: Path, hs=None) -> dict | None:
             partial = True
         else:
             cost_sum = (cost_sum or 0.0) + cost
+            if is_est:
+                estimated = True
         bm = by_model.get(model)
         if bm is None:
-            bm = by_model[model] = {"model": model, "display_name": names.get(model) or display, "input": 0,
-                                    "output": 0, "cache_read": 0, "calls": 0, "est_cost_usd": None}
+            bm = by_model[model] = {
+                "model": model,
+                "display_name": names.get(model) or display,
+                "input": 0,
+                "output": 0,
+                "cache_read": 0,
+                "calls": 0,
+                "est_cost_usd": None,
+                "cost_estimated": False,
+            }
         bm["input"] += inp
         bm["output"] += out
         bm["cache_read"] += cache
         bm["calls"] += 1
         if cost is not None:
             bm["est_cost_usd"] = (bm["est_cost_usd"] or 0.0) + cost
+            if is_est:
+                bm["cost_estimated"] = True
 
     models = sorted(by_model.values(), key=lambda b: (-(b["input"] + b["output"] + b["cache_read"]), b["model"]))
     for bm in models:
@@ -920,6 +990,8 @@ def collect_session(db_path: Path, hs=None) -> dict | None:
         "cache_hit_pct": round(tot["cache_read"] / prompt * 100.0, 1) if prompt > 0 else None,
         "est_cost_usd": round(cost_sum, 4) if cost_sum is not None else None,
         "cost_partial": partial,
+        "cost_estimated": estimated,
+        "pricing_source": pricing_source,
         "first_at": _iso(min(stamps)),
         "last_at": _iso(max(stamps)),
         "by_model": models,
@@ -1005,6 +1077,7 @@ def main():
     parser.add_argument("--json", action="store_true", help="Output JSON data")
     parser.add_argument("--model-catalog", help='JSON file of {"<model id>": {"maxTokens": n, "displayName": "..."}} '
                         "from the app's live model catalog; overrides the built-in limits and labels")
+    parser.add_argument("--pricing-file", help="Optional normalized pricing JSON file (e.g. pricing-cache.json)")
     args = parser.parse_args()
 
     if args.db:
@@ -1062,7 +1135,7 @@ def main():
             "skill_files": [{"path": p, "tokens": t} for p, t in st["skill_files"]],
             "system_files": [{"path": p} for p, _ in system_files],
             "speed": speed,
-            "session": collect_session(db_path),
+            "session": collect_session(db_path, pricing_file=args.pricing_file),
         }, indent=2))
         return
 

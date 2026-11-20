@@ -15,8 +15,8 @@
   const SESSION_PERIODS = ['all', 'd30', 'd7', 'today'];
   const LIST_SORTS = ['recent', 'tokens', 'calls'];
   const SOURCE_FILTERS = ['all', 'desktop', 'cli'];
-  const HEAT_MIN_WEEKS = 10;
-  const HEAT_MAX_WEEKS = 20;
+  const HEAT_ALL_MIN_WEEKS = 26;
+  const HEAT_ALL_MAX_WEEKS = 52;
   const CONV_VISIBLE = 8;
   const MODEL_VISIBLE = 5;
   const CHEV = '<svg class="chev" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 2.5L8 6l-3.5 3.5"/></svg>';
@@ -60,9 +60,14 @@
       readFailed: (m) => `无法读取这个对话：${m}`,
       speedTitle: '输出速度', speedWaiting: '模型完成一次回复后显示生成速度', speedCalls: (n) => `${n} 次调用`,
       streaming: '流式速度', e2e: '端到端', ttft: '首字延迟', cacheHit: '缓存命中', avgOf: (v) => `均值 ${v}`,
-      median: (v) => `中位数 ${v} tok/s`, sep: '。', lastReply: (n) => `上次回复输出 ${n} tok`,
+      median: (v) => `中位数 ${v} tok/s`, lastReply: (n) => `上次回复输出 ${n} tok`,
       thinkingNote: (a, b) => `，思考 ${a} · 回复 ${b}`, streamNote: (v) => `，流式 ${v}`,
       speedTip: (s, e, t, o) => `流式 ${s} tok/s · 端到端 ${e} tok/s · 首字 ${t} · 输出 ${o} tok`,
+      bufTip: (e, tot) => `缓冲/短回复，未计入流式测速 · 端到端 ${e} tok/s · 总耗时 ${tot}`,
+      bufFallback: '上次为缓冲输出 · 显示会话均值',
+      tipStream: '输出 ÷ 流式耗时，已过滤缓冲突发',
+      tipE2e: (v) => `输出 ÷ (首字延迟 + 流式耗时) · 均值 ${v} tok/s`,
+      tipTtft: (v) => `请求到首个流式分片耗时，含排队与前置思考 · 均值 ${v}`,
       byModelSpeed: '按模型', agentMain: '主智能体', agentSub: '子智能体',
       sessionTitle: '本会话累计', sessionTokens: 'tokens，不含缓存',
       ioLine: (i, o, c) => `输入 ${i} · 输出 ${o} · 缓存读取 ${c}`, hitLine: (p) => `缓存命中 ${p}%`,
@@ -80,14 +85,30 @@
       historyTitle: '历史用量', scanning: '正在扫描所有对话，可能需要几秒', historyFailed: '扫描历史失败',
       periods: { today: '今天', d7: '近 7 天', d30: '近 30 天', all: '全部' },
       periodPills: { today: '今天', d7: '7 天', d30: '30 天', all: '全部' }, periodBarAria: '统计时段',
-      colPeriod: '时段', colTokens: 'Tokens', colCalls: '调用', colConvs: '对话', colCost: '参考价',
-      callsConvs: (c, n) => `${c} 次调用 · ${n} 个对话`, calls: (n) => `${n} 次调用`,
+      colPeriod: '时段', colTokens: 'Tokens', colCalls: '调用', colConvs: '对话', colCost: '估算费用',
+      callsConvs: (c, n) => `${c} 次调用 · ${n} 个对话`, convsCount: (n) => `${n} 个对话`, calls: (n) => `${n} 次调用`,
       tokensNoCache: 'tokens，不含缓存读取', exclCache: '不含缓存读取',
-      refNote: '参考价按公开单价估算，不代表实际账单', refPartial: '部分模型没有公开单价，未计入，≥ 表示下限',
-      noRefPrice: '没有参考价', partialTip: '仅含有参考价的模型',
+      weeklyQuota: '周额度', d7Share: '近7天占比',
+      liveSynced: '官方同步', liveWeeklyTip: '已从本地语言服务器自动同步官方周额度',
+      liveWeeklyHead: (parts) => `官方周额度 · ${parts}`,
+      liveWeeklyPart: (p, u) => `${p} 已用 ${u}`,
+      calAction: '校准', calDone: '已校准', calClear: '清除', calSave: '保存',
+      calTitle: '校准官方周额度剩余 %', calHint: '对照左下角 View Usage 弹窗填入',
+      calTip: '点击对照 View Usage 弹窗校准周额度',
+      poolShort: { gemini: 'Gemini', claude_gpt: 'Claude / GPT', other: '其他' },
+      poolCompact: { gemini: 'Gemini', claude_gpt: 'Claude/GPT', other: '其他' },
+      calPoolLeft: (p) => `${p} 周剩余 %`, calBarLabel: (p, u) => `${p} 周额度已用 ${u}`,
+      ofD7: (p) => `占近7天已用 ${p}`, ofPoolQuota: (p) => `≈ 周额度 ${p}`, d7Zero: '近7天 0%',
+      syncPrices: '同步官网价', syncingPrices: '同步中…', pricingBuiltin: '内置官网价',
+      pricingSrc: (s) => `价格来源：${s}`,
+      pricingEstNote: '预览模型按同系列公开价估算标 ≈',
+      pricingPartialNote: '含无公开价调用，≥ 表示下限',
       byModel: '按模型', noModels: '暂无模型用量', showMoreModels: (n) => `展开其余 ${n} 个模型`, showLess: '收起',
       legInput: '输入', legCache: '缓存读取', legOutput: '输出', legThinking: '思考',
-      activity: '活跃度', activeDays: (a, w) => `近 ${w} 周活跃 ${a} 天`,
+      activity: '活跃度', am: '上午', pm: '下午',
+      hourTip: (h1, h2, tok, c) => `今日 ${h1}:00–${h2}:00 · ${tok} tok（含缓存）· ${c} 次调用`,
+      activeHours: (n) => `今日活跃 ${n} 小时`, activeToday: (a) => (a ? '今日活跃' : '今日暂无活动'),
+      activeDaysOf: (a, n) => `近 ${n} 天活跃 ${a} 天`, activeDays: (a, w) => `近 ${w} 周活跃 ${a} 天`,
       dayTip: (d, t, c) => `${d} · ${t} tok（含缓存）· ${c} 次调用`, less: '少', more: '多',
       byConversation: '按会话', untitled: '未命名对话', moreConvs: (n) => `再显示 ${n} 个`,
       hviews: { totals: '按总量', sessions: '按会话', list: '会话列表' }, hviewAria: '历史分类视图',
@@ -124,9 +145,14 @@
       readFailed: (m) => `Couldn't read this conversation: ${m}`,
       speedTitle: 'Output speed', speedWaiting: 'Generation speed appears after the model finishes a reply', speedCalls: (n) => `${n} calls`,
       streaming: 'Streaming', e2e: 'End to end', ttft: 'First token', cacheHit: 'Cache hit', avgOf: (v) => `avg ${v}`,
-      median: (v) => `median ${v} tok/s`, sep: '. ', lastReply: (n) => `Last reply ${n} tok`,
+      median: (v) => `median ${v} tok/s`, lastReply: (n) => `Last reply ${n} tok`,
       thinkingNote: (a, b) => `, thinking ${a} · response ${b}`, streamNote: (v) => `, streamed in ${v}`,
       speedTip: (s, e, t, o) => `streaming ${s} tok/s · end to end ${e} tok/s · first token ${t} · output ${o} tok`,
+      bufTip: (e, tot) => `Buffered burst (excluded from streaming rate) · e2e ${e} tok/s · total ${tot}`,
+      bufFallback: 'Last reply buffered · showing session avg',
+      tipStream: 'Output ÷ streaming duration, excluding buffered bursts',
+      tipE2e: (v) => `Output ÷ (first token + streaming) · avg ${v} tok/s`,
+      tipTtft: (v) => `Request to first streamed chunk, incl. queue & pre-thinking · avg ${v}`,
       byModelSpeed: 'By model', agentMain: 'main agent', agentSub: 'subagent',
       sessionTitle: 'This conversation', sessionTokens: 'tokens, excluding cache',
       ioLine: (i, o, c) => `in ${i} · out ${o} · cache read ${c}`, hitLine: (p) => `cache hit ${p}%`,
@@ -144,14 +170,30 @@
       historyTitle: 'Usage history', scanning: 'Scanning all conversations, this can take a few seconds', historyFailed: 'History scan failed',
       periods: { today: 'Today', d7: 'Last 7 days', d30: 'Last 30 days', all: 'All time' },
       periodPills: { today: 'Today', d7: '7d', d30: '30d', all: 'All' }, periodBarAria: 'Time period',
-      colPeriod: 'Period', colTokens: 'Tokens', colCalls: 'Calls', colConvs: 'Conversations', colCost: 'Ref. cost',
-      callsConvs: (c, n) => `${c} calls · ${n} conversations`, calls: (n) => `${n} ${n === '1' ? 'call' : 'calls'}`,
+      colPeriod: 'Period', colTokens: 'Tokens', colCalls: 'Calls', colConvs: 'Conversations', colCost: 'Est. cost',
+      callsConvs: (c, n) => `${c} calls · ${n} conversations`, convsCount: (n) => `${n} ${n === '1' ? 'conversation' : 'conversations'}`, calls: (n) => `${n} ${n === '1' ? 'call' : 'calls'}`,
       tokensNoCache: 'tokens, excluding cache reads', exclCache: 'excluding cache reads',
-      refNote: 'Reference cost from public list prices, not your bill', refPartial: 'Some models have no public price and are left out, so ≥ marks a lower bound',
-      noRefPrice: 'no reference price', partialTip: 'priced models only',
+      weeklyQuota: 'Weekly quota', d7Share: '7d share',
+      liveSynced: 'Live', liveWeeklyTip: 'Auto-synced from the local language server',
+      liveWeeklyHead: (parts) => `Official weekly · ${parts}`,
+      liveWeeklyPart: (p, u) => `${p} ${u} used`,
+      calAction: 'Calibrate', calDone: 'Calibrated', calClear: 'Clear', calSave: 'Save',
+      calTitle: 'Calibrate official weekly % left', calHint: 'Match the View Usage popup',
+      calTip: 'Calibrate against the View Usage popup',
+      poolShort: { gemini: 'Gemini', claude_gpt: 'Claude / GPT', other: 'Other' },
+      poolCompact: { gemini: 'Gemini', claude_gpt: 'Claude/GPT', other: 'Other' },
+      calPoolLeft: (p) => `${p} % left`, calBarLabel: (p, u) => `${p} weekly ${u} used`,
+      ofD7: (p) => `${p} of 7d usage`, ofPoolQuota: (p) => `≈ ${p} weekly`, d7Zero: '0% in 7d',
+      syncPrices: 'Sync prices', syncingPrices: 'Syncing…', pricingBuiltin: 'Built-in list prices',
+      pricingSrc: (s) => `Prices: ${s}`,
+      pricingEstNote: 'Preview models estimated from family list prices (≈)',
+      pricingPartialNote: 'Includes unpriced calls (≥ lower bound)',
       byModel: 'By model', noModels: 'No model usage yet', showMoreModels: (n) => `Show ${n} more`, showLess: 'Show less',
       legInput: 'Input', legCache: 'Cache read', legOutput: 'Output', legThinking: 'Thinking',
-      activity: 'Activity', activeDays: (a, w) => `Active ${a} days in the last ${w} weeks`,
+      activity: 'Activity', am: 'AM', pm: 'PM',
+      hourTip: (h1, h2, tok, c) => `Today ${h1}:00–${h2}:00 · ${tok} tok incl. cache · ${c} calls`,
+      activeHours: (n) => `Active ${n}h today`, activeToday: (a) => (a ? 'Active today' : 'No activity today'),
+      activeDaysOf: (a, n) => `Active ${a} / ${n} days`, activeDays: (a, w) => `Active ${a} days in ${w}w`,
       dayTip: (d, t, c) => `${d} · ${t} tok incl. cache · ${c} calls`, less: 'Less', more: 'More',
       byConversation: 'By conversation', untitled: 'Untitled conversation', moreConvs: (n) => `Show ${n} more`,
       hviews: { totals: 'Totals', sessions: 'By session', list: 'Session list' }, hviewAria: 'History views',
@@ -196,10 +238,36 @@
   const fmtInt = (n) => num(n).toLocaleString(locale());
   const fmtTps = (v) => (isNum(v) ? v.toFixed(1) : '—');
   const fmtSec = (v) => (isNum(v) ? `${v.toFixed(2)}s` : '—');
+  function fmtPctNum(p) {
+    if (!isNum(p) || p <= 0) return '0%';
+    if (p < 0.1) return '<0.1%';
+    if (p >= 100) return `${Math.round(p)}%`;
+    const s = p.toFixed(1);
+    return `${s.endsWith('.0') ? s.slice(0, -2) : s}%`;
+  }
   function fmtUsd(v) {
+    if (!isNum(v)) return '';
     if (v > 0 && v < 0.01) return '<$0.01';
     return `$${v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   }
+  function fmtCost(v, { estimated = false, partial = false } = {}) {
+    if (!isNum(v)) return '';
+    const prefix = partial ? '≥' : (estimated ? '≈' : '');
+    return `${prefix}${fmtUsd(v)}`;
+  }
+  function pricingSourceName(src) {
+    if (src === 'litellm') return 'LiteLLM';
+    if (src === 'openrouter') return 'OpenRouter';
+    return t('pricingBuiltin');
+  }
+  function pricingTip(src, fetchedAt, { partial = false } = {}) {
+    const parts = [t('pricingSrc', pricingSourceName(src))];
+    if (fetchedAt) parts.push(fmtTime(fetchedAt, true));
+    parts.push(t('pricingEstNote'));
+    if (partial) parts.push(t('pricingPartialNote'));
+    return parts.join(' · ');
+  }
+  const budgetLevel = (ratio) => (ratio >= 0.95 ? 'crit' : ratio >= 0.8 ? 'warn' : '');
   function parseDate(iso) {
     const d = new Date(iso);
     return iso && !Number.isNaN(d.getTime()) ? d : null;
@@ -236,14 +304,37 @@
   }
   const errorBox = (title, msg) => `<div class="error" role="alert"><b>${esc(title)}</b>${msg ? esc(msg) : ''}</div>`;
 
-  /** Reference cost: ≥ when some calls were unpriced, an explicit "no reference price" when none were. */
-  function costHtml(value, { partial = false, calls = 0, label = true } = {}) {
-    if (!isNum(value)) {
-      if (num(calls) > 0) return `<span class="dim" title="${esc(t('noRefPrice'))}">—${label ? ` ${esc(t('noRefPrice'))}` : ''}</span>`;
-      return '<span class="dim">—</span>';
-    }
-    const tip = partial ? `${t('partialTip')} · ${t('refPartial')}` : t('refNote');
-    return `<span title="${esc(tip)}">${partial ? '≥' : ''}${esc(fmtUsd(value))}${label ? ` <span class="lbl">${esc(t('colCost'))}</span>` : ''}</span>`;
+  const CAL_POOLS = ['gemini', 'claude_gpt'];
+  function clampPct(v) {
+    if (v === '' || v == null) return null;
+    const n = Number(v);
+    return Number.isFinite(n) && n >= 0 && n <= 100 ? Math.round(n * 10) / 10 : null;
+  }
+  function readWeeklyLeft() {
+    try {
+      const o = JSON.parse(store.get('ctx.weeklyLeft', '') || '{}');
+      return { gemini: clampPct(o && o.gemini), claude_gpt: clampPct(o && o.claude_gpt) };
+    } catch { return { gemini: null, claude_gpt: null }; }
+  }
+  let weeklyLeft = readWeeklyLeft();
+  let calEditorOpen = false;
+  let pricingSyncing = false;
+  let pricingError = '';
+  const hasCal = () => weeklyLeft.gemini != null || weeklyLeft.claude_gpt != null;
+  function setWeeklyLeft(next) {
+    weeklyLeft = { gemini: clampPct(next && next.gemini), claude_gpt: clampPct(next && next.claude_gpt) };
+    try {
+      if (hasCal()) localStorage.setItem('ctx.weeklyLeft', JSON.stringify(weeklyLeft));
+      else localStorage.removeItem('ctx.weeklyLeft');
+    } catch { /* storage unavailable */ }
+    calEditorOpen = false;
+    if (history.data || history.loading || history.error) paintHistory();
+  }
+  function inferPool(id) {
+    const s = String(id || '').toLowerCase();
+    if (s.includes('gemini') || s.includes('orchestrator')) return 'gemini';
+    if (s.includes('claude') || s.includes('gpt') || s.includes('openai')) return 'claude_gpt';
+    return 'other';
   }
 
   async function getJson(path, query) {
@@ -338,20 +429,23 @@
     return `<section><h2>${esc(title)} <span class="hint">${esc(hint)}</span></h2><ul class="files">${rows}</ul></section>`;
   }
 
-  /** Recent calls as bars: streaming tok/s on a zero baseline, latest in the accent.
-      The scale tops out at 2× the median so one very short stream does not flatten the rest. */
+  /** Recent calls as bars: streaming tok/s only (never e2e fallback); buffered bursts render as quiet stubs. */
   function trendBars(recent) {
     if (!Array.isArray(recent) || recent.length < 2) return '';
-    const vals = recent.map((x) => (isNum(x.streaming_tps) ? x.streaming_tps : null));
+    const vals = recent.map((x) => (!x.buffered && isNum(x.streaming_tps) ? x.streaming_tps : null));
     const sorted = vals.filter((v) => v != null).sort((a, b) => a - b);
     if (!sorted.length || !sorted[sorted.length - 1]) return '';
     const median = sorted[Math.floor((sorted.length - 1) / 2)];
     const top = Math.min(sorted[sorted.length - 1], Math.max(median * 2, 1));
     const bars = recent.map((x, i) => {
       const v = vals[i];
+      if (v == null) {
+        const tip = t('bufTip', fmtTps(x.e2e_tps), fmtSec(x.total_sec));
+        return `<span class="sbar buf" title="${esc(tip)}"></span>`;
+      }
       const tip = t('speedTip', fmtTps(x.streaming_tps), fmtTps(x.e2e_tps), fmtSec(x.ttft_sec), fmtTok(x.output_tokens));
-      const cls = [v == null ? 'none' : '', v != null && v > top ? 'clip' : '', i === recent.length - 1 ? 'last' : ''].join(' ').trim();
-      const h = v == null ? 2 : Math.max(2, Math.round(Math.min(v, top) / top * 36));
+      const cls = ['sbar', v > top ? 'clip' : '', i === recent.length - 1 ? 'last' : ''].filter(Boolean).join(' ');
+      const h = Math.max(2, Math.round(Math.min(v, top) / top * 36));
       return `<span class="${cls}" style="height:${h}px" title="${esc(tip)}"></span>`;
     }).join('');
     return `<div class="trend"><div class="bars">${bars}</div><span class="lbl">${esc(t('median', median.toFixed(0)))}</span></div>`;
@@ -380,18 +474,23 @@
       return `<section><h2>${esc(t('speedTitle'))}</h2><p class="note" style="margin:0">${esc(t('speedWaiting'))}</p></section>`;
     }
     const l = s.latest;
+    const latestValid = !l.buffered && isNum(l.streaming_tps);
+    const headVal = latestValid ? l.streaming_tps : s.avg_streaming_tps;
+    const headSub = !latestValid && isNum(s.avg_streaming_tps)
+      ? t('bufFallback')
+      : t('avgOf', `${fmtTps(s.avg_streaming_tps)} tok/s`);
     const thinking = l.thinking_tokens > 0 ? t('thinkingNote', fmtTok(l.thinking_tokens), fmtTok(l.response_tokens)) : '';
     const stream = l.streaming_sec != null ? t('streamNote', fmtSec(l.streaming_sec)) : '';
     return `<section><h2>${esc(t('speedTitle'))} <span class="hint">${esc(t('speedCalls', s.calls))}</span></h2>
       <div class="speed-head">
-        <div><div class="lbl">${esc(t('streaming'))}</div>
-          <div class="fig num">${fmtTps(l.streaming_tps)}<span class="unit">tok/s</span></div>
-          <div class="lbl num">${esc(t('avgOf', `${fmtTps(s.avg_streaming_tps)} tok/s`))}</div></div>
+        <div title="${esc(t('tipStream'))}"><div class="lbl">${esc(t('streaming'))}</div>
+          <div class="fig num">${fmtTps(headVal)}<span class="unit">tok/s</span></div>
+          <div class="lbl num">${esc(headSub)}</div></div>
         ${trendBars(s.recent)}
       </div>
       <div class="stats">
-        <div><div class="lbl">${esc(t('e2e'))}</div><div class="v num">${fmtTps(l.e2e_tps)}<span class="unit">tok/s</span></div></div>
-        <div><div class="lbl">${esc(t('ttft'))}</div><div class="v num">${fmtSec(l.ttft_sec)}</div></div>
+        <div title="${esc(t('tipE2e', fmtTps(s.avg_e2e_tps)))}"><div class="lbl">${esc(t('e2e'))}</div><div class="v num">${fmtTps(l.e2e_tps)}<span class="unit">tok/s</span></div></div>
+        <div title="${esc(t('tipTtft', fmtSec(s.avg_ttft_sec)))}"><div class="lbl">${esc(t('ttft'))}</div><div class="v num">${fmtSec(l.ttft_sec)}</div></div>
         <div><div class="lbl">${esc(t('cacheHit'))}</div><div class="v num">${isNum(l.cache_hit_pct) ? `${l.cache_hit_pct.toFixed(0)}%` : '—'}</div></div>
       </div>
       <p class="note num">${esc(t('lastReply', fmtTok(l.output_tokens)) + thinking + stream)}</p>
@@ -406,15 +505,20 @@
     const meta = [];
     if (isNum(s.cache_hit_pct)) meta.push(t('hitLine', s.cache_hit_pct.toFixed(0)));
     if (s.first_at && s.last_at) meta.push(t('span', fmtTime(s.first_at, true), fmtTime(s.last_at, true)));
+    const costStr = fmtCost(s.est_cost_usd, { estimated: !!s.cost_estimated, partial: !!s.cost_partial });
+    const costTip = pricingTip(s.pricing_source, null, { partial: !!s.cost_partial });
     const models = Array.isArray(s.by_model) && s.by_model.length > 1
-      ? `<ul class="mini" style="margin-top:12px">${s.by_model.map((m) => `<li><span class="ellipsis" title="${esc(m.model || '')}">${esc(m.display_name || m.model || '?')}</span>`
-        + `<span class="num dim">${fmtTok(num(m.input) + num(m.output))}${isNum(m.est_cost_usd) ? ` · ${esc(fmtUsd(m.est_cost_usd))}` : ` · ${esc(t('calls', fmtInt(m.calls)))}`}</span></li>`).join('')}</ul>`
+      ? `<ul class="mini" style="margin-top:12px">${s.by_model.map((m) => {
+        const mc = fmtCost(m.est_cost_usd, { estimated: !!m.cost_estimated });
+        return `<li><span class="ellipsis" title="${esc(m.model || '')}">${esc(m.display_name || m.model || '?')}</span>`
+          + `<span class="num dim">${fmtTok(num(m.input) + num(m.output))}${mc ? ` · ${esc(mc)}` : ` · ${esc(t('calls', fmtInt(m.calls)))}`}</span></li>`;
+      }).join('')}</ul>`
       : '';
     return `<section><h2>${esc(t('sessionTitle'))} <span class="hint">${esc(t('speedCalls', fmtInt(s.calls)))}</span></h2>
       <div class="session-head">
         <div><div class="fig num" title="${esc(fmtInt(total))}">${fmtTok(total)}<span class="unit">${esc(t('tokens'))}</span></div>
           <div class="lbl">${esc(t('exclCache'))}</div></div>
-        <div class="cost num">${costHtml(s.est_cost_usd, { partial: !!s.cost_partial, calls: s.calls })}</div>
+        ${costStr ? `<div class="session-cost num" title="${esc(costTip)}">${esc(costStr)}</div>` : ''}
       </div>
       <div class="stats">
         <div><div class="lbl">${esc(t('legInput'))}</div><div class="v num">${fmtTok(s.input)}</div></div>
@@ -581,16 +685,56 @@
       .filter(Boolean).map(esc).join(' · ');
   }
   const quota = makeLoader('/api/quota', QUOTA_STALE_MS, {
-    paint: () => paintQuota(),
+    paint: () => { paintQuota(); syncHistoryFromQuota(); },
     keyOf: quotaKey,
     onMeta: (d) => setMeta('quota', quotaMetaHtml(d), d && d.fetched_at ? t('fetchedAt', fmtTime(d.fetched_at, true)) : ''),
-    onSilent: () => paintQuota(),
+    onSilent: () => { paintQuota(); syncHistoryFromQuota(); },
   });
+  let lastQuotaWeeklySig = '';
+  function liveWeeklyEntry(pool) {
+    const w = quota.data && !quota.data.error && quota.data.weekly;
+    const e = w && w[pool];
+    if (!e || !isNum(e.remaining_fraction)) return null;
+    const f = Math.min(1, Math.max(0, e.remaining_fraction));
+    const left = Math.round(f * 1000) / 10;
+    return { left, used: Math.round((100 - left) * 10) / 10, reset_time: e.reset_time || null, live: true };
+  }
+  function effectiveWeekly(pool) {
+    const live = liveWeeklyEntry(pool);
+    if (live) return live;
+    if (weeklyLeft[pool] != null) {
+      const left = weeklyLeft[pool];
+      return { left, used: Math.round((100 - left) * 10) / 10, reset_time: null, live: false };
+    }
+    return null;
+  }
+  const hasAnyWeekly = () => CAL_POOLS.some((k) => effectiveWeekly(k) != null);
+  function syncHistoryFromQuota() {
+    const w = (quota.data && !quota.data.error && quota.data.weekly) || {};
+    const sig = JSON.stringify(CAL_POOLS.map((k) => w[k] || null));
+    if (sig === lastQuotaWeeklySig) return;
+    lastQuotaWeeklySig = sig;
+    if (tab === 'history' && history.data && !history.data.error) onHistorySilent(history.data);
+  }
+  function ensureQuotaForHistory(force = false) {
+    if (quota.loading) return;
+    if (force || !quota.data || Date.now() - quota.loadedAt > QUOTA_STALE_MS) {
+      quota.load({ refresh: force, silent: true });
+    }
+  }
   const resetFired = new Set(); // reset_time ISO strings that already triggered a post-reset refresh
   let resetTimer = null;
   const fraction = (v) => (isNum(v) ? Math.min(1, Math.max(0, v)) : null);
   const levelOf = (f) => (f == null ? 'unknown' : f < 0.05 ? 'crit' : f < 0.2 ? 'warn' : '');
-  const pctText = (f) => (f == null ? '—' : `${(f * 100).toFixed(f < 0.1 && f > 0 ? 1 : 0)}%`);
+  const pctText = (f) => {
+    if (f == null) return '—';
+    const p = f * 100;
+    if (p > 0 && p < 10) {
+      const s = p.toFixed(1);
+      return `${s.endsWith('.0') ? s.slice(0, -2) : s}%`;
+    }
+    return `${Math.round(p)}%`;
+  };
   const isUnlimited = (l) => l.kind === 'none' || (!l.reset_time && l.f != null && l.f >= 1);
 
   function resetText(iso) {
@@ -780,63 +924,241 @@
     return `<div class="seg" role="tablist" aria-label="${esc(t('hviewAria'))}">${btns}</div>`;
   }
 
-  function periodBar() {
+  function periodRow(data) {
     const pills = PERIODS.map((k) => {
       const on = k === period;
       return `<button class="pill" type="button" role="tab" data-period="${k}" aria-selected="${on}" tabindex="${on ? 0 : -1}">${esc(t('periodPills')[k])}</button>`;
     }).join('');
-    return `<div class="period-bar" role="tablist" aria-label="${esc(t('periodBarAria'))}">${pills}</div>`;
+    const tip = pricingTip(data && data.pricing_source, data && data.pricing_fetched_at);
+    const sync = `<button class="sync-btn" type="button" data-sync-prices ${pricingSyncing ? 'disabled' : ''} title="${esc(tip)}">${pricingSyncing ? `<span class="spin"></span>${esc(t('syncingPrices'))}` : esc(t('syncPrices'))}</button>`;
+    return `<div class="period-row"><div class="period-bar" role="tablist" aria-label="${esc(t('periodBarAria'))}">${pills}</div>${sync}</div>`;
   }
 
-  function totalsHero(tot, partial) {
+  function calEditorHtml() {
+    const editable = CAL_POOLS.filter((k) => !liveWeeklyEntry(k));
+    if (!calEditorOpen || !editable.length) return '';
+    const pn = t('poolShort');
+    const field = (k) => `<label class="cal-field"><span class="lbl">${esc(t('calPoolLeft', pn[k]))}</span>
+      <span class="cal-input-row"><input id="cal-${k}" class="budget-input cal-input num" type="number" min="0" max="100" step="1" value="${weeklyLeft[k] != null ? esc(weeklyLeft[k]) : ''}" placeholder="0–100"><span class="dim">%</span></span></label>`;
+    const clear = hasCal() ? `<button type="button" data-cal-clear>${esc(t('calClear'))}</button>` : '';
+    return `<div class="budget-ed">
+      <div class="lbl">${esc(t('calTitle'))}</div>
+      <div class="cal-hint">${esc(t('calHint'))}</div>
+      <div class="cal-grid">${editable.map(field).join('')}</div>
+      <div class="cal-acts"><button type="button" class="budget-save" data-cal-save>${esc(t('calSave'))}</button>${clear}</div>
+    </div>`;
+  }
+
+  function totalsHero(data) {
+    const tot = data.totals || {};
     const p = tot[period] || {};
-    const costTip = partial ? `${t('refNote')}${t('sep')}${t('refPartial')}` : t('refNote');
-    return `${periodBar()}
+    const d7Total = newTok(tot.d7);
+    const todayTotal = newTok(tot.today);
+    const costPartial = Boolean(p.cost_partial)
+      || (period === 'all' && Array.isArray(data.by_model) && data.by_model.some((m) => num(m.calls) > 0 && !isNum(m.est_cost_usd)));
+    const costStr = fmtCost(p.est_cost_usd, { estimated: !!p.cost_estimated, partial: costPartial && isNum(p.est_cost_usd) });
+    const costTip = pricingTip(data.pricing_source, data.pricing_fetched_at, { partial: costPartial });
+    const pn = t('poolShort');
+    const pc = t('poolCompact');
+    const entries = CAL_POOLS.map((k) => ({ k, eff: effectiveWeekly(k) })).filter((x) => x.eff != null);
+    const liveEntries = entries.filter((x) => x.eff.live);
+    const allLive = liveEntries.length === CAL_POOLS.length;
+    const manualOnly = entries.filter((x) => !x.eff.live);
+    let quotaLbl = t('weeklyQuota');
+    let quotaVal;
+    if (allLive) {
+      const worst = Math.max(...liveEntries.map((x) => x.eff.used));
+      const lvl = budgetLevel(worst / 100);
+      const cls = lvl === 'crit' ? ' txt-crit' : lvl === 'warn' ? ' txt-warn' : '';
+      quotaVal = `<span class="num${cls}" title="${esc(t('liveWeeklyTip'))}">${esc(t('liveSynced'))}</span>`;
+    } else if (manualOnly.length) {
+      const worst = Math.max(...entries.map((x) => x.eff.used));
+      const lvl = budgetLevel(worst / 100);
+      const cls = lvl === 'crit' ? ' txt-crit' : lvl === 'warn' ? ' txt-warn' : ' on';
+      const txt = manualOnly.length === 1 && !liveEntries.length
+        ? `${pn[manualOnly[0].k]} ${fmtPctNum(manualOnly[0].eff.used)}`
+        : t('calDone');
+      quotaVal = `<button type="button" class="inline-link num${cls}" data-toggle-cal title="${esc(t('calTip'))}">${esc(txt)}</button>`;
+    } else if (!entries.length && period === 'today' && d7Total > 0) {
+      quotaLbl = t('d7Share');
+      quotaVal = `<button type="button" class="inline-link num on" data-toggle-cal title="${esc(t('calTip'))}">${esc(fmtPctNum(todayTotal / d7Total * 100))}</button>`;
+    } else {
+      quotaVal = `<button type="button" class="inline-link" data-toggle-cal title="${esc(t('calTip'))}">${esc(t('calAction'))}</button>`;
+    }
+    let barsHtml = '';
+    if (entries.length) {
+      const liveHead = liveEntries.length
+        ? `<div class="wbudget-cap num" title="${esc(t('liveWeeklyTip'))}">${esc(t('liveWeeklyHead', liveEntries.map((x) => t('liveWeeklyPart', pc[x.k], fmtPctNum(x.eff.used))).join(' · ')))}</div>`
+        : '';
+      const items = entries.map(({ k, eff }) => {
+        const usedPct = Math.max(0, Math.min(100, eff.used));
+        const lvl = budgetLevel(usedPct / 100);
+        const leftTxt = eff.live ? pn[k] : t('calBarLabel', pn[k], fmtPctNum(usedPct));
+        const resetBit = eff.live && eff.reset_time ? resetText(eff.reset_time) : '';
+        const rightTxt = [resetBit, `${t('remaining')} ${fmtPctNum(eff.left)}`].filter(Boolean).join(' · ');
+        const resetTitle = eff.live && eff.reset_time ? t('resetAt', fmtTime(eff.reset_time, true)) : '';
+        return `<div><div class="wbudget-head num"><span>${esc(leftTxt)}</span><span${resetTitle ? ` title="${esc(resetTitle)}"` : ''}>${esc(rightTxt)}</span></div>
+          <div class="wbar ${lvl}" role="progressbar" aria-label="${esc(t('calBarLabel', pn[k], fmtPctNum(usedPct)))}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(usedPct)}">
+            <span style="width:${usedPct.toFixed(1)}%"></span></div></div>`;
+      }).join('');
+      barsHtml = `<div class="wbudget">${liveHead}${items}</div>`;
+    }
+    const syncErr = pricingError ? `<div class="sync-err">${esc(pricingError)}</div>` : '';
+    return `${periodRow(data)}${syncErr}
       <div class="hero">
         <div class="fig num" title="${esc(fmtInt(newTok(p)))}">${fmtTok(newTok(p))}<span class="unit">${esc(t('tokens'))}</span></div>
-        <div class="sub">${esc(t('exclCache'))}</div>
+        <div class="sub num">${esc(t('exclCache'))} · ${esc(t('convsCount', fmtInt(p.conversations)))}</div>
       </div>
       <div class="hero-stats">
         <div><div class="lbl">${esc(t('legInput'))}</div><div class="v num" title="${esc(fmtInt(p.input))}">${fmtTok(p.input)}</div></div>
         <div><div class="lbl">${esc(t('legOutput'))}</div><div class="v num" title="${esc(fmtInt(p.output))}">${fmtTok(p.output)}</div></div>
         <div><div class="lbl">${esc(t('legCache'))}</div><div class="v num" title="${esc(fmtInt(p.cache_read))}">${fmtTok(p.cache_read)}</div></div>
         <div><div class="lbl">${esc(t('colCalls'))}</div><div class="v num">${fmtInt(p.calls)}</div></div>
-        <div><div class="lbl">${esc(t('colConvs'))}</div><div class="v num">${fmtInt(p.conversations)}</div></div>
-        <div><div class="lbl">${esc(t('colCost'))}<span class="help-mark" title="${esc(costTip)}" aria-label="${esc(costTip)}">?</span></div>
-          <div class="v num">${costHtml(p.est_cost_usd, { partial, calls: p.calls, label: false })}</div></div>
-      </div>`;
+        <div title="${esc(costTip)}"><div class="lbl">${esc(t('colCost'))}</div><div class="v num">${costStr ? esc(costStr) : '<span class="dim">—</span>'}</div></div>
+        <div><div class="lbl">${esc(quotaLbl)}</div><div class="v">${quotaVal}</div></div>
+      </div>
+      ${barsHtml}${calEditorHtml()}`;
   }
 
   const parseDay = (s) => { const [y, m, d] = String(s).split('-').map(Number); return new Date(y, (m || 1) - 1, d || 1); };
   const dayKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
-  /** GitHub-style grid: weeks across, Sun..Sat down; compact 10–12 weeks when activity is recent, up to 20 weeks when older weeks have activity. */
-  function heatmap(daily) {
-    if (!Array.isArray(daily) || !daily.length) return '';
+  function makeHeatScale(values) {
+    const nz = values.filter((v) => v > 0).sort((a, b) => a - b);
+    if (!nz.length) return () => 0;
+    const q = (p) => nz[Math.min(nz.length - 1, Math.floor(p * nz.length))];
+    const cuts = [q(0.25), q(0.5), q(0.75)];
+    return (v) => (v <= 0 ? 0 : v <= cuts[0] ? 1 : v <= cuts[1] ? 2 : v <= cuts[2] ? 3 : 4);
+  }
+
+  function heatFooter(summary) {
+    const scale = `<span class="scale"><span class="t">${esc(t('less'))}</span>${[0, 1, 2, 3, 4].map((l) => `<span class="cell l${l}"></span>`).join('')}<span class="t">${esc(t('more'))}</span></span>`;
+    return `<div class="heat-foot"><span>${esc(summary)}</span>${scale}</div>`;
+  }
+
+  function heatmapToday(data) {
+    const hours = Array.isArray(data.hourly_today) && data.hourly_today.length ? data.hourly_today : null;
+    if (!hours) {
+      const daily = Array.isArray(data.daily) ? data.daily : [];
+      const last = daily[daily.length - 1];
+      if (!last) return '';
+      const active = num(last.tokens) > 0 || num(last.calls) > 0;
+      const tip = t('dayTip', last.date, fmtInt(last.tokens), fmtInt(last.calls));
+      return `<section><h2>${esc(t('activity'))}</h2>
+        <div class="heat-d7" style="grid-template-columns:1fr"><div class="d7-item today"><span class="cell l${active ? 4 : 0}" style="height:28px;aspect-ratio:auto" title="${esc(tip)}"></span></div></div>
+        ${heatFooter(t('activeToday', active))}</section>`;
+    }
+    const byH = new Map(hours.map((h) => [num(h.hour), h]));
+    const vals = [];
+    for (let h = 0; h < 24; h += 1) vals.push(num((byH.get(h) || {}).tokens));
+    const level = makeHeatScale(vals);
+    let html = '<span class="ax" style="grid-row:1;grid-column:2 / span 2">00</span>'
+      + '<span class="ax" style="grid-row:1;grid-column:8 / span 2">06</span>'
+      + '<span class="ax r" style="grid-row:1;grid-column:12 / span 2">11</span>'
+      + `<span class="ax row-lbl" style="grid-row:2;grid-column:1">${esc(t('am'))}</span>`
+      + `<span class="ax row-lbl" style="grid-row:3;grid-column:1">${esc(t('pm'))}</span>`;
+    let active = 0;
+    for (let h = 0; h < 24; h += 1) {
+      const e = byH.get(h) || { tokens: 0, calls: 0 };
+      if (num(e.tokens) > 0 || num(e.calls) > 0) active += 1;
+      const r = h < 12 ? 2 : 3;
+      const c = (h % 12) + 2;
+      const h1 = String(h).padStart(2, '0');
+      const h2 = String(h + 1).padStart(2, '0');
+      const tip = t('hourTip', h1, h2, fmtInt(e.tokens), fmtInt(e.calls));
+      html += `<span class="cell l${level(num(e.tokens))}" style="grid-row:${r};grid-column:${c}" title="${esc(tip)}"></span>`;
+    }
+    html += '<span class="ax" style="grid-row:4;grid-column:2 / span 2">12</span>'
+      + '<span class="ax" style="grid-row:4;grid-column:8 / span 2">18</span>'
+      + '<span class="ax r" style="grid-row:4;grid-column:12 / span 2">23</span>';
+    return `<section><h2>${esc(t('activity'))}</h2><div class="heat heat-hours">${html}</div>${heatFooter(t('activeHours', active))}</section>`;
+  }
+
+  function heatmapD7(daily) {
+    const slice = daily.slice(-7);
+    if (!slice.length) return '';
+    const level = makeHeatScale(slice.map((d) => num(d.tokens)));
+    const wd = t('weekdays');
+    let active = 0;
+    const tiles = slice.map((e, i) => {
+      const dt = parseDay(e.date);
+      const isToday = i === slice.length - 1;
+      if (num(e.tokens) > 0 || num(e.calls) > 0) active += 1;
+      const w = Number.isNaN(dt.getTime()) ? '' : wd[dt.getDay()];
+      const dayNum = Number.isNaN(dt.getTime()) ? '' : dt.getDate();
+      const tip = t('dayTip', `${e.date} ${w}`, fmtInt(e.tokens), fmtInt(e.calls));
+      return `<div class="d7-item${isToday ? ' today' : ''}" title="${esc(tip)}">
+        <span class="cell l${level(num(e.tokens))}"></span>
+        <span class="d7-lbl">${esc(w)}<b>${esc(dayNum)}</b></span>
+      </div>`;
+    }).join('');
+    return `<section><h2>${esc(t('activity'))}</h2><div class="heat-d7">${tiles}</div>${heatFooter(t('activeDaysOf', active, slice.length))}</section>`;
+  }
+
+  function heatmapD30(daily) {
+    const byDay = new Map(daily.map((d) => [d.date, d]));
+    const end = parseDay(daily[daily.length - 1].date);
+    if (Number.isNaN(end.getTime())) return '';
+    const minDay = new Date(end.getFullYear(), end.getMonth(), end.getDate() - 29);
+    const start = new Date(minDay.getFullYear(), minDay.getMonth(), minDay.getDate() - minDay.getDay());
+    const endSat = new Date(end.getFullYear(), end.getMonth(), end.getDate() + (6 - end.getDay()));
+    const totalDays = Math.round((endSat - start) / 86400000) + 1;
+    const weeks = Math.round(totalDays / 7);
+    const inRange = [];
+    for (let i = 0; i < totalDays; i += 1) {
+      const d = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i);
+      if (d >= minDay && d <= end) inRange.push(num((byDay.get(dayKey(d)) || {}).tokens));
+    }
+    const level = makeHeatScale(inRange);
+    const wd = t('weekdays');
+    let html = '';
+    for (let c = 0; c < 7; c += 1) html += `<span class="ax wd" style="grid-row:1;grid-column:${c + 2}">${esc(wd[c])}</span>`;
+    let active = 0;
+    for (let w = 0; w < weeks; w += 1) {
+      const wkDay = new Date(start.getFullYear(), start.getMonth(), start.getDate() + w * 7);
+      const lblDay = wkDay < minDay ? minDay : wkDay;
+      const wkLbl = `${lblDay.getMonth() + 1}/${lblDay.getDate()}`;
+      html += `<span class="ax wk" style="grid-row:${w + 2};grid-column:1">${esc(wkLbl)}</span>`;
+      for (let c = 0; c < 7; c += 1) {
+        const d = new Date(start.getFullYear(), start.getMonth(), start.getDate() + w * 7 + c);
+        const style = `grid-row:${w + 2};grid-column:${c + 2}`;
+        if (d < minDay || d > end) { html += `<span class="cell future" style="${style}"></span>`; continue; }
+        const e = byDay.get(dayKey(d)) || { tokens: 0, calls: 0 };
+        if (num(e.tokens) > 0 || num(e.calls) > 0) active += 1;
+        const tip = t('dayTip', `${dayKey(d)} ${wd[d.getDay()]}`, fmtInt(e.tokens), fmtInt(e.calls));
+        html += `<span class="cell l${level(num(e.tokens))}" style="${style}" title="${esc(tip)}"></span>`;
+      }
+    }
+    return `<section><h2>${esc(t('activity'))}</h2><div class="heat heat-d30">${html}</div>${heatFooter(t('activeDaysOf', active, 30))}</section>`;
+  }
+
+  function heatmapAll(daily) {
     const byDay = new Map(daily.map((d) => [d.date, d]));
     const end = parseDay(daily[daily.length - 1].date);
     if (Number.isNaN(end.getTime())) return '';
     const firstActive = daily.find((d) => num(d.tokens) > 0 || num(d.calls) > 0);
-    const spanDays = firstActive ? Math.round((end - parseDay(firstActive.date)) / 86400000) + 1 : 0;
-    const baseWeeks = (panes.history.clientWidth || 360) >= 420 ? 12 : HEAT_MIN_WEEKS;
-    const need = firstActive ? Math.ceil((spanDays + (6 - end.getDay())) / 7) : 0;
-    const weeks = Math.min(HEAT_MAX_WEEKS, Math.max(baseWeeks, need));
+    let need = 0;
+    if (firstActive) {
+      const fa = parseDay(firstActive.date);
+      const endSun = new Date(end.getFullYear(), end.getMonth(), end.getDate() - end.getDay());
+      const firstSun = new Date(fa.getFullYear(), fa.getMonth(), fa.getDate() - fa.getDay());
+      need = Math.round((endSun - firstSun) / (7 * 86400000)) + 1;
+    }
+    const weeks = Math.min(HEAT_ALL_MAX_WEEKS, Math.max(HEAT_ALL_MIN_WEEKS, need));
     const start = new Date(end.getFullYear(), end.getMonth(), end.getDate() - end.getDay() - 7 * (weeks - 1));
     const days = [];
     for (let i = 0; i < weeks * 7; i += 1) days.push(new Date(start.getFullYear(), start.getMonth(), start.getDate() + i));
-    const vals = days.filter((d) => d <= end).map((d) => num((byDay.get(dayKey(d)) || {}).tokens)).filter((v) => v > 0).sort((a, b) => a - b);
-    const q = (p) => vals[Math.min(vals.length - 1, Math.floor(p * vals.length))];
-    const cuts = vals.length ? [q(0.25), q(0.5), q(0.75)] : [];
-    const level = (v) => (v <= 0 ? 0 : v <= cuts[0] ? 1 : v <= cuts[1] ? 2 : v <= cuts[2] ? 3 : 4);
+    const level = makeHeatScale(days.filter((d) => d <= end).map((d) => num((byDay.get(dayKey(d)) || {}).tokens)));
     const wd = t('weekdays');
     let html = '';
     let lastLabelCol = -9;
+    const minGap = weeks > 36 ? 6 : 3;
     for (let w = 0; w < weeks; w += 1) {
       const first = days[w * 7];
       const monthStart = days.slice(w * 7, w * 7 + 7).find((d) => d.getDate() === 1);
-      if ((w === 0 || monthStart) && w - lastLabelCol >= 3 && w <= weeks - 2) {
+      if ((w === 0 || monthStart) && w - lastLabelCol >= minGap && w <= weeks - 3) {
         const m = (monthStart || first).toLocaleDateString(locale(), { month: 'short' });
-        html += `<span class="ax" style="grid-row:1;grid-column:${w + 2} / span 3">${esc(m)}</span>`;
+        html += `<span class="ax" style="grid-row:1;grid-column:${w + 2} / span 4">${esc(m)}</span>`;
         lastLabelCol = w;
       }
     }
@@ -850,10 +1172,57 @@
       const tip = t('dayTip', `${dayKey(d)} ${wd[d.getDay()]}`, fmtInt(e.tokens), fmtInt(e.calls));
       html += `<span class="cell l${level(num(e.tokens))}" style="${style}" title="${esc(tip)}"></span>`;
     });
-    const scale = `<span class="scale"><span class="t">${esc(t('less'))}</span>${[0, 1, 2, 3, 4].map((l) => `<span class="cell l${l}"></span>`).join('')}<span class="t">${esc(t('more'))}</span></span>`;
+    const cls = weeks > 32 ? 'heat heat-all dense' : 'heat heat-all';
     return `<section><h2>${esc(t('activity'))}</h2>
-      <div class="heat" style="grid-template-columns:auto repeat(${weeks}, minmax(0, 1fr))">${html}</div>
-      <div class="heat-foot"><span>${esc(t('activeDays', active, weeks))}</span>${scale}</div></section>`;
+      <div class="${cls}" style="grid-template-columns:auto repeat(${weeks}, minmax(0, 1fr))">${html}</div>
+      ${heatFooter(t('activeDays', active, weeks))}</section>`;
+  }
+
+  /** Period-adaptive activity heatmap: Today (24h), 7d (7 tiles), 30d (calendar weeks), All (26–52w). */
+  function heatmap(data) {
+    if (period === 'today') return heatmapToday(data);
+    const daily = Array.isArray(data && data.daily) ? data.daily : [];
+    if (!daily.length) return '';
+    if (period === 'd7') return heatmapD7(daily);
+    if (period === 'd30') return heatmapD30(daily);
+    return heatmapAll(daily);
+  }
+
+  /** Estimate an item's weekly quota % (live official or calibrated fallback) or 7d usage share %. */
+  function modelWeeklyLabel(m, d7Total, d7ByPool, { compact = true } = {}) {
+    const d7 = isNum(m && m.d7_tokens) ? m.d7_tokens : newTok(m);
+    const pool = (m && m.pool) || inferPool((m && m.ids && m.ids[0]) || (m && m.name));
+    if (d7 <= 0) return compact ? '' : t('d7Zero');
+    const eff = effectiveWeekly(pool);
+    const poolTotal = num(d7ByPool && d7ByPool[pool]);
+    if (eff != null && poolTotal > 0) return t('ofPoolQuota', fmtPctNum(d7 / poolTotal * eff.used));
+    if (d7Total > 0) return t('ofD7', fmtPctNum(d7 / d7Total * 100));
+    return compact ? '' : t('d7Zero');
+  }
+
+  function convWeeklyLabel(c, d7Total, d7ByPool, { compact = true } = {}) {
+    const d7 = isNum(c && c.d7_tokens) ? c.d7_tokens : newTok(c);
+    if (d7 <= 0) return compact ? '' : t('d7Zero');
+    const primary = (c && c.pool) || inferPool((c && c.model) || (c && c.display_name));
+    const cPools = (c && c.d7_by_pool) || null;
+    const primaryD7 = cPools && isNum(cPools[primary]) ? cPools[primary] : d7;
+    const effPrimary = effectiveWeekly(primary);
+    if (effPrimary != null && num(d7ByPool && d7ByPool[primary]) > 0 && primaryD7 > 0) {
+      return t('ofPoolQuota', fmtPctNum(primaryD7 / num(d7ByPool[primary]) * effPrimary.used));
+    }
+    if (cPools) {
+      let best = null;
+      let bestEff = null;
+      for (const pk of CAL_POOLS) {
+        const eff = effectiveWeekly(pk);
+        if (eff != null && num(cPools[pk]) > 0 && num(d7ByPool && d7ByPool[pk]) > 0) {
+          if (!best || num(cPools[pk]) > num(cPools[best])) { best = pk; bestEff = eff; }
+        }
+      }
+      if (best) return t('ofPoolQuota', fmtPctNum(num(cPools[best]) / num(d7ByPool[best]) * bestEff.used));
+    }
+    if (d7Total > 0) return t('ofD7', fmtPctNum(d7 / d7Total * 100));
+    return compact ? '' : t('d7Zero');
   }
 
   /** Merge duplicate display names so raw model variants never clutter inline rows. */
@@ -864,7 +1233,7 @@
       const name = String(m.display_name || m.model || '?').trim();
       let g = map.get(name);
       if (!g) {
-        g = { name, ids: [], input: 0, output: 0, cache_read: 0, thinking: 0, calls: 0, est_cost_usd: null, partial: false };
+        g = { name, ids: [], pool: m.pool || inferPool(m.model || name), input: 0, output: 0, cache_read: 0, thinking: 0, calls: 0, d7_tokens: null, est_cost_usd: null, cost_estimated: false, cost_partial: false };
         map.set(name, g);
       }
       if (m.model && !g.ids.includes(m.model)) g.ids.push(m.model);
@@ -873,25 +1242,32 @@
       g.cache_read += num(m.cache_read);
       g.thinking += num(m.thinking);
       g.calls += num(m.calls);
+      if (isNum(m.d7_tokens)) g.d7_tokens = (g.d7_tokens || 0) + m.d7_tokens;
       if (isNum(m.est_cost_usd)) g.est_cost_usd = (g.est_cost_usd || 0) + m.est_cost_usd;
-      else if (num(m.calls) > 0) g.partial = true;
+      else if (num(m.calls) > 0) g.cost_partial = true;
+      if (m.cost_estimated) g.cost_estimated = true;
     }
     return [...map.values()].sort((a, b) => allTok(b) - allTok(a) || newTok(b) - newTok(a));
   }
 
-  function byModel(list) {
-    const merged = mergeModels(list);
+  function byModel(data) {
+    const merged = mergeModels(data.by_model);
     if (!merged.length) return `<section><h2>${esc(t('byModel'))}</h2><p class="note" style="margin:0">${esc(t('noModels'))}</p></section>`;
+    const d7Total = newTok(data.totals && data.totals.d7);
+    const d7ByPool = data.d7_by_pool || {};
     const max = Math.max(1, ...merged.map(allTok));
     const seg = (v, cls) => (v > 0 ? `<span class="${cls}" style="width:${(v / max * 100).toFixed(2)}%"></span>` : '');
     const legend = `<div class="legend"><span><i class="seg-in"></i>${esc(t('legInput'))}</span><span><i class="seg-cache"></i>${esc(t('legCache'))}</span><span><i class="seg-out"></i>${esc(t('legOutput'))}</span></div>`;
     const visible = showAllModels ? merged : merged.slice(0, MODEL_VISIBLE);
     const rows = visible.map((m) => {
+      const wTag = modelWeeklyLabel(m, d7Total, d7ByPool, { compact: true });
+      const costStr = fmtCost(m.est_cost_usd, { estimated: m.cost_estimated, partial: m.cost_partial && isNum(m.est_cost_usd) });
       const tip = `${m.ids.join(', ') || m.name}\n${t('ioLine', fmtInt(m.input), fmtInt(m.output), fmtInt(m.cache_read))}\n${t('calls', fmtInt(m.calls))}`;
-      const cost = isNum(m.est_cost_usd) ? ` · ${m.partial ? '≥' : ''}${esc(fmtUsd(m.est_cost_usd))}` : '';
+      const subRight = costStr || t('calls', fmtInt(m.calls));
       return `<li title="${esc(tip)}">
         <div class="rh"><span class="ellipsis">${esc(m.name)}</span>
-          <span class="rv num"><b>${fmtTok(newTok(m))}</b>${cost}</span></div>
+          <span class="rv num"><b>${fmtTok(newTok(m))}</b></span></div>
+        <div class="rmeta num"><span>${esc(wTag || t('calls', fmtInt(m.calls)))}</span><span>${wTag ? esc(subRight) : (costStr ? esc(costStr) : '')}</span></div>
         <div class="hbar">${seg(m.input, 'seg-in')}${seg(m.cache_read, 'seg-cache')}${seg(m.output, 'seg-out')}</div>
       </li>`;
     }).join('');
@@ -899,10 +1275,13 @@
     const toggle = rest > 0
       ? `<button type="button" class="quiet-btn" data-toggle-models aria-expanded="${showAllModels}">${CHEV}<span>${esc(showAllModels ? t('showLess') : t('showMoreModels', rest))}</span></button>`
       : '';
-    return `<section><h2>${esc(t('byModel'))} <span class="hint">${esc(t('colTokens'))}</span></h2>${legend}<ul class="rank">${rows}</ul>${toggle}</section>`;
+    const hint = `${t('colTokens')} · ${hasAnyWeekly() ? t('weeklyQuota') : t('d7Share')}`;
+    return `<section><h2>${esc(t('byModel'))} <span class="hint">${esc(hint)}</span></h2>${legend}<ul class="rank">${rows}</ul>${toggle}</section>`;
   }
 
-  function convDetailHtml(c) {
+  function convDetailHtml(c, data) {
+    const d7Total = newTok(data && data.totals && data.totals.d7);
+    const d7ByPool = (data && data.d7_by_pool) || {};
     const totalIn = num(c.input) + num(c.cache_read);
     const hit = totalIn > 0 ? `${(num(c.cache_read) / totalIn * 100).toFixed(0)}%` : '—';
     const think = isNum(c.thinking) ? fmtTok(c.thinking) : '—';
@@ -913,12 +1292,32 @@
     if (c.source) metaBits.push(esc(sourceLabel(c.source)));
     if (isSubagent(c)) metaBits.push(esc(t('agentSub')));
     if (c.id) metaBits.push(`<span class="mono" title="${esc(c.id)}">${esc(String(c.id).slice(0, 8))}</span>`);
+    const costStr = fmtCost(c.est_cost_usd, { estimated: !!c.cost_estimated, partial: !!c.cost_partial && isNum(c.est_cost_usd) });
+    const costTip = pricingTip(data && data.pricing_source, data && data.pricing_fetched_at, { partial: !!c.cost_partial });
+    const costRow = costStr
+      ? `<div class="conv-row"><span class="lbl">${esc(t('colCost'))}</span><span class="num" title="${esc(costTip)}">${esc(costStr)}</span></div>`
+      : '';
+    const wLabel = hasAnyWeekly() ? t('weeklyQuota') : t('d7Share');
+    const wVal = convWeeklyLabel(c, d7Total, d7ByPool, { compact: false });
+    const cPools = c.d7_by_pool || {};
+    const activePools = Object.keys(cPools).filter((k) => num(cPools[k]) > 0);
+    const pn = t('poolShort');
+    const poolRows = activePools.length > 1
+      ? `<div class="conv-models"><ul class="mini">${activePools.map((pk) => {
+        const tok = num(cPools[pk]);
+        const eff = effectiveWeekly(pk);
+        const pt = num(d7ByPool[pk]);
+        const lbl = eff != null && pt > 0 ? t('ofPoolQuota', fmtPctNum(tok / pt * eff.used)) : (d7Total > 0 ? t('ofD7', fmtPctNum(tok / d7Total * 100)) : '');
+        return `<li><span class="dim">${esc(pn[pk] || pk)}</span><span class="num dim">${fmtTok(tok)}${lbl ? ` · ${esc(lbl)}` : ''}</span></li>`;
+      }).join('')}</ul></div>`
+      : '';
     const mergedModels = mergeModels(c.by_model);
     const models = mergedModels.length
-      ? `<div class="conv-models"><div class="lbl">${esc(t('byModel'))}</div><ul class="mini">${mergedModels.map((m) => `<li>
-          <span class="ellipsis" title="${esc(m.ids.join(', ') || m.name)}">${esc(m.name)}</span>
-          <span class="num dim">${fmtTok(newTok(m))} · ${isNum(m.est_cost_usd) ? `${m.partial ? '≥' : ''}${esc(fmtUsd(m.est_cost_usd))}` : esc(t('calls', fmtInt(m.calls)))}</span>
-        </li>`).join('')}</ul></div>`
+      ? `<div class="conv-models"><div class="lbl">${esc(t('byModel'))}</div><ul class="mini">${mergedModels.map((m) => {
+        const mc = fmtCost(m.est_cost_usd, { estimated: m.cost_estimated, partial: m.cost_partial && isNum(m.est_cost_usd) });
+        return `<li><span class="ellipsis" title="${esc(m.ids.join(', ') || m.name)}">${esc(m.name)}</span>
+          <span class="num dim">${fmtTok(newTok(m))}${mc ? ` · ${esc(mc)}` : ` · ${esc(t('calls', fmtInt(m.calls)))}`}</span></li>`;
+      }).join('')}</ul></div>`
       : '';
     return `<div class="conv-detail">
       <div class="conv-kv">
@@ -929,23 +1328,30 @@
         <div><div class="lbl">${esc(t('cacheHit'))}</div><div class="v num">${hit}</div></div>
         <div><div class="lbl">${esc(t('colCalls'))}</div><div class="v num">${fmtInt(c.calls)}</div></div>
       </div>
-      <div class="conv-row"><span class="lbl">${esc(t('colCost'))}</span><span class="num">${costHtml(c.est_cost_usd, { partial: !!c.cost_partial, calls: c.calls })}</span></div>
+      ${costRow}
+      <div class="conv-row"><span class="lbl">${esc(wLabel)}</span><span class="num">${esc(wVal)}</span></div>
+      ${poolRows}
       ${spanText ? `<div class="conv-foot num">${esc(spanText)}</div>` : ''}
       ${metaBits.length ? `<div class="conv-foot num">${metaBits.join(' · ')}</div>` : ''}
       ${models}
     </div>`;
   }
 
-  function convItemHtml(c, i, maxTok) {
+  function convItemHtml(c, i, maxTok, data) {
     const id = String(c.id || i);
     const key = `conv:${id}`;
     const title = c.title ? String(c.title) : '';
     const muted = !title || title.startsWith('@') || Boolean(c.is_subagent);
     const shown = title || `${t('untitled')} · ${id.slice(0, 8)}`;
     const subLeft = [c.display_name || c.model, fmtAgo(c.last_at)].filter(Boolean).join(' · ');
-    const subRight = isNum(c.est_cost_usd)
-      ? costHtml(c.est_cost_usd, { partial: !!c.cost_partial, calls: c.calls, label: false })
-      : esc(t('calls', fmtInt(c.calls)));
+    const d7Total = newTok(data && data.totals && data.totals.d7);
+    const d7ByPool = (data && data.d7_by_pool) || {};
+    const wTag = convWeeklyLabel(c, d7Total, d7ByPool, { compact: true });
+    const costStr = fmtCost(c.est_cost_usd, { estimated: !!c.cost_estimated, partial: !!c.cost_partial && isNum(c.est_cost_usd) });
+    const rightBits = [];
+    if (costStr) rightBits.push(costStr);
+    if (wTag) rightBits.push(wTag);
+    if (!rightBits.length) rightBits.push(t('calls', fmtInt(c.calls)));
     let bar = '';
     if (maxTok > 0) {
       const seg = (v, cls) => (v > 0 ? `<span class="${cls}" style="width:${(v / maxTok * 100).toFixed(2)}%"></span>` : '');
@@ -958,10 +1364,10 @@
           <span class="conv-title ellipsis${muted ? ' dim' : ''}" title="${esc(shown)}">${esc(shown)}</span>
           <span class="conv-val num" title="${esc(fmtInt(newTok(c)))}">${fmtTok(newTok(c))}</span>
         </div>
-        <div class="conv-meta"><span class="ellipsis">${esc(subLeft)}</span><span class="num">${subRight}</span></div>
+        <div class="conv-meta"><span class="ellipsis">${esc(subLeft)}</span><span class="num">${esc(rightBits.join(' · '))}</span></div>
         ${bar}
       </summary>
-      ${convDetailHtml(c)}
+      ${convDetailHtml(c, data)}
     </details></li>`;
   }
 
@@ -991,7 +1397,7 @@
     }
     const maxTok = Math.max(1, newTok(filtered[0]));
     const legend = `<div class="legend" style="margin-top:12px"><span><i class="seg-in"></i>${esc(t('legInput'))}</span><span><i class="seg-out"></i>${esc(t('legOutput'))}</span></div>`;
-    const rows = filtered.slice(0, sessionsLimit).map((c, i) => convItemHtml(c, i, maxTok)).join('');
+    const rows = filtered.slice(0, sessionsLimit).map((c, i) => convItemHtml(c, i, maxTok, data)).join('');
     const rest = filtered.length - sessionsLimit;
     const more = rest > 0 ? `<button type="button" class="quiet-btn" data-more-sessions>${CHEV}<span>${esc(t('moreConvs', Math.min(rest, CONV_VISIBLE * 2)))}</span></button>` : '';
     return controls + summarizeConvs(filtered) + legend + `<ul class="conv-list">${rows}</ul>` + more;
@@ -1034,7 +1440,7 @@
     if (!filtered.length) {
       return `<p class="empty">${esc(all.length ? t('noMatches') : t('noConversations'))}</p>`;
     }
-    const rows = filtered.slice(0, listLimit).map((c, i) => convItemHtml(c, i, 0)).join('');
+    const rows = filtered.slice(0, listLimit).map((c, i) => convItemHtml(c, i, 0, data)).join('');
     const rest = filtered.length - listLimit;
     const more = rest > 0 ? `<button type="button" class="quiet-btn" data-more-list>${CHEV}<span>${esc(t('moreConvs', Math.min(rest, CONV_VISIBLE * 2)))}</span></button>` : '';
     return summarizeConvs(filtered) + `<ul class="conv-list">${rows}</ul>` + more;
@@ -1099,13 +1505,11 @@
     else if (!data) body = `<p class="empty"><span class="spin"></span>${esc(t('scanning'))}</p>`;
     else if (data.error) body = errorBox(t('historyFailed'), data.message || data.error);
     if (data && !data.error && !error) {
-      const tot = data.totals || {};
-      const partial = Array.isArray(data.by_model) && data.by_model.some((m) => num(m.calls) > 0 && !isNum(m.est_cost_usd));
       const meta = historyMetaHtml(data, loading && manual);
       let viewBody;
       if (historyView === 'sessions') viewBody = sessionsViewHtml(data);
       else if (historyView === 'list') viewBody = listViewHtml(data);
-      else viewBody = totalsHero(tot, partial) + heatmap(data.daily) + byModel(data.by_model);
+      else viewBody = totalsHero(data) + heatmap(data) + byModel(data);
       body = `${historySubNav()}${viewBody}<footer id="history-footer"><span id="history-sources">${esc(historySourcesText(data))}</span><span id="history-meta" class="num" title="${esc(historyMetaTip(data))}">${meta}</span></footer>`;
     }
     panes.history.innerHTML = body;
@@ -1173,7 +1577,7 @@
     syncRefreshButton();
     if (tab === 'overview') refreshReport();
     else if (tab === 'quota') quota.open();
-    else history.open();
+    else { history.open(); ensureQuotaForHistory(false); }
   }
 
   function setLang(next) {
@@ -1188,7 +1592,10 @@
   function autoRefreshActive() {
     if (document.hidden) return;
     if (tab === 'quota' && quota.data) quota.load({ refresh: false, silent: true });
-    else if (tab === 'history' && history.data) history.load({ refresh: false, silent: true });
+    else if (tab === 'history' && history.data) {
+      history.load({ refresh: false, silent: true });
+      ensureQuotaForHistory(false);
+    }
   }
 
   function onWake() {
@@ -1199,7 +1606,37 @@
       if (quota.data && Date.now() - quota.loadedAt > QUOTA_STALE_MS) quota.load({ refresh: false, silent: true });
     } else if (tab === 'history') {
       if (history.data && Date.now() - history.loadedAt > HISTORY_STALE_MS) history.load({ refresh: false, silent: true });
+      ensureQuotaForHistory(false);
     }
+  }
+
+  async function syncPricing() {
+    if (pricingSyncing) return;
+    pricingSyncing = true;
+    pricingError = '';
+    paintHistory();
+    try {
+      const res = await getJson('/api/pricing', { refresh: 'true' });
+      if (res && res.error) pricingError = res.message || res.error;
+    } catch (err) {
+      pricingError = (err && err.message) || String(err);
+    } finally {
+      pricingSyncing = false;
+      paintHistory();
+      if (!pricingError) {
+        history.load({ refresh: true, silent: true });
+        if (report) refreshReport({ force: true });
+      }
+    }
+  }
+
+  function saveCalInputs() {
+    const next = { ...weeklyLeft };
+    for (const k of CAL_POOLS) {
+      const el = $(`cal-${k}`);
+      if (el) next[k] = el.value;
+    }
+    setWeeklyLeft(next);
   }
 
   document.querySelector('.tabs').addEventListener('click', (e) => {
@@ -1216,7 +1653,7 @@
   $('refresh').addEventListener('click', () => {
     if (tab === 'overview') refreshReport({ force: true });
     else if (tab === 'quota') quota.load({ refresh: true, silent: false });
-    else history.load({ refresh: true, silent: false });
+    else { pricingError = ''; history.load({ refresh: true, silent: false }); ensureQuotaForHistory(true); }
   });
   $('lang').addEventListener('click', (e) => {
     const b = e.target.closest('[data-lang]');
@@ -1266,6 +1703,15 @@
       updateListBody();
       return;
     }
+    if (e.target.closest('[data-sync-prices]')) { syncPricing(); return; }
+    if (e.target.closest('[data-toggle-cal]')) {
+      calEditorOpen = !calEditorOpen;
+      paintHistory();
+      if (calEditorOpen) { const inp = panes.history.querySelector('.cal-input'); if (inp) inp.focus(); }
+      return;
+    }
+    if (e.target.closest('[data-cal-save]')) { saveCalInputs(); return; }
+    if (e.target.closest('[data-cal-clear]')) { setWeeklyLeft({ gemini: null, claude_gpt: null }); return; }
     if (e.target.closest('[data-toggle-models]')) { showAllModels = !showAllModels; paintHistory(); return; }
     if (e.target.closest('[data-more-sessions]')) { sessionsLimit += CONV_VISIBLE * 2; paintHistory(); return; }
     if (e.target.closest('[data-more-list]')) { listLimit += CONV_VISIBLE * 2; updateListBody(); return; }
@@ -1280,6 +1726,11 @@
     }
   });
   panes.history.addEventListener('keydown', (e) => {
+    if (e.target && e.target.classList && e.target.classList.contains('cal-input')) {
+      if (e.key === 'Enter') { e.preventDefault(); saveCalInputs(); }
+      else if (e.key === 'Escape') { e.preventDefault(); calEditorOpen = false; paintHistory(); }
+      return;
+    }
     if (e.target && e.target.id === 'history-search' && e.key === 'Escape' && searchQuery) {
       e.preventDefault();
       searchQuery = '';
