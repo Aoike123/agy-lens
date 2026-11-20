@@ -303,6 +303,11 @@
     return `${sec}${u.s}`;
   }
   const errorBox = (title, msg) => `<div class="error" role="alert"><b>${esc(title)}</b>${msg ? esc(msg) : ''}</div>`;
+  function keepScroll(fn) {
+    const y = window.scrollY;
+    fn();
+    if (window.scrollY !== y) window.scrollTo(0, y);
+  }
 
   const CAL_POOLS = ['gemini', 'claude_gpt'];
   function clampPct(v) {
@@ -532,7 +537,8 @@
 
   function renderOverview(r) {
     const limit = r.limit_tokens;
-    panes.overview.innerHTML = `
+    keepScroll(() => {
+      panes.overview.innerHTML = `
       <div class="top">
         <div class="model"><span class="live on" title="${esc(t('live'))}"></span><span class="ellipsis">${esc(r.model)}</span></div>
         <button id="copy" title="${esc(t('copyTitle'))}">${esc(t('copy'))}</button>
@@ -553,6 +559,7 @@
       ${files(t('skillFiles'), '/skill', r.skill_files)}
       ${files(t('systemFiles'), t('autoLoaded'), r.system_files)}
       <footer><span>${esc(t('related'))}</span><span class="num">${esc(t('updated', fmtTime(r.updatedAt)))}</span></footer>`;
+    });
     $('copy').addEventListener('click', copy);
   }
 
@@ -835,7 +842,9 @@
       const pools = Array.isArray(data.pools) ? data.pools : [];
       if (!error) body = pools.length ? pools.map(poolHtml).join('') : `<p class="empty">${esc(t('noPools'))}</p>`;
     }
-    panes.quota.innerHTML = `<div id="quota-meta" class="meta num" title="${esc(tip)}"${meta ? '' : ' hidden'}>${meta}</div>${body}`;
+    keepScroll(() => {
+      panes.quota.innerHTML = `<div id="quota-meta" class="meta num" title="${esc(tip)}"${meta ? '' : ' hidden'}>${meta}</div>${body}`;
+    });
   }
 
   function scheduleResetRefresh() {
@@ -1017,7 +1026,7 @@
         <div title="${esc(costTip)}"><div class="lbl">${esc(t('colCost'))}</div><div class="v num">${costStr ? esc(costStr) : '<span class="dim">—</span>'}</div></div>
         <div><div class="lbl">${esc(quotaLbl)}</div><div class="v">${quotaVal}</div></div>
       </div>
-      ${barsHtml}${calEditorHtml()}`;
+      ${barsHtml}<div id="history-cal">${calEditorHtml()}</div>`;
   }
 
   const parseDay = (s) => { const [y, m, d] = String(s).split('-').map(Number); return new Date(y, (m || 1) - 1, d || 1); };
@@ -1252,7 +1261,7 @@
 
   function byModel(data) {
     const merged = mergeModels(data.by_model);
-    if (!merged.length) return `<section><h2>${esc(t('byModel'))}</h2><p class="note" style="margin:0">${esc(t('noModels'))}</p></section>`;
+    if (!merged.length) return `<section id="history-models"><h2>${esc(t('byModel'))}</h2><p class="note" style="margin:0">${esc(t('noModels'))}</p></section>`;
     const d7Total = newTok(data.totals && data.totals.d7);
     const d7ByPool = data.d7_by_pool || {};
     const max = Math.max(1, ...merged.map(allTok));
@@ -1276,7 +1285,7 @@
       ? `<button type="button" class="quiet-btn" data-toggle-models aria-expanded="${showAllModels}">${CHEV}<span>${esc(showAllModels ? t('showLess') : t('showMoreModels', rest))}</span></button>`
       : '';
     const hint = `${t('colTokens')} · ${hasAnyWeekly() ? t('weeklyQuota') : t('d7Share')}`;
-    return `<section><h2>${esc(t('byModel'))} <span class="hint">${esc(hint)}</span></h2>${legend}<ul class="rank">${rows}</ul>${toggle}</section>`;
+    return `<section id="history-models"><h2>${esc(t('byModel'))} <span class="hint">${esc(hint)}</span></h2>${legend}<ul class="rank">${rows}</ul>${toggle}</section>`;
   }
 
   function convDetailHtml(c, data) {
@@ -1378,11 +1387,8 @@
     return `<div class="summary num">${esc(t('summaryLine', fmtInt(list.length), fmtTok(tok), fmtInt(calls)))}</div>`;
   }
 
-  function sessionsViewHtml(data) {
-    const all = Array.isArray(data.by_conversation) ? data.by_conversation : [];
-    const pBtns = SESSION_PERIODS.map((k) => `<button class="fchip" type="button" data-speriod="${k}" aria-pressed="${k === sessionsPeriod}">${esc(t('shortPeriods')[k])}</button>`).join('');
-    const subBtn = `<button class="fchip" type="button" data-hide-sub aria-pressed="${hideSubagents}">${esc(t('hideSubagents'))}</button>`;
-    const controls = `<div class="filters"><div class="fgroup">${pBtns}</div>${subBtn}</div>`;
+  function sessionsBodyHtml(data) {
+    const all = Array.isArray(data && data.by_conversation) ? data.by_conversation : [];
     const cutoff = periodCutoff(sessionsPeriod);
     const filtered = all.filter((c) => {
       if (hideSubagents && isSubagent(c)) return false;
@@ -1393,14 +1399,28 @@
       return true;
     }).sort((a, b) => newTok(b) - newTok(a) || tsOf(b.last_at) - tsOf(a.last_at) || String(a.id || '').localeCompare(String(b.id || '')));
     if (!filtered.length) {
-      return controls + `<p class="empty">${esc(all.length ? t('noMatches') : t('noConversations'))}</p>`;
+      return `<p class="empty">${esc(all.length ? t('noMatches') : t('noConversations'))}</p>`;
     }
     const maxTok = Math.max(1, newTok(filtered[0]));
     const legend = `<div class="legend" style="margin-top:12px"><span><i class="seg-in"></i>${esc(t('legInput'))}</span><span><i class="seg-out"></i>${esc(t('legOutput'))}</span></div>`;
     const rows = filtered.slice(0, sessionsLimit).map((c, i) => convItemHtml(c, i, maxTok, data)).join('');
     const rest = filtered.length - sessionsLimit;
     const more = rest > 0 ? `<button type="button" class="quiet-btn" data-more-sessions>${CHEV}<span>${esc(t('moreConvs', Math.min(rest, CONV_VISIBLE * 2)))}</span></button>` : '';
-    return controls + summarizeConvs(filtered) + legend + `<ul class="conv-list">${rows}</ul>` + more;
+    return summarizeConvs(filtered) + legend + `<ul class="conv-list">${rows}</ul>` + more;
+  }
+
+  function sessionsViewHtml(data) {
+    const pBtns = SESSION_PERIODS.map((k) => `<button class="fchip" type="button" data-speriod="${k}" aria-pressed="${k === sessionsPeriod}">${esc(t('shortPeriods')[k])}</button>`).join('');
+    const subBtn = `<button class="fchip" type="button" data-hide-sub aria-pressed="${hideSubagents}">${esc(t('hideSubagents'))}</button>`;
+    const controls = `<div class="filters"><div class="fgroup">${pBtns}</div>${subBtn}</div>`;
+    return controls + `<div id="history-sessions-body">${sessionsBodyHtml(data)}</div>`;
+  }
+
+  function updateSessionsBody() {
+    if (historyView !== 'sessions' || !history.data || history.data.error) return;
+    const body = $('history-sessions-body');
+    if (body) keepScroll(() => { body.innerHTML = sessionsBodyHtml(history.data); });
+    else paintHistory();
   }
 
   function matchesQuery(c, q) {
@@ -1466,7 +1486,7 @@
   function updateListBody() {
     if (historyView !== 'list' || !history.data || history.data.error) return;
     const body = $('history-list-body');
-    if (body) body.innerHTML = listBodyHtml(history.data);
+    if (body) keepScroll(() => { body.innerHTML = listBodyHtml(history.data); });
     const clr = $('history-search-clear');
     if (clr) clr.hidden = !searchQuery;
     panes.history.querySelectorAll('[data-hsort]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.hsort === listSort)));
@@ -1512,7 +1532,7 @@
       else viewBody = totalsHero(data) + heatmap(data) + byModel(data);
       body = `${historySubNav()}${viewBody}<footer id="history-footer"><span id="history-sources">${esc(historySourcesText(data))}</span><span id="history-meta" class="num" title="${esc(historyMetaTip(data))}">${meta}</span></footer>`;
     }
-    panes.history.innerHTML = body;
+    keepScroll(() => { panes.history.innerHTML = body; });
   }
 
   function setHistoryView(next, focusBtn) {
@@ -1630,6 +1650,36 @@
     }
   }
 
+  function toggleCalEditor(open) {
+    calEditorOpen = open;
+    const slot = $('history-cal');
+    if (slot) keepScroll(() => { slot.innerHTML = calEditorHtml(); });
+    else paintHistory();
+    if (calEditorOpen) {
+      const inp = panes.history.querySelector('.cal-input');
+      if (inp) inp.focus({ preventScroll: true });
+    }
+  }
+
+  function toggleModels(btn) {
+    const collapsing = showAllModels;
+    const prevY = window.scrollY;
+    const beforeTop = btn ? btn.getBoundingClientRect().top : null;
+    showAllModels = !showAllModels;
+    const sec = $('history-models');
+    if (sec && history.data && !history.data.error) sec.outerHTML = byModel(history.data);
+    else paintHistory();
+    if (collapsing && beforeTop != null) {
+      const afterBtn = panes.history.querySelector('[data-toggle-models]');
+      if (afterBtn) {
+        const targetY = Math.max(0, window.scrollY + (afterBtn.getBoundingClientRect().top - beforeTop));
+        if (Math.abs(window.scrollY - targetY) > 0.5) window.scrollTo(0, targetY);
+        return;
+      }
+    }
+    if (window.scrollY !== prevY) window.scrollTo(0, prevY);
+  }
+
   function saveCalInputs() {
     const next = { ...weeklyLeft };
     for (const k of CAL_POOLS) {
@@ -1704,16 +1754,12 @@
       return;
     }
     if (e.target.closest('[data-sync-prices]')) { syncPricing(); return; }
-    if (e.target.closest('[data-toggle-cal]')) {
-      calEditorOpen = !calEditorOpen;
-      paintHistory();
-      if (calEditorOpen) { const inp = panes.history.querySelector('.cal-input'); if (inp) inp.focus(); }
-      return;
-    }
+    if (e.target.closest('[data-toggle-cal]')) { toggleCalEditor(!calEditorOpen); return; }
     if (e.target.closest('[data-cal-save]')) { saveCalInputs(); return; }
     if (e.target.closest('[data-cal-clear]')) { setWeeklyLeft({ gemini: null, claude_gpt: null }); return; }
-    if (e.target.closest('[data-toggle-models]')) { showAllModels = !showAllModels; paintHistory(); return; }
-    if (e.target.closest('[data-more-sessions]')) { sessionsLimit += CONV_VISIBLE * 2; paintHistory(); return; }
+    const modBtn = e.target.closest('[data-toggle-models]');
+    if (modBtn) { toggleModels(modBtn); return; }
+    if (e.target.closest('[data-more-sessions]')) { sessionsLimit += CONV_VISIBLE * 2; updateSessionsBody(); return; }
     if (e.target.closest('[data-more-list]')) { listLimit += CONV_VISIBLE * 2; updateListBody(); return; }
     const pBtn = e.target.closest('[data-period]');
     if (pBtn) setPeriod(pBtn.dataset.period, false);
@@ -1728,7 +1774,7 @@
   panes.history.addEventListener('keydown', (e) => {
     if (e.target && e.target.classList && e.target.classList.contains('cal-input')) {
       if (e.key === 'Enter') { e.preventDefault(); saveCalInputs(); }
-      else if (e.key === 'Escape') { e.preventDefault(); calEditorOpen = false; paintHistory(); }
+      else if (e.key === 'Escape') { e.preventDefault(); toggleCalEditor(false); }
       return;
     }
     if (e.target && e.target.id === 'history-search' && e.key === 'Escape' && searchQuery) {
