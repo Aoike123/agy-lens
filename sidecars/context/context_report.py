@@ -908,7 +908,25 @@ def _iso(ts: float) -> str | None:
         return None
 
 
-def collect_session(db_path: Path, hs=None, pricing_file: Path | str | None = None) -> dict | None:
+def _catalog_display_for(model_id: str, catalog: dict | None) -> str | None:
+    if not isinstance(catalog, dict) or not catalog:
+        return None
+    raw = (model_id or "").strip()
+    if not raw:
+        return None
+    entry = catalog.get(raw) or catalog.get(raw.lower())
+    if not isinstance(entry, dict):
+        low = raw.lower()
+        for k, v in catalog.items():
+            if isinstance(k, str) and k.lower() == low and isinstance(v, dict):
+                entry = v
+                break
+    d = entry.get("displayName") if isinstance(entry, dict) else None
+    return d.strip() if isinstance(d, str) and d.strip() else None
+
+
+def collect_session(db_path: Path, hs=None, pricing_file: Path | str | None = None,
+                    model_catalog: Path | str | None = None) -> dict | None:
     """Usage summed over every billed generation of this conversation; None when there is none (or unreadable)."""
     hs = hs or _history_scanner()
     if hs is None:
@@ -927,10 +945,18 @@ def collect_session(db_path: Path, hs=None, pricing_file: Path | str | None = No
     else:
         custom_prices, pricing_source = {}, "builtin"
     cost_info_fn = getattr(hs, "call_cost_info", None)
+    load_catalog = getattr(hs, "load_model_catalog", None)
+    catalog = load_catalog(model_catalog) if callable(load_catalog) and model_catalog else {}
 
     prefix = getattr(hs, "DISPLAY_PREFIX", "display:")
     pools_list = tuple(getattr(hs, "POOLS", ("gemini", "claude_gpt", "other")))
     pool_fn = getattr(hs, "model_pool", None)
+
+    def _pool(m: str) -> str:
+        if not callable(pool_fn):
+            return "other"
+        return pool_fn(m, catalog) if catalog else pool_fn(m)
+
     today = datetime.now().date()
     d7_start = today - timedelta(days=6)
     by_display: dict[str, str] = {}
@@ -966,7 +992,7 @@ def collect_session(db_path: Path, hs=None, pricing_file: Path | str | None = No
         if d is not None and d7_start <= d <= today:
             bill_tok = inp + out
             d7_tokens += bill_tok
-            pk = pool_fn(model) if callable(pool_fn) else "other"
+            pk = _pool(model)
             d7_by_pool[pk] = d7_by_pool.get(pk, 0) + bill_tok
         if cost is None:
             partial = True
@@ -978,7 +1004,7 @@ def collect_session(db_path: Path, hs=None, pricing_file: Path | str | None = No
         if bm is None:
             bm = by_model[model] = {
                 "model": model,
-                "display_name": names.get(model) or display,
+                "display_name": names.get(model) or display or _catalog_display_for(model, catalog),
                 "input": 0,
                 "output": 0,
                 "cache_read": 0,
@@ -1000,7 +1026,7 @@ def collect_session(db_path: Path, hs=None, pricing_file: Path | str | None = No
         if bm["est_cost_usd"] is not None:
             bm["est_cost_usd"] = round(bm["est_cost_usd"], 4)
     primary = max(models, key=lambda b: (b["input"] + b["output"] + b["cache_read"], b["model"]))
-    primary_pool = pool_fn(primary["model"]) if callable(pool_fn) else "other"
+    primary_pool = _pool(primary["model"])
     pool = primary_pool
     if any(v > 0 for v in d7_by_pool.values()):
         pool = max(
@@ -1163,7 +1189,7 @@ def main():
             "skill_files": [{"path": p, "tokens": t} for p, t in st["skill_files"]],
             "system_files": [{"path": p} for p, _ in system_files],
             "speed": speed,
-            "session": collect_session(db_path, pricing_file=args.pricing_file),
+            "session": collect_session(db_path, pricing_file=args.pricing_file, model_catalog=args.model_catalog),
         }, indent=2))
         return
 

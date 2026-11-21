@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [2.1.1] - 2026-11-21
+
+### Changed
+
+- **Dynamic Quota model picker, thinking levels & pool grouping** (`sidecars/context/main.mjs`): `visibleModelIds()` now follows `agentModelSorts` strictly (with `clientModelSorts` and non-hidden `clientModelConfigs` fallbacks), respects `hidden` / `disabled` / `deprecated` flags, orders `groupedModels` thinking levels strictly by server `supportedThinkingLevels`, dynamically groups multi-variant parenthetical models (e.g. `Orchestrator` → `Neon · Carbon · Argon`, while keeping single variants like `GPT-OSS 120B (Medium)` intact), separates quota pools by provider bucket to prevent collisions at 100%, preserves dynamic provider and custom `RetrieveUserQuotaSummary` group labels, and refreshes `quota-raw.json` & `model-catalog.json` on startup and manual refresh.
+- **Live model-catalog attribution across engines** (`sidecars/context/history_scanner.mjs`, `history_scanner.py`, `context_report.mjs`, `context_report.py`, `app.js`): `scan()` and `collectSession()` / `collect_session()` now accept `--model-catalog` (`modelCatalogPath`) for dynamic pool attribution and display-name fallback; generalized family pricing fallbacks (`previewTarget`); fixed `inferPool` and `modelPool` so Claude/OpenAI models (including Claude Orchestrators) are always classified into `claude_gpt` before generic `orchestrator`.
+
+### Removed
+
+- Removed the in-panel onboarding welcome card, top-bar `?` help button, and glossary drawer (`sidecars/context/index.html`, `styles.css`, `app.js`, `README.md`) for a cleaner top bar, keeping actionable empty / error states and pricing sync feedback.
+
 ## [2.1.0] - 2026-11-21
 
 ### Added
@@ -53,6 +64,7 @@ Original **Context Usage** panel by Dimitrios Ioannidis
 - Context window and model name from the app's live model catalog, with a built-in fallback table.
 - Zero tokens per refresh; conversation databases opened read-only.
 
+[2.1.1]: https://github.com/Aoike123/antigravity-pulse/releases/tag/v2.1.1
 [2.1.0]: https://github.com/Aoike123/antigravity-pulse/releases/tag/v2.1.0
 [2.0.0]: https://github.com/Aoike123/antigravity-pulse/releases/tag/v2.0.0
 [1.0.0]: https://github.com/dimitr-io/antigravity-desktop-context

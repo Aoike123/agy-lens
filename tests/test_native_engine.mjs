@@ -26,6 +26,7 @@ import {
 import {
   CACHE_VERSION,
   callCostInfo,
+  loadModelCatalog,
   loadPricingFile,
   modelPool,
   parseRoot,
@@ -377,6 +378,14 @@ test('history_scanner.mjs scans windows, d7_by_pool, hourly_today, titles, cache
     assert.equal(isEst, false);
     assert.equal(modelPool('gemini-pro-orchestrator-neon'), 'gemini');
     assert.equal(modelPool('gpt-oss-120b-medium'), 'claude_gpt');
+    assert.equal(modelPool('orchestrator-claude-opus-5-5'), 'claude_gpt');
+    assert.deepEqual(callCostInfo('orchestrator-claude-opus-5-5', 1_000_000, 0, 0), [15, true]);
+    const catPath = join(dir, 'catalog.json');
+    writeFileSync(catPath, JSON.stringify({
+      'mystery-orch-v9': { maxTokens: 500000, displayName: 'Mystery Claude Orch', provider: 'MODEL_PROVIDER_ANTHROPIC', pool: 'claude_gpt' },
+    }));
+    const cat = loadModelCatalog(catPath);
+    assert.equal(modelPool('mystery-orch-v9', cat), 'claude_gpt');
     assert.deepEqual(parseRoot('C:/foo/bar=cli'), ['C:/foo/bar', 'cli']);
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -469,6 +478,42 @@ test('cross-engine parity: Node .mjs matches Python .py on context_report and hi
     ]) {
       assert.deepEqual(jsHist[k], pyHist[k], `history_scanner mismatch on key: ${k}`);
     }
+
+    // Dynamic catalog parity across both engines for an unseen model ID.
+    const catDir = join(dir, 'cat_convs');
+    mkdirSync(catDir, { recursive: true });
+    const catDbPath = join(catDir, 'conv-cat.db');
+    const cdb = createConvDb(catDbPath);
+    cdb.step(14, { metadata: pbTs(nowSec - 20), payloadField: 19, payload: pbField(2, 'Catalog parity') });
+    cdb.generation({
+      groups,
+      model: 'mystery-orch-v9',
+      displayName: '',
+      usage: pbUsage({ inp: 500, out: 100, cache: 0 }),
+      timing: pbTiming([1, 0], [1, 0]),
+    });
+    cdb.close();
+    const catFile = join(dir, 'model-catalog.json');
+    writeFileSync(catFile, JSON.stringify({
+      'mystery-orch-v9': {
+        maxTokens: 500_000,
+        displayName: 'Mystery Claude Orch',
+        provider: 'MODEL_PROVIDER_ANTHROPIC',
+        pool: 'claude_gpt',
+      },
+    }));
+    const pyCatReport = JSON.parse(execFileSync(py.cmd, [...py.pre, PY_REPORT, '--db', catDbPath, '--json', '--model-catalog', catFile], { encoding: 'utf8', windowsHide: true }));
+    const jsCatReport = await buildReport({ dbPath: catDbPath, conversationId: 'conv-cat', modelCatalogPath: catFile });
+    assert.deepEqual(jsCatReport.session, pyCatReport.session);
+    assert.equal(jsCatReport.session.pool, 'claude_gpt');
+    assert.equal(jsCatReport.session.by_model[0].display_name, 'Mystery Claude Orch');
+
+    const pyCatHist = JSON.parse(execFileSync(py.cmd, [...py.pre, PY_SCANNER, '--json', '--root', `${catDir}=desktop`, '--days', '14', '--model-catalog', catFile], { encoding: 'utf8', windowsHide: true }));
+    const jsCatHist = await scan([[catDir, 'desktop']], { days: 14, modelCatalogPath: catFile });
+    assert.deepEqual(jsCatHist.d7_by_pool, pyCatHist.d7_by_pool);
+    assert.deepEqual(jsCatHist.by_model, pyCatHist.by_model);
+    assert.equal(jsCatHist.d7_by_pool.claude_gpt, 600);
+    assert.equal(jsCatHist.by_model[0].display_name, 'Mystery Claude Orch');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

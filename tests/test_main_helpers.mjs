@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 process.env.CONTEXT_PANEL_NO_SERVER = '1';
 const {
   NO_CACHE_HEADERS,
+  buildModelCatalog,
   inferLimit,
   parseLiteLLMPricing,
   parseOpenRouterPricing,
@@ -450,4 +451,172 @@ test('parseQuota merges RetrieveUserQuotaSummary limits and exposes top-level we
   assert.deepEqual(without.weekly, {});
   assert.equal(without.pools[0].limits.length, 1);
   assert.equal(without.pools[0].limits[0].inferred, true);
+});
+
+test('parseQuota hides models dropped from agentModelSorts, falls back to clientModelSorts, and orders family levels by server metadata', () => {
+  const status = {
+    userStatus: {
+      cascadeModelConfigData: {
+        clientModelConfigs: [
+          { label: 'Gemini 4 Neon (High)', modelId: 'gemini-4-neon-high', quotaInfo: G },
+          { label: 'Gemini 4 Neon (XHigh)', modelId: 'gemini-4-neon-xhigh', quotaInfo: G },
+          { label: 'Gemini 4 Neon (Medium)', modelId: 'gemini-4-neon-medium', quotaInfo: G },
+          { label: 'Gemini 4 Neon (Low)', modelId: 'gemini-4-neon-low', quotaInfo: G },
+          { label: 'Orchestrator (Neon)', modelId: 'gemini-pro-orchestrator-neon', quotaInfo: G },
+          { label: 'Deprecated Hidden', modelId: 'deprecated-hidden', quotaInfo: G, hidden: true },
+        ],
+        clientModelSorts: [
+          { name: 'Recommended', groups: [{ modelLabels: ['Gemini 4 Neon (Medium)', 'Gemini 4 Neon (Low)'] }] },
+        ],
+        groupedModels: {
+          'gemini-4-neon': {
+            displayName: 'Gemini 4 Neon',
+            supportedThinkingLevels: [
+              { thinkingSuffix: 'low', thinkingDisplayName: 'Low' },
+              { thinkingSuffix: 'medium', thinkingDisplayName: 'Medium' },
+              { thinkingSuffix: 'high', thinkingDisplayName: 'High' },
+              { thinkingSuffix: 'xhigh', thinkingDisplayName: 'Extra High' },
+            ],
+          },
+        },
+      },
+    },
+  };
+  const models = {
+    response: {
+      models: {
+        'gemini-4-neon-high': { displayName: 'Gemini 4 Neon (High)', quotaInfo: G, modelProvider: 'MODEL_PROVIDER_GOOGLE' },
+        'gemini-4-neon-xhigh': { displayName: 'Gemini 4 Neon (XHigh)', quotaInfo: G, modelProvider: 'MODEL_PROVIDER_GOOGLE' },
+        'gemini-4-neon-medium': { displayName: 'Gemini 4 Neon (Medium)', quotaInfo: G, modelProvider: 'MODEL_PROVIDER_GOOGLE' },
+        'gemini-4-neon-low': { displayName: 'Gemini 4 Neon (Low)', quotaInfo: G, modelProvider: 'MODEL_PROVIDER_GOOGLE' },
+        'gemini-pro-orchestrator-neon': { displayName: 'Orchestrator (Neon)', quotaInfo: G, modelProvider: 'MODEL_PROVIDER_GOOGLE' },
+        'deprecated-hidden': { displayName: 'Deprecated Hidden', quotaInfo: G, modelProvider: 'MODEL_PROVIDER_GOOGLE', hidden: true },
+      },
+      agentModelSorts: [
+        { groups: [{ modelIds: ['gemini-4-neon-high', 'gemini-4-neon-xhigh', 'gemini-4-neon-medium', 'gemini-4-neon-low', 'deprecated-hidden'] }] },
+      ],
+    },
+  };
+  const r = parseQuota(status, models, NOW);
+  const gem = r.pools.find((p) => p.category === 'gemini');
+  assert.deepEqual(gem.families, [
+    { id: 'gemini-4-neon', display_name: 'Gemini 4 Neon', levels: ['Low', 'Medium', 'High', 'Extra High'] },
+  ]);
+  assert.deepEqual(gem.hidden_models.map((m) => m.id).sort(), ['deprecated-hidden', 'gemini-pro-orchestrator-neon']);
+
+  // clientModelSorts fallback when agentModelSorts is absent.
+  const noAgentSorts = parseQuota(status, { response: { models: models.response.models } }, NOW);
+  const gem2 = noAgentSorts.pools.find((p) => p.category === 'gemini');
+  assert.deepEqual(gem2.models.map((m) => m.id), ['gemini-4-neon-medium', 'gemini-4-neon-low']);
+});
+
+test('parseQuota separates unlimited pools by provider and creates dynamic pools & summary groups', () => {
+  const models = {
+    response: {
+      models: {
+        'gemini-4-neon-high': { displayName: 'Gemini 4 Neon (High)', quotaInfo: { remainingFraction: 1 }, modelProvider: 'MODEL_PROVIDER_GOOGLE' },
+        'claude-opus-5-5-high': { displayName: 'Claude Opus 5.5 (High)', quotaInfo: { remainingFraction: 1 }, modelProvider: 'MODEL_PROVIDER_ANTHROPIC' },
+        'deepseek-r2': { displayName: 'DeepSeek R2', quotaInfo: { remainingFraction: 1 }, modelProvider: 'MODEL_PROVIDER_DEEPSEEK' },
+      },
+      agentModelSorts: [{ groups: [{ modelIds: ['gemini-4-neon-high', 'claude-opus-5-5-high', 'deepseek-r2'] }] }],
+    },
+  };
+  const r = parseQuota(null, models, NOW);
+  assert.equal(r.pools.length, 3);
+  assert.deepEqual(r.pools.map((p) => p.category).sort(), ['claude_gpt', 'deepseek', 'gemini']);
+  const ds = r.pools.find((p) => p.category === 'deepseek');
+  assert.equal(ds.label, 'DeepSeek models');
+  assert.equal(ds.label_zh, 'DeepSeek 模型');
+
+  const multiSum = parseQuotaSummary({
+    groups: [
+      { displayName: 'Custom Alpha', buckets: [{ bucketId: 'b1', window: 'weekly', remainingFraction: 0.9, resetTime: '2026-11-27T00:00:00Z' }] },
+      { displayName: 'Custom Beta', buckets: [{ bucketId: 'b2', window: '5h', remainingFraction: 0.5, resetTime: '2026-11-25T00:00:00Z' }] },
+    ],
+  }, NOW);
+  assert.equal(multiSum.byCategory.other.label, 'Custom Alpha');
+  assert.equal(multiSum.byCategory.other.limits[0].kind, 'weekly');
+  assert.equal(multiSum.byCategory.other.limits[0].inferred, false);
+  assert.equal(multiSum.byCategory.custom_custom_beta.label, 'Custom Beta');
+  assert.equal(multiSum.byCategory.custom_custom_beta.limits[0].kind, '5h');
+  assert.equal(multiSum.byCategory.custom_custom_beta.limits[0].inferred, false);
+});
+
+test('buildModelCatalog outputs provider, pool, displayName, and zero-maxTokens entries dynamically', () => {
+  const cat = buildModelCatalog(
+    {
+      response: {
+        models: {
+          'claude-opus-5-5-orchestrator': { displayName: 'Orchestrator (Claude Opus 5.5)', maxTokens: 1000000, modelProvider: 'MODEL_PROVIDER_ANTHROPIC' },
+          'mystery-zero': { displayName: 'Mystery Zero', maxTokens: 0, modelProvider: 'MODEL_PROVIDER_DEEPSEEK' },
+        },
+      },
+    },
+    {
+      userStatus: {
+        cascadeModelConfigData: {
+          clientModelConfigs: [
+            { modelId: 'status-only', label: 'Status Only Model' },
+          ],
+        },
+      },
+    },
+  );
+  assert.deepEqual(cat['claude-opus-5-5-orchestrator'], {
+    maxTokens: 1000000,
+    displayName: 'Orchestrator (Claude Opus 5.5)',
+    provider: 'MODEL_PROVIDER_ANTHROPIC',
+    pool: 'claude_gpt',
+  });
+  assert.deepEqual(cat['mystery-zero'], {
+    maxTokens: 0,
+    displayName: 'Mystery Zero',
+    provider: 'MODEL_PROVIDER_DEEPSEEK',
+    pool: 'other',
+  });
+  assert.deepEqual(cat['status-only'], {
+    maxTokens: 0,
+    displayName: 'Status Only Model',
+    provider: '',
+    pool: 'other',
+  });
+});
+
+test('parseQuota groups ungrouped parenthetical multi-variant models dynamically while leaving single variants intact', () => {
+  const models = {
+    response: {
+      models: {
+        'gemini-pro-orchestrator-neon': { displayName: 'Orchestrator (Neon)', quotaInfo: G, modelProvider: 'MODEL_PROVIDER_GOOGLE' },
+        'gemini-pro-orchestrator': { displayName: 'Orchestrator (Carbon)', quotaInfo: G, modelProvider: 'MODEL_PROVIDER_GOOGLE' },
+        'gemini-pro-orchestrator-argon': { displayName: 'Orchestrator (Argon)', quotaInfo: G, modelProvider: 'MODEL_PROVIDER_GOOGLE' },
+        'future-model-high': { displayName: 'Future Model (High)', quotaInfo: G, modelProvider: 'MODEL_PROVIDER_GOOGLE' },
+        'future-model-low': { displayName: 'Future Model (Low)', quotaInfo: G, modelProvider: 'MODEL_PROVIDER_GOOGLE' },
+        'future-model-medium': { displayName: 'Future Model (Medium)', quotaInfo: G, modelProvider: 'MODEL_PROVIDER_GOOGLE' },
+        'gpt-oss-120b-medium': { displayName: 'GPT-OSS 120B (Medium)', quotaInfo: C, modelProvider: 'MODEL_PROVIDER_OPENAI' },
+      },
+      agentModelSorts: [{
+        groups: [{
+          modelIds: [
+            'gemini-pro-orchestrator-neon',
+            'gemini-pro-orchestrator',
+            'gemini-pro-orchestrator-argon',
+            'future-model-high',
+            'future-model-low',
+            'future-model-medium',
+            'gpt-oss-120b-medium',
+          ],
+        }],
+      }],
+    },
+  };
+  const r = parseQuota(null, models, NOW);
+  const gem = r.pools.find((p) => p.category === 'gemini');
+  const claude = r.pools.find((p) => p.category === 'claude_gpt');
+  assert.deepEqual(gem.families, [
+    { id: 'orchestrator', display_name: 'Orchestrator', levels: ['Neon', 'Carbon', 'Argon'] },
+    { id: 'future-model', display_name: 'Future Model', levels: ['Low', 'Medium', 'High'] },
+  ]);
+  assert.deepEqual(claude.families, [
+    { id: 'gpt-oss-120b-medium', display_name: 'GPT-OSS 120B (Medium)', levels: [] },
+  ]);
 });

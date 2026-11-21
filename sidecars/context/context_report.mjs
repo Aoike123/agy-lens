@@ -15,6 +15,7 @@ import {
   DISPLAY_PREFIX,
   POOLS,
   callCostInfo,
+  loadModelCatalog,
   loadPricingFile,
   modelPool,
   parseDb as parseHistoryDb,
@@ -902,7 +903,26 @@ export function collectSpeed(gens) {
   return out;
 }
 
-export async function collectSession(dbPath, { pricingFile = null } = {}) {
+function catalogDisplayFor(modelId, catalog) {
+  if (!catalog || typeof catalog !== 'object') return null;
+  const raw = String(modelId || '').trim();
+  if (!raw) return null;
+  const direct = Object.prototype.hasOwnProperty.call(catalog, raw)
+    ? catalog[raw]
+    : (Object.prototype.hasOwnProperty.call(catalog, raw.toLowerCase()) ? catalog[raw.toLowerCase()] : null);
+  if (direct && typeof direct.displayName === 'string' && direct.displayName.trim()) {
+    return direct.displayName.trim();
+  }
+  const low = raw.toLowerCase();
+  for (const [k, v] of Object.entries(catalog)) {
+    if (k.toLowerCase() === low && v && typeof v.displayName === 'string' && v.displayName.trim()) {
+      return v.displayName.trim();
+    }
+  }
+  return null;
+}
+
+export async function collectSession(dbPath, { pricingFile = null, modelCatalogPath = null } = {}) {
   let parsed;
   try {
     parsed = await parseHistoryDb(dbPath);
@@ -914,6 +934,7 @@ export async function collectSession(dbPath, { pricingFile = null } = {}) {
   if (!calls.length) return null;
 
   const [customPrices, pricingSource] = loadPricingFile(pricingFile);
+  const catalog = loadModelCatalog(modelCatalogPath);
   const poolsList = Array.isArray(POOLS) && POOLS.length ? POOLS : ['gemini', 'claude_gpt', 'other'];
   const now = new Date();
   const todayKey = localDateKey(now);
@@ -965,7 +986,7 @@ export async function collectSession(dbPath, { pricingFile = null } = {}) {
     if (dk !== null && dk >= d7Key && dk <= todayKey) {
       const billTok = inp + out;
       d7Tokens += billTok;
-      const pk = modelPool(model);
+      const pk = modelPool(model, catalog);
       d7ByPool[pk] = (d7ByPool[pk] ?? 0) + billTok;
     }
 
@@ -980,7 +1001,7 @@ export async function collectSession(dbPath, { pricingFile = null } = {}) {
     if (!bm) {
       bm = {
         model,
-        display_name: (Object.prototype.hasOwnProperty.call(names, model) ? names[model] : null) || display || null,
+        display_name: (Object.prototype.hasOwnProperty.call(names, model) ? names[model] : null) || display || catalogDisplayFor(model, catalog) || null,
         input: 0,
         output: 0,
         cache_read: 0,
@@ -1022,7 +1043,7 @@ export async function collectSession(dbPath, { pricingFile = null } = {}) {
       primaryModel = bm;
     }
   }
-  const primaryPool = primaryModel ? modelPool(primaryModel.model) : 'other';
+  const primaryPool = primaryModel ? modelPool(primaryModel.model, catalog) : 'other';
   let pool = primaryPool;
   let bestPoolVal = 0;
   let bestPoolIsPrimary = -1;
@@ -1162,7 +1183,7 @@ export async function buildReport({
   const model = catalogEntry.displayName || modelName(gen);
   const systemFiles = detectSystemFiles(homedir(), workspace || null, appDir);
   const speed = collectSpeed(await loadGenerations(p));
-  const session = await collectSession(p, { pricingFile });
+  const session = await collectSession(p, { pricingFile, modelCatalogPath });
 
   const categories = [];
   for (const [icon, cname, key, always] of CATEGORIES) {

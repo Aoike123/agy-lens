@@ -121,23 +121,6 @@
       sources: (d, c) => `桌面 ${d} · CLI ${c} 个对话`, errors: (n) => `${n} 个无法读取`,
       scannedAt: (t, ms) => `扫描于 ${t}${ms != null ? `，用时 ${ms} ms` : ''}`,
       weekdays: ['日', '一', '二', '三', '四', '五', '六'],
-      helpTip: '使用指南与指标说明', helpClose: '关闭',
-      welcomeTitle: '欢迎使用 Pulse',
-      welcomeSub: '100% 本地只读，刷新不消耗任何 Token，无需安装 Python。',
-      welcomeItems: [
-        ['概览', '当前对话的上下文占用、输出速度与本会话累计'],
-        ['额度', '各模型池的每周限额与 5 小时重置倒计时'],
-        ['历史', '全量用量统计、热力图、按会话与官网价估算'],
-      ],
-      welcomeDone: '知道了', welcomeGlossary: '指标说明',
-      glossaryTitle: '指标说明与使用指南',
-      glossaryItems: [
-        ['原生窗口 vs 请求预算', '原生窗口是模型理论容量（如 1M）；超出「请求预算」（通常 256k）后，应用会自动裁剪较早历史。'],
-        ['不含缓存读取', '总用量只统计新产生的「输入 + 输出」，缓存读取单独列出，避免重复计算虚高。'],
-        ['流式速度 · 端到端 · 首字延迟', '流式速度已过滤短回复与缓冲突发；端到端 = 总输出 ÷ (首字延迟 + 流式耗时)。'],
-        ['≈ 与 ≥ 标记', '≈ 表示同系列公开价估算（预览模型）或根据重置时间推断；≥ 表示包含无公开单价调用时的费用下限。'],
-        ['隐私与自动刷新', '所有会话数据库仅以只读方式访问；仅在点击「同步官网价」时请求公开价格列表。概览每 3 秒更新，额度与历史每 65 秒静默刷新。'],
-      ],
       noConvTitle: '先打开一个对话',
       noConvHint: '在左侧打开任意对话后，这里会实时显示它的上下文占用、输出速度和本会话统计。你也可以先看看：',
       noDbTitle: '新对话已就绪',
@@ -234,23 +217,6 @@
       sources: (d, c) => `Desktop ${d} · CLI ${c} conversations`, errors: (n) => `${n} unreadable`,
       scannedAt: (t, ms) => `Scanned ${t}${ms != null ? ` in ${ms} ms` : ''}`,
       weekdays: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
-      helpTip: 'Quick guide & glossary', helpClose: 'Close',
-      welcomeTitle: 'Welcome to Pulse',
-      welcomeSub: '100% local & read-only. Zero tokens per refresh, no Python needed.',
-      welcomeItems: [
-        ['Overview', 'Live context window, output speed and this-conversation totals'],
-        ['Quota', 'Per-pool weekly and 5-hour limits with reset countdowns'],
-        ['History', 'Totals, activity heatmap, per-session breakdown and pricing'],
-      ],
-      welcomeDone: 'Got it', welcomeGlossary: 'Glossary',
-      glossaryTitle: 'Quick guide & glossary',
-      glossaryItems: [
-        ['Native window vs Request budget', 'The native window is the model capacity (e.g. 1M). Past the request budget (usually 256k), the app trims older history.'],
-        ['Excluding cache reads', 'Headline totals count fresh input + output only; cached prompt reads are shown separately so numbers stay realistic.'],
-        ['Streaming · End-to-end · TTFT', 'Streaming excludes tiny/buffered bursts. End-to-end divides output by (first-token wait + streaming time).'],
-        ['≈ and ≥ markers', '≈ marks same-family price estimates (preview models) or inferred limit windows. ≥ marks a lower bound when some calls lack pricing.'],
-        ['Privacy & auto-refresh', 'Conversation DBs are opened strictly read-only. Public pricing is fetched only when you click Sync prices. Overview updates every 3s; Quota & History every 65s.'],
-      ],
       noConvTitle: 'Open a conversation first',
       noConvHint: 'Select any conversation in Antigravity to see its live context usage, output speed and session stats. Meanwhile you can inspect:',
       noDbTitle: 'New conversation ready',
@@ -382,7 +348,6 @@
   let pricingSyncing = false;
   let pricingNotice = null; // { ok: boolean, text: string } | null
   let pricingNoticeTimer = null;
-  let guideMode = store.get('ctx.onboarded', '') === '1' ? null : 'welcome'; // null | 'welcome' | 'glossary'
   const hasCal = () => weeklyLeft.gemini != null || weeklyLeft.claude_gpt != null;
   function setWeeklyLeft(next) {
     weeklyLeft = { gemini: clampPct(next && next.gemini), claude_gpt: clampPct(next && next.claude_gpt) };
@@ -395,8 +360,8 @@
   }
   function inferPool(id) {
     const s = String(id || '').toLowerCase();
+    if (s.includes('claude') || s.includes('anthropic') || s.includes('gpt') || s.includes('openai')) return 'claude_gpt';
     if (s.includes('gemini') || s.includes('orchestrator')) return 'gemini';
-    if (s.includes('claude') || s.includes('gpt') || s.includes('openai')) return 'claude_gpt';
     return 'other';
   }
 
@@ -962,7 +927,8 @@
 
   function poolHtml(p) {
     const limits = poolLimits(p);
-    const label = (p.category && t('categoriesQuota')[p.category]) || (lang === 'zh' ? p.label_zh : p.label) || p.label || p.id || '?';
+    const localizedCat = p.category && p.category !== 'other' ? t('categoriesQuota')[p.category] : '';
+    const label = localizedCat || (lang === 'zh' ? p.label_zh : p.label) || p.label || (p.category === 'other' ? t('categoriesQuota').other : '') || p.id || '?';
     const tag = (m) => `<span class="tag" title="${esc(m.id)}">${esc(m.name)}${m.levels.length ? `<span class="dim">${esc(m.levels.join(' · '))}</span>` : ''}</span>`;
     const families = dedupeModels(p.families);
     const shownList = families.length ? families : dedupeModels(p.models);
@@ -1749,37 +1715,6 @@
     btn.setAttribute('aria-label', tip);
   }
 
-  function paintGuide() {
-    const slot = $('guide-slot');
-    const helpBtn = $('help');
-    if (helpBtn) helpBtn.setAttribute('aria-expanded', String(guideMode === 'glossary'));
-    if (!slot) return;
-    if (!guideMode) {
-      slot.hidden = true;
-      slot.innerHTML = '';
-      return;
-    }
-    if (guideMode === 'welcome') {
-      const items = t('welcomeItems').map(([k, v]) => `<li class="guide-item"><b>${esc(k)}</b><span>${esc(v)}</span></li>`).join('');
-      slot.innerHTML = `<aside class="guide-card" aria-label="${esc(t('welcomeTitle'))}">
-        <div class="guide-head"><h3>${esc(t('welcomeTitle'))}</h3><button type="button" class="guide-close" data-guide-dismiss aria-label="${esc(t('helpClose'))}">&times;</button></div>
-        <p class="guide-sub">${esc(t('welcomeSub'))}</p>
-        <ul class="guide-list">${items}</ul>
-        <div class="guide-acts">
-          <button type="button" class="guide-btn" data-guide-dismiss>${esc(t('welcomeDone'))}</button>
-          <button type="button" data-guide-glossary>${esc(t('welcomeGlossary'))}</button>
-        </div>
-      </aside>`;
-    } else {
-      const items = t('glossaryItems').map(([k, v]) => `<li class="guide-item"><b>${esc(k)}</b><span>${esc(v)}</span></li>`).join('');
-      slot.innerHTML = `<aside class="guide-card" aria-label="${esc(t('glossaryTitle'))}">
-        <div class="guide-head"><h3>${esc(t('glossaryTitle'))}</h3><button type="button" class="guide-close" data-guide-close>${esc(t('helpClose'))}</button></div>
-        <ul class="guide-list">${items}</ul>
-      </aside>`;
-    }
-    slot.hidden = false;
-  }
-
   function applyStatic() {
     document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
     document.querySelectorAll('[data-i18n]').forEach((el) => { el.textContent = t(el.getAttribute('data-i18n')); });
@@ -1790,13 +1725,7 @@
         b.setAttribute('aria-pressed', String(b.dataset.lang === lang));
       });
     }
-    const helpBtn = $('help');
-    if (helpBtn) {
-      helpBtn.title = t('helpTip');
-      helpBtn.setAttribute('aria-label', t('helpTip'));
-    }
     syncRefreshButton();
-    paintGuide();
   }
 
   function setTab(next) {
@@ -1938,11 +1867,6 @@
     const btn = document.querySelector(`.tab[data-tab="${tab}"]`);
     if (btn) btn.focus();
   });
-  $('help').addEventListener('click', () => {
-    if (guideMode === 'welcome') store.set('ctx.onboarded', '1');
-    guideMode = guideMode === 'glossary' ? null : 'glossary';
-    paintGuide();
-  });
   $('refresh').addEventListener('click', () => {
     if (tab === 'overview') refreshReport({ force: true });
     else if (tab === 'quota') quota.load({ refresh: true, silent: false });
@@ -1953,9 +1877,6 @@
     if (b && b.dataset.lang !== lang) setLang(b.dataset.lang);
   });
   document.addEventListener('click', (e) => {
-    if (e.target.closest('[data-guide-dismiss]')) { store.set('ctx.onboarded', '1'); guideMode = null; paintGuide(); return; }
-    if (e.target.closest('[data-guide-glossary]')) { store.set('ctx.onboarded', '1'); guideMode = 'glossary'; paintGuide(); return; }
-    if (e.target.closest('[data-guide-close]')) { guideMode = null; paintGuide(); return; }
     const goTab = e.target.closest('[data-go-tab]');
     if (goTab) { setTab(goTab.dataset.goTab); return; }
     const retryBtn = e.target.closest('[data-retry]');
@@ -2056,14 +1977,6 @@
     if (!d || !d.matches || !d.matches('details[data-key]')) return;
     if (d.open) openKeys.add(d.dataset.key); else openKeys.delete(d.dataset.key);
   }, true);
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && guideMode === 'glossary') {
-      guideMode = null;
-      paintGuide();
-      const hb = $('help');
-      if (hb) hb.focus();
-    }
-  });
   document.addEventListener('visibilitychange', onWake);
   window.addEventListener('focus', onWake);
 

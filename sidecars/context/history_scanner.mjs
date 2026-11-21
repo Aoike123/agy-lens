@@ -193,11 +193,56 @@ function lookupDirect(slug, customPrices) {
 }
 
 function previewTarget(slug) {
-  for (const [prefix, target] of PREVIEW_FAMILY_FALLBACKS) {
-    if (slug.startsWith(prefix)) return target;
+  if (slug.includes('embedding')) return null;
+  if (slug.includes('claude')) {
+    if (slug.includes('opus')) return 'claude-opus-4-6';
+    if (slug.includes('sonnet')) return 'claude-sonnet-4-6';
+    if (slug.includes('haiku')) return 'claude-haiku-4-5';
+    return null;
+  }
+  if (slug.includes('gpt-oss')) return 'gpt-oss-120b';
+  if (slug.includes('gemini')) {
+    return slug.includes('flash') ? 'gemini-2.5-flash' : 'gemini-2.5-pro';
   }
   if (slug.includes('orchestrator')) return 'gemini-2.5-pro';
   return null;
+}
+
+export function loadModelCatalog(filePath) {
+  if (!filePath) return {};
+  let data;
+  try {
+    data = JSON.parse(readFileSync(expandHome(filePath), 'utf8'));
+  } catch {
+    return {};
+  }
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return {};
+  const out = Object.create(null);
+  for (const [k, v] of Object.entries(data)) {
+    if (typeof k === 'string' && k && v && typeof v === 'object' && !Array.isArray(v)) {
+      out[k] = v;
+    }
+  }
+  return out;
+}
+
+function catalogEntry(modelId, catalog) {
+  if (!catalog || typeof catalog !== 'object') return null;
+  const raw = String(modelId || '').trim();
+  if (!raw) return null;
+  if (Object.prototype.hasOwnProperty.call(catalog, raw)) return catalog[raw];
+  const low = raw.toLowerCase();
+  if (Object.prototype.hasOwnProperty.call(catalog, low)) return catalog[low];
+  for (const [k, v] of Object.entries(catalog)) {
+    if (k.toLowerCase() === low) return v;
+  }
+  return null;
+}
+
+function catalogDisplay(modelId, catalog) {
+  const e = catalogEntry(modelId, catalog);
+  const d = e && typeof e.displayName === 'string' ? e.displayName.trim() : '';
+  return d || null;
 }
 
 export function priceInfo(model, customPrices = null) {
@@ -229,10 +274,21 @@ export function callCost(model, inp, out, cacheRead, customPrices = null) {
   return callCostInfo(model, inp, out, cacheRead, customPrices)[0];
 }
 
-export function modelPool(modelId) {
+export function modelPool(modelId, catalog = null) {
+  const entry = catalogEntry(modelId, catalog);
+  if (entry && typeof entry === 'object') {
+    if (typeof entry.pool === 'string' && POOLS.includes(entry.pool) && (entry.pool !== 'other' || entry.provider)) {
+      return entry.pool;
+    }
+    if (typeof entry.provider === 'string' && entry.provider) {
+      const p = entry.provider.toUpperCase();
+      if (p.includes('ANTHROPIC') || p.includes('OPENAI')) return 'claude_gpt';
+      if (p.includes('GOOGLE')) return 'gemini';
+    }
+  }
   const s = String(modelId || '').trim().toLowerCase();
   if (!s || s === 'unknown' || s.startsWith('tab_')) return 'other';
-  if (s.includes('claude') || s.includes('gpt') || s.includes('openai')) return 'claude_gpt';
+  if (s.includes('claude') || s.includes('anthropic') || s.includes('gpt') || s.includes('openai')) return 'claude_gpt';
   if (s.includes('gemini') || s.includes('orchestrator')) return 'gemini';
   return 'other';
 }
@@ -466,6 +522,7 @@ export async function scan(roots, {
   now = new Date(),
   stats = null,
   pricingFile = null,
+  modelCatalogPath = null,
 } = {}) {
   const t0 = performance.now();
   const totalDays = Math.max(1, Number(days) || 365);
@@ -474,6 +531,7 @@ export async function scan(roots, {
   st.misses = 0;
 
   const [customPrices, pricingSource, pricingFetchedAt] = loadPricingFile(pricingFile);
+  const catalog = loadModelCatalog(modelCatalogPath);
   const oldCache = loadCache(cachePath);
   const newCache = Object.create(null);
   const sources = { desktop: 0, cli: 0 };
@@ -635,7 +693,7 @@ export async function scan(roots, {
 
       let pool = poolCache.get(model);
       if (!pool) {
-        pool = modelPool(model);
+        pool = modelPool(model, catalog);
         poolCache.set(model, pool);
       }
 
@@ -734,7 +792,7 @@ export async function scan(roots, {
 
   const models = Array.from(byModel.values());
   for (const bm of models) {
-    bm.display_name = names.get(bm.model) ?? null;
+    bm.display_name = names.get(bm.model) || catalogDisplay(bm.model, catalog);
     if (bm.est_cost_usd !== null) bm.est_cost_usd = roundN(bm.est_cost_usd, 4);
   }
   models.sort((a, b) => {
@@ -750,7 +808,7 @@ export async function scan(roots, {
   for (const c of capped) {
     const cmodels = Array.from(c._models.values());
     for (const cm of cmodels) {
-      cm.display_name = names.get(cm.model) ?? null;
+      cm.display_name = names.get(cm.model) || catalogDisplay(cm.model, catalog);
       if (cm.est_cost_usd !== null) cm.est_cost_usd = roundN(cm.est_cost_usd, 4);
     }
     let bestModel = cmodels[0];
@@ -761,9 +819,9 @@ export async function scan(roots, {
       if (mt > bt || (mt === bt && cmpCode(m.model, bestModel.model) > 0)) bestModel = m;
     }
     c.model = bestModel.model;
-    c.display_name = names.get(c.model) ?? null;
+    c.display_name = names.get(c.model) || catalogDisplay(c.model, catalog);
 
-    const primaryPool = poolCache.get(c.model) || modelPool(c.model);
+    const primaryPool = poolCache.get(c.model) || modelPool(c.model, catalog);
     const maxD7Pool = Math.max(c.d7_by_pool.gemini, c.d7_by_pool.claude_gpt, c.d7_by_pool.other);
     if (maxD7Pool > 0) {
       let bestP = POOLS[0];
@@ -828,6 +886,7 @@ async function cliMain(argv) {
   let cachePath = null;
   let days = 365;
   let pricingFile = null;
+  let modelCatalogPath = null;
   const rawRoots = [];
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
@@ -835,10 +894,11 @@ async function cliMain(argv) {
     if (a === '--cache' && i + 1 < argv.length) cachePath = argv[++i];
     else if (a === '--days' && i + 1 < argv.length) days = parseInt(argv[++i], 10) || 365;
     else if (a === '--pricing-file' && i + 1 < argv.length) pricingFile = argv[++i];
+    else if (a === '--model-catalog' && i + 1 < argv.length) modelCatalogPath = argv[++i];
     else if (a === '--root' && i + 1 < argv.length) rawRoots.push(argv[++i]);
   }
   const roots = rawRoots.length ? rawRoots.map(parseRoot) : defaultRoots();
-  const report = await scan(roots, { cachePath, days, pricingFile });
+  const report = await scan(roots, { cachePath, days, pricingFile, modelCatalogPath });
   process.stdout.write(`${JSON.stringify(report)}\n`);
   return 0;
 }

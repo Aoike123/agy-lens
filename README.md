@@ -54,7 +54,7 @@ git clone https://github.com/Aoike123/antigravity-pulse.git "$HOME\.gemini\confi
 ## 新手 3 步上手
 
 1. **启用插件**：重启 Antigravity，在左侧打开 **Customizations → Installed**，找到并打开 **Pulse** 开关。
-2. **打开面板**：打开任意一个对话，在右侧边栏打开 **Pulse**（右上角随时可点击 **`?`** 查看指标说明与术语表，或切换 `中 | EN`）。
+2. **打开面板**：打开任意一个对话，在右侧边栏打开 **Pulse**（右上角支持一键刷新或切换 `中 | EN`）。
 3. **看懂 3 个页签**：
    - **概览**：当前对话用了多少上下文窗口、是否触发请求预算裁剪、模型流式输出速度、以及本会话累计花费与 Token。
    - **额度**：各个模型池（Claude / GPT-OSS、Gemini、Tab 补全）的**每周限额**、**5 小时限额**和重置倒计时。
@@ -68,7 +68,7 @@ git clone https://github.com/Aoike123/antigravity-pulse.git "$HOME\.gemini\confi
 
 ## 功能详情
 
-面板分为三个标签页（**概览**、**额度**、**历史**）。顶栏提供 **`?`** 新手指南与术语表按钮、统一的 SVG 刷新图标按钮与 `中 | EN` 分段切换按钮，并采用混合自动刷新机制：
+面板分为三个标签页（**概览**、**额度**、**历史**）。顶栏提供统一的 SVG 刷新图标按钮与 `中 | EN` 分段切换按钮，并采用混合自动刷新机制：
 
 - **概览**：可见时每 3 秒自动轮询。
 - **额度 / 历史**：可见时每 65 秒静默自动刷新，窗口重新可见或获得焦点且数据超过 60 秒时自动更新；额度池倒计时归零约 3 秒后还会自动触发一次刷新。静默刷新不打断搜索框焦点或已展开的详情。
@@ -269,7 +269,7 @@ To update, run `git pull` inside that folder, then turn the plugin off and on ag
 ## Getting Started in 3 Steps
 
 1. **Enable the plugin**: Restart Antigravity, open **Customizations → Installed**, and turn **Pulse** on.
-2. **Open the panel**: Open any conversation and open **Pulse** in the right-side pane (click **`?`** in the top bar anytime for the quick guide & glossary, or switch `中 | EN`).
+2. **Open the panel**: Open any conversation and open **Pulse** in the right-side pane (use the top bar to refresh or switch `中 | EN`).
 3. **Explore the 3 tabs**:
    - **Overview**: live context window gauge, request budget, output speed, and this conversation's cumulative totals.
    - **Quota**: **Weekly** and **5-hour** limits per model pool with live reset countdowns.
@@ -283,7 +283,7 @@ To update, run `git pull` inside that folder, then turn the plugin off and on ag
 
 ## Features
 
-The panel has three tabs (**Overview**, **Quota**, **History**). The top bar provides a **`?`** quick-guide / glossary toggle, a unified inline SVG refresh button, a segmented `中 | EN` language toggle, and hybrid auto-refresh:
+The panel has three tabs (**Overview**, **Quota**, **History**). The top bar provides a unified inline SVG refresh button, a segmented `中 | EN` language toggle, and hybrid auto-refresh:
 
 - **Overview**: polls every 3 seconds while visible.
 - **Quota & History**: silently auto-refresh every 65 seconds while visible, plus on tab visibility / window focus when stale (>60s); Quota also triggers a one-shot refresh ~3 seconds after a pool's reset countdown reaches 0. Silent refreshes preserve search focus and expanded disclosures.

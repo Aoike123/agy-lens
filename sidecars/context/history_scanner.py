@@ -255,10 +255,60 @@ def _lookup_direct(slug: str, custom_prices: dict | None = None) -> tuple[float,
     return _lookup_builtin(slug)
 
 
+def load_model_catalog(path: Path | str | None) -> dict[str, dict]:
+    """Load live model-catalog.json -> {model_id: entry_dict}; missing or invalid returns {}."""
+    if not path:
+        return {}
+    try:
+        with open(Path(path).expanduser(), encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError, TypeError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {k: v for k, v in data.items() if isinstance(k, str) and k and isinstance(v, dict)}
+
+
+def _catalog_entry(model_id: str, catalog: dict | None) -> dict | None:
+    if not isinstance(catalog, dict) or not catalog:
+        return None
+    raw = (model_id or "").strip()
+    if not raw:
+        return None
+    e = catalog.get(raw)
+    if isinstance(e, dict):
+        return e
+    low = raw.lower()
+    e = catalog.get(low)
+    if isinstance(e, dict):
+        return e
+    for k, v in catalog.items():
+        if isinstance(k, str) and k.lower() == low and isinstance(v, dict):
+            return v
+    return None
+
+
+def _catalog_display(model_id: str, catalog: dict | None) -> str | None:
+    e = _catalog_entry(model_id, catalog)
+    d = e.get("displayName") if isinstance(e, dict) else None
+    return d.strip() if isinstance(d, str) and d.strip() else None
+
+
 def _preview_target(slug: str) -> str | None:
-    for prefix, target in PREVIEW_FAMILY_FALLBACKS:
-        if slug.startswith(prefix):
-            return target
+    if "embedding" in slug:
+        return None
+    if "claude" in slug:
+        if "opus" in slug:
+            return "claude-opus-4-6"
+        if "sonnet" in slug:
+            return "claude-sonnet-4-6"
+        if "haiku" in slug:
+            return "claude-haiku-4-5"
+        return None
+    if "gpt-oss" in slug:
+        return "gpt-oss-120b"
+    if "gemini" in slug:
+        return "gemini-2.5-flash" if "flash" in slug else "gemini-2.5-pro"
     if "orchestrator" in slug:
         return "gemini-2.5-pro"
     return None
@@ -298,12 +348,24 @@ def call_cost(model: str, inp: int, out: int, cache_read: int,
     return call_cost_info(model, inp, out, cache_read, custom_prices)[0]
 
 
-def model_pool(model_id: str) -> str:
+def model_pool(model_id: str, catalog: dict | None = None) -> str:
     """Map a model ID to its quota pool: 'gemini', 'claude_gpt', or 'other'."""
+    entry = _catalog_entry(model_id, catalog)
+    if entry is not None:
+        epool = entry.get("pool")
+        eprov = entry.get("provider")
+        if isinstance(epool, str) and epool in POOLS and (epool != "other" or eprov):
+            return epool
+        if isinstance(eprov, str) and eprov:
+            p = eprov.upper()
+            if "ANTHROPIC" in p or "OPENAI" in p:
+                return "claude_gpt"
+            if "GOOGLE" in p:
+                return "gemini"
     s = (model_id or "").strip().lower()
     if not s or s == "unknown" or s.startswith("tab_"):
         return "other"
-    if "claude" in s or "gpt" in s or "openai" in s:
+    if "claude" in s or "anthropic" in s or "gpt" in s or "openai" in s:
         return "claude_gpt"
     if "gemini" in s or "orchestrator" in s:
         return "gemini"
@@ -546,7 +608,8 @@ def _fmt_iso(ts: float | None) -> str | None:
 
 def scan(roots: list[tuple[Path, str]], cache_path: Path | None = None, days: int = 365,
          now: datetime | None = None, stats: dict | None = None,
-         pricing_file: Path | str | None = None) -> dict:
+         pricing_file: Path | str | None = None,
+         model_catalog: Path | str | None = None) -> dict:
     t0 = time.perf_counter()
     now = now or datetime.now()
     today = now.date()
@@ -554,6 +617,7 @@ def scan(roots: list[tuple[Path, str]], cache_path: Path | None = None, days: in
     stats = stats if stats is not None else {}
     stats.update(hits=0, misses=0)
     custom_prices, pricing_source, pricing_fetched_at = load_pricing_file(pricing_file)
+    catalog = load_model_catalog(model_catalog)
 
     old_cache = load_cache(cache_path)
     new_cache: dict = {}
@@ -647,7 +711,7 @@ def scan(roots: list[tuple[Path, str]], cache_path: Path | None = None, days: in
             cost = (inp * p[0] + out * p[1] + cache * p[2]) / 1_000_000.0 if p is not None else None
             pool = pool_cache.get(model)
             if pool is None:
-                pool = pool_cache[model] = model_pool(model)
+                pool = pool_cache[model] = model_pool(model, catalog)
             in_d7 = d7_start <= d <= today
             conv["input"] += inp
             conv["output"] += out
@@ -725,7 +789,7 @@ def scan(roots: list[tuple[Path, str]], cache_path: Path | None = None, days: in
             t["est_cost_usd"] = round(t["est_cost_usd"], 4)
     models = list(by_model.values())
     for bm in models:
-        bm["display_name"] = names.get(bm["model"])
+        bm["display_name"] = names.get(bm["model"]) or _catalog_display(bm["model"], catalog)
         if bm["est_cost_usd"] is not None:
             bm["est_cost_usd"] = round(bm["est_cost_usd"], 4)
     models.sort(key=lambda b: (-(b["input"] + b["output"] + b["cache_read"]), b["model"]))
@@ -736,13 +800,13 @@ def scan(roots: list[tuple[Path, str]], cache_path: Path | None = None, days: in
     for c in convs:
         cmodels = list(c["_models"].values())
         for cm in cmodels:
-            cm["display_name"] = names.get(cm["model"])
+            cm["display_name"] = names.get(cm["model"]) or _catalog_display(cm["model"], catalog)
             if cm["est_cost_usd"] is not None:
                 cm["est_cost_usd"] = round(cm["est_cost_usd"], 4)
         # Primary model = the one with the most total tokens in this conversation.
         c["model"] = max(cmodels, key=lambda m: (m["input"] + m["output"] + m["cache_read"], m["model"]))["model"]
-        c["display_name"] = names.get(c["model"])
-        primary_pool = pool_cache.get(c["model"]) or model_pool(c["model"])
+        c["display_name"] = names.get(c["model"]) or _catalog_display(c["model"], catalog)
+        primary_pool = pool_cache.get(c["model"]) or model_pool(c["model"], catalog)
         if max(c["d7_by_pool"].values()) > 0:
             c["pool"] = max(POOLS, key=lambda p: (c["d7_by_pool"][p], 1 if p == primary_pool else 0, -POOLS.index(p)))
         else:
@@ -787,11 +851,12 @@ def main(argv: list[str] | None = None) -> int:
                     help="Conversation folder to scan (repeatable); replaces the default desktop/cli roots")
     ap.add_argument("--days", type=int, default=365, help="Number of days in the daily series (default 365)")
     ap.add_argument("--pricing-file", help="Optional normalized pricing cache JSON (overrides built-in list prices)")
+    ap.add_argument("--model-catalog", help="Optional live model-catalog.json for dynamic display names and quota pools")
     args = ap.parse_args(argv)
 
     roots = [parse_root(r) for r in args.root] if args.root else default_roots()
     report = scan(roots, Path(args.cache).expanduser() if args.cache else None, args.days,
-                  pricing_file=args.pricing_file)
+                  pricing_file=args.pricing_file, model_catalog=args.model_catalog)
     print(json.dumps(report, separators=(",", ":")))
     return 0
 

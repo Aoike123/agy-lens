@@ -133,21 +133,24 @@ function lsRequest(method, body) {
   });
 }
 
-async function refreshCatalog() {
-  if (Date.now() - catalogFetchedAt < CATALOG_TTL_MS && existsSync(CATALOG_PATH)) return;
+function writeModelCatalog(modelsResp, statusResp = null) {
+  try {
+    const catalog = buildModelCatalog(modelsResp, statusResp);
+    if (Object.keys(catalog).length) {
+      writeJsonAtomic(CATALOG_PATH, catalog);
+      catalogFetchedAt = Date.now();
+    }
+  } catch (err) {
+    console.error('[context] could not write model-catalog.json:', err.message);
+  }
+}
+
+async function refreshCatalog(force = false) {
+  if (!force && Date.now() - catalogFetchedAt < CATALOG_TTL_MS && existsSync(CATALOG_PATH)) return;
   catalogFetchedAt = Date.now();
   try {
     const resp = await lsRequest('GetAvailableModels', { metadata: LS_METADATA });
-    const models = resp?.response?.models || resp?.models || {};
-    const catalog = {};
-    for (const [id, m] of Object.entries(models)) {
-      const maxTokens = Number(m?.maxTokens) || 0;
-      if (maxTokens > 0) catalog[id] = { maxTokens, displayName: m.displayName || '' };
-    }
-    if (Object.keys(catalog).length) {
-      mkdirSync(DATA_DIR, { recursive: true });
-      writeFileSync(CATALOG_PATH, JSON.stringify(catalog));
-    }
+    writeModelCatalog(resp, null);
   } catch (err) {
     console.error('[context] model catalog unavailable, using built-in limits:', err.message);
   }
@@ -255,7 +258,8 @@ function modelEntry(m, key) {
     quota = { remaining_fraction: frac, reset_time: reset };
   }
   const provider = pick(m, 'modelProvider', 'model_provider');
-  return { id, display_name: display ? String(display) : null, provider: provider ? String(provider) : '', quota };
+  const hidden = Boolean(pick(m, 'hidden', 'isHidden', 'is_hidden', 'disabled', 'isDisabled', 'is_disabled', 'deprecated', 'isDeprecated', 'is_deprecated'));
+  return { id, display_name: display ? String(display) : null, provider: provider ? String(provider) : '', quota, hidden };
 }
 
 function listModels(resp) {
@@ -282,16 +286,42 @@ function visibleModelIds(statusResp, modelsResp) {
       }
     }
   }
-  for (const resp of [statusResp, modelsResp]) {
-    for (const [, c] of asList(pick(modelConfigData(resp), 'clientModelConfigs', 'client_model_configs'))) {
-      const id = pick(c, 'modelId', 'model_id');
-      if (typeof id === 'string') ids.add(id);
+  if (!ids.size) {
+    for (const resp of [statusResp, modelsResp]) {
+      const cfgData = modelConfigData(resp);
+      const cfgs = asList(pick(cfgData, 'clientModelConfigs', 'client_model_configs')).map(([, c]) => c);
+      const byLabel = new Map();
+      for (const c of cfgs) {
+        if (!c || typeof c !== 'object') continue;
+        const id = pick(c, 'modelId', 'model_id');
+        const lbl = pick(c, 'label', 'displayName', 'display_name');
+        if (typeof id === 'string' && id && typeof lbl === 'string' && lbl && !byLabel.has(lbl)) byLabel.set(lbl, id);
+      }
+      for (const sort of asList(pick(cfgData, 'clientModelSorts', 'client_model_sorts')).map(([, s]) => s)) {
+        for (const g of asList(pick(sort, 'groups')).map(([, x]) => x)) {
+          for (const [, id] of asList(pick(g, 'modelIds', 'model_ids'))) if (typeof id === 'string' && id) ids.add(id);
+          for (const [, lbl] of asList(pick(g, 'modelLabels', 'model_labels'))) {
+            const id = typeof lbl === 'string' ? byLabel.get(lbl) : undefined;
+            if (id) ids.add(id);
+          }
+        }
+      }
+    }
+  }
+  if (!ids.size) {
+    for (const resp of [statusResp, modelsResp]) {
+      for (const [, c] of asList(pick(modelConfigData(resp), 'clientModelConfigs', 'client_model_configs'))) {
+        if (!c || typeof c !== 'object') continue;
+        if (pick(c, 'hidden', 'isHidden', 'is_hidden', 'disabled', 'isDisabled', 'is_disabled', 'deprecated', 'isDeprecated', 'is_deprecated')) continue;
+        const id = pick(c, 'modelId', 'model_id');
+        if (typeof id === 'string' && id) ids.add(id);
+      }
     }
   }
   return ids;
 }
 
-// groupedModels: family id -> {display_name, levels: [{suffix, display}]}
+// groupedModels: family id -> {display_name, levels: [{suffix, display, modelId}]}
 function modelFamilies(statusResp, modelsResp) {
   const fams = new Map();
   for (const resp of [modelsResp, statusResp]) {
@@ -300,8 +330,12 @@ function modelFamilies(statusResp, modelsResp) {
       for (const [fid, g] of Object.entries(src)) {
         if (fams.has(fid) || !g || typeof g !== 'object') continue;
         const levels = asList(pick(g, 'supportedThinkingLevels', 'supported_thinking_levels'))
-          .map(([, l]) => ({ suffix: String(pick(l, 'thinkingSuffix', 'thinking_suffix') || ''), display: String(pick(l, 'thinkingDisplayName', 'thinking_display_name') || '') }))
-          .filter((l) => l.suffix);
+          .map(([, l]) => ({
+            suffix: String(pick(l, 'thinkingSuffix', 'thinking_suffix') || ''),
+            display: String(pick(l, 'thinkingDisplayName', 'thinking_display_name') || ''),
+            modelId: String(pick(l, 'modelId', 'model_id') || ''),
+          }))
+          .filter((l) => l.suffix || l.modelId);
         fams.set(fid, { display_name: String(pick(g, 'displayName', 'display_name') || fid), levels });
       }
     }
@@ -311,26 +345,103 @@ function modelFamilies(statusResp, modelsResp) {
 
 function familyOf(fams, id) {
   for (const [fid, f] of fams) {
-    if (id === fid) return { fid, f, level: null };
-    for (const l of f.levels) if (id === `${fid}-${l.suffix}`) return { fid, f, level: l.display || l.suffix };
+    if (id === fid) return { fid, f, level: null, levelOrder: -1 };
+    for (let idx = 0; idx < f.levels.length; idx += 1) {
+      const l = f.levels[idx];
+      if ((l.modelId && id === l.modelId) || (l.suffix && id === `${fid}-${l.suffix}`)) {
+        return { fid, f, level: l.display || l.suffix || id, levelOrder: idx };
+      }
+    }
   }
   return null;
 }
 
+const PAREN_VARIANT = /^(.+?)\s*\(([^()]+)\)\s*$/;
+const EFFORT_RANK = { minimal: 0, low: 1, medium: 2, high: 3, xhigh: 4, 'extra high': 4, max: 5 };
+
+function splitParenVariant(name) {
+  const m = String(name || '').trim().match(PAREN_VARIANT);
+  if (!m) return null;
+  const base = m[1].trim();
+  const variant = m[2].trim();
+  return base && variant ? { base, variant } : null;
+}
+
+function familySlug(name, fallbackId) {
+  const s = String(name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  return s || fallbackId;
+}
+
 const PROVIDER_ORDER = ['Gemini', 'Claude', 'GPT-OSS', 'OpenAI'];
+const PROVIDER_LABELS = {
+  ANTHROPIC: 'Claude',
+  GOOGLE: 'Gemini',
+  OPENAI: 'OpenAI',
+  DEEPSEEK: 'DeepSeek',
+  MISTRAL: 'Mistral',
+  META: 'Meta',
+  XAI: 'xAI',
+  COHERE: 'Cohere',
+};
 
 function providerName(m) {
-  const p = m.provider.toUpperCase();
-  const text = `${m.id} ${m.display_name || ''}`.toLowerCase();
+  const p = String(m?.provider || '').toUpperCase();
+  const text = `${m?.id || ''} ${m?.display_name || ''}`.toLowerCase();
   if (p.includes('ANTHROPIC') || /claude/.test(text)) return 'Claude';
   if (/gpt-oss|gpt_oss/.test(text)) return 'GPT-OSS';
   if (p.includes('OPENAI') || /\bgpt/.test(text)) return 'OpenAI';
   if (p.includes('GOOGLE') || /gemini/.test(text)) return 'Gemini';
+  const pm = p.match(/^MODEL_PROVIDER_([A-Z0-9_]+)$/);
+  if (pm && !/^(UNSPECIFIED|UNKNOWN|CUSTOM|INTERNAL)$/.test(pm[1])) {
+    return PROVIDER_LABELS[pm[1]] || pm[1].split('_').map((w) => w.charAt(0) + w.slice(1).toLowerCase()).join(' ');
+  }
   return null;
 }
 
 function isTabModel(m) {
   return /^tab[_-]/i.test(m.id);
+}
+
+function modelQuotaBucket(m) {
+  if (isTabModel(m)) return 'tab';
+  const prov = providerName(m);
+  if (prov === 'Gemini') return 'gemini';
+  if (prov === 'Claude' || prov === 'GPT-OSS' || prov === 'OpenAI') return 'claude_gpt';
+  if (prov) return `p:${prov.toLowerCase().replace(/[^a-z0-9]+/g, '_')}`;
+  return 'other';
+}
+
+function modelCatalogPool(m) {
+  const b = modelQuotaBucket(m);
+  return b === 'gemini' || b === 'claude_gpt' ? b : 'other';
+}
+
+export function buildModelCatalog(modelsResp, statusResp = null) {
+  const catalog = {};
+  const root = rootOf(modelsResp);
+  for (const [id, m] of asList(root?.models)) {
+    if (!id || !m || typeof m !== 'object') continue;
+    const displayName = String(pick(m, 'displayName', 'display_name') || '');
+    const provider = String(pick(m, 'modelProvider', 'model_provider') || '');
+    const maxTokens = Number(pick(m, 'maxTokens', 'max_tokens')) || 0;
+    const pool = modelCatalogPool({ id, display_name: displayName, provider });
+    catalog[id] = { maxTokens, displayName, provider, pool };
+  }
+  for (const [, c] of asList(pick(modelConfigData(statusResp), 'clientModelConfigs', 'client_model_configs'))) {
+    if (!c || typeof c !== 'object') continue;
+    const id = pick(c, 'modelId', 'model_id');
+    if (typeof id !== 'string' || !id) continue;
+    const displayName = String(pick(c, 'label', 'displayName', 'display_name') || '');
+    const prev = catalog[id];
+    if (!prev) {
+      const pool = modelCatalogPool({ id, display_name: displayName, provider: '' });
+      catalog[id] = { maxTokens: 0, displayName, provider: '', pool };
+    } else if (!prev.displayName && displayName) {
+      prev.displayName = displayName;
+      prev.pool = modelCatalogPool({ id, display_name: prev.displayName, provider: prev.provider });
+    }
+  }
+  return catalog;
 }
 
 const HOUR = 3600 * 1000;
@@ -376,8 +487,8 @@ function summaryCategory(bucketId, groupName) {
   return 'other';
 }
 
-function summaryLimitKind(bucketId, displayName) {
-  const text = `${bucketId || ''} ${displayName || ''}`.toLowerCase();
+function summaryLimitKind(bucketId, displayName, windowVal = '') {
+  const text = `${windowVal || ''} ${bucketId || ''} ${displayName || ''}`.toLowerCase();
   if (/weekly|(?:^|[^a-z0-9])7[-_\s]?d(?:ay)?s?(?:$|[^a-z0-9])/.test(text)) return 'weekly';
   if (/(?:^|[^a-z0-9])(?:5[-_\s]?h(?:our)?s?|five)(?:$|[^a-z0-9])/.test(text)) return '5h';
   if (/daily|(?:^|[^a-z0-9])24[-_\s]?h(?:our)?s?(?:$|[^a-z0-9])/.test(text)) return 'daily';
@@ -436,14 +547,22 @@ export function parseQuotaSummary(summaryResp, now = Date.now()) {
     if (!b || typeof b !== 'object' || Array.isArray(b)) continue;
     const bucketId = pick(b, 'bucketId', 'bucket_id', 'id');
     const displayName = pick(b, 'displayName', 'display_name', 'label', 'name');
+    const windowVal = pick(b, 'window', 'windowType', 'window_type');
     const q = pick(b, 'quotaInfo', 'quota_info', 'quota') || b;
     const reset = toIso(pick(q, 'resetTime', 'reset_time', 'resetAt'));
     let frac = toFraction(pick(q, 'remainingFraction', 'remaining_fraction', 'fractionRemaining'));
     if (frac === null && reset) frac = 0;
     if (frac === null && !reset) continue;
 
-    const category = summaryCategory(bucketId, groupName || displayName);
-    const explicitKind = summaryLimitKind(bucketId, displayName);
+    let category = summaryCategory(bucketId, groupName || displayName);
+    if (category === 'other' && groupName) {
+      const existingOther = byCategory.other;
+      if (existingOther && existingOther.label.toLowerCase() !== String(groupName).toLowerCase()) {
+        const customSlug = String(groupName).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'group';
+        category = `custom_${customSlug}`;
+      }
+    }
+    const explicitKind = summaryLimitKind(bucketId, displayName, windowVal);
     const limit = explicitKind
       ? {
           kind: explicitKind,
@@ -457,8 +576,9 @@ export function parseQuotaSummary(summaryResp, now = Date.now()) {
 
     if (!byCategory[category]) {
       const [defEn, defZh] = SUMMARY_POOL_LABELS[category] || SUMMARY_POOL_LABELS.other;
-      const label = category === 'other' && groupName ? groupName : defEn;
-      const label_zh = category === 'other' && groupName ? groupName : defZh;
+      const isCustom = category === 'other' || category.startsWith('custom_');
+      const label = isCustom && groupName ? groupName : defEn;
+      const label_zh = isCustom && groupName ? groupName : defZh;
       byCategory[category] = { category, label, label_zh, limits: [] };
     }
     byCategory[category].limits = mergeLimitLists(byCategory[category].limits, [limit]);
@@ -509,24 +629,47 @@ export function parseQuota(statusResp, modelsResp, now = Date.now(), summaryResp
     if (!prev.quota && e.quota) prev.quota = e.quota;
     if (!prev.display_name && e.display_name) prev.display_name = e.display_name;
     if (!prev.provider && e.provider) prev.provider = e.provider;
+    if (e.hidden) prev.hidden = true;
   }
   const visible = visibleModelIds(statusResp, modelsResp);
   const hasPicker = visible.size > 0;
-  const isVisible = (m) => (hasPicker ? visible.has(m.id) : !!m.display_name && !isTabModel(m));
+  const isVisible = (m) => !m.hidden && (hasPicker ? visible.has(m.id) : !!m.display_name && !isTabModel(m));
   const order = [...visible];
   const rank = (m) => { const i = order.indexOf(m.id); return i < 0 ? Infinity : i; };
   const fams = modelFamilies(statusResp, modelsResp);
 
   const groups = new Map();
+  const unassigned = [];
   for (const m of byId.values()) {
     if (!m.quota) continue;
-    const tab = isTabModel(m);
-    const key = `${tab ? 'tab' : 'm'}|${m.quota.remaining_fraction}|${m.quota.reset_time}`;
-    if (!groups.has(key)) groups.set(key, { tab, ...m.quota, members: [] });
+    const bucket = modelQuotaBucket(m);
+    if (bucket === 'other') {
+      unassigned.push(m);
+      continue;
+    }
+    const key = `${bucket}|${m.quota.remaining_fraction}|${m.quota.reset_time}`;
+    if (!groups.has(key)) groups.set(key, { tab: bucket === 'tab', bucket, ...m.quota, members: [] });
     groups.get(key).members.push(m);
+  }
+  for (const m of unassigned) {
+    let target = null;
+    if (m.quota.reset_time !== null) {
+      const matches = [...groups.values()].filter(
+        (g) => !g.tab && g.remaining_fraction === m.quota.remaining_fraction && g.reset_time === m.quota.reset_time,
+      );
+      if (matches.length === 1) target = matches[0];
+    }
+    if (target) {
+      target.members.push(m);
+    } else {
+      const key = `other|${m.quota.remaining_fraction}|${m.quota.reset_time}`;
+      if (!groups.has(key)) groups.set(key, { tab: false, bucket: 'other', ...m.quota, members: [] });
+      groups.get(key).members.push(m);
+    }
   }
 
   const usedIds = new Map();
+  const provRank = (x) => { const i = PROVIDER_ORDER.indexOf(x); return i < 0 ? 999 : i; };
   const pools = [...groups.values()].map((g) => {
     const members = g.members.slice().sort((a, b) => rank(a) - rank(b) || (a.display_name || a.id).localeCompare(b.display_name || b.id));
     const shown = members.filter(isVisible);
@@ -535,17 +678,51 @@ export function parseQuota(statusResp, modelsResp, now = Date.now(), summaryResp
 
     const families = [];
     const famIndex = new Map();
+    const famLevelOrder = [];
+    const parenVariants = new Map();
+    for (const m of shown) {
+      if (familyOf(fams, m.id)) continue;
+      const pv = splitParenVariant(m.display_name);
+      if (!pv) continue;
+      const bk = pv.base.toLowerCase();
+      if (!parenVariants.has(bk)) parenVariants.set(bk, new Set());
+      parenVariants.get(bk).add(pv.variant.toLowerCase());
+    }
     for (const m of shown) {
       const fam = familyOf(fams, m.id);
-      const fkey = fam ? `f:${fam.fid}` : `n:${m.display_name || m.id}`;
+      const pv = !fam ? splitParenVariant(m.display_name) : null;
+      const isParenFamily = Boolean(pv && (parenVariants.get(pv.base.toLowerCase())?.size || 0) >= 2);
+      const fkey = fam ? `f:${fam.fid}` : (isParenFamily ? `p:${pv.base.toLowerCase()}` : `n:${m.display_name || m.id}`);
       if (!famIndex.has(fkey)) {
         famIndex.set(fkey, families.length);
         families.push(fam
           ? { id: fam.fid, display_name: fam.f.display_name, levels: [] }
-          : { id: m.id, display_name: m.display_name || m.id, levels: [] });
+          : (isParenFamily
+            ? { id: familySlug(pv.base, m.id), display_name: pv.base, levels: [] }
+            : { id: m.id, display_name: m.display_name || m.id, levels: [] }));
+        famLevelOrder.push(new Map());
       }
-      const entry = families[famIndex.get(fkey)];
-      if (fam?.level && !entry.levels.includes(fam.level)) entry.levels.push(fam.level);
+      const idx = famIndex.get(fkey);
+      const entry = families[idx];
+      if (fam?.level && !entry.levels.includes(fam.level)) {
+        entry.levels.push(fam.level);
+        famLevelOrder[idx].set(fam.level, fam.levelOrder);
+      } else if (isParenFamily) {
+        const vLow = pv.variant.toLowerCase();
+        if (!entry.levels.some((x) => x.toLowerCase() === vLow)) {
+          entry.levels.push(pv.variant);
+        }
+      }
+    }
+    for (let i = 0; i < families.length; i += 1) {
+      const ord = famLevelOrder[i];
+      if (families[i].levels.length > 1) {
+        if (ord.size > 0) {
+          families[i].levels.sort((a, b) => (ord.get(a) ?? 999) - (ord.get(b) ?? 999));
+        } else if (families[i].levels.every((lv) => Object.prototype.hasOwnProperty.call(EFFORT_RANK, lv.toLowerCase()))) {
+          families[i].levels.sort((a, b) => EFFORT_RANK[a.toLowerCase()] - EFFORT_RANK[b.toLowerCase()]);
+        }
+      }
     }
 
     let kind = 'models';
@@ -559,12 +736,12 @@ export function parseQuota(statusResp, modelsResp, now = Date.now(), summaryResp
       slug = 'tab';
     } else {
       const provs = new Set((shown.length ? shown : members).map(providerName).filter(Boolean));
-      const names = [...provs].sort((a, b) => PROVIDER_ORDER.indexOf(a) - PROVIDER_ORDER.indexOf(b));
+      const names = [...provs].sort((a, b) => provRank(a) - provRank(b) || a.localeCompare(b));
       if (names.length) {
         label = `${names.join(' / ')} models`;
         label_zh = `${names.join(' / ')} 模型`;
         if (names.length === 1 && names[0] === 'Gemini') slug = 'gemini';
-        else if (names.every((x) => x !== 'Gemini')) slug = 'claude_gpt';
+        else if (names.every((x) => x === 'Claude' || x === 'GPT-OSS' || x === 'OpenAI')) slug = 'claude_gpt';
         else slug = names.join('_').toLowerCase().replace(/[^a-z0-9_]/g, '');
       } else {
         const list = models.length ? models : hidden_models;
@@ -642,21 +819,13 @@ let quotaInFlight = null;
 let quotaRawWritten = false;
 let quotaRawHasSummary = false;
 
-function shouldWriteQuotaRaw(hasSummary) {
-  if (!existsSync(QUOTA_RAW_PATH)) return true;
-  if (!hasSummary) return false;
-  if (quotaRawHasSummary) return false;
-  try {
-    const existing = JSON.parse(readFileSync(QUOTA_RAW_PATH, 'utf8'));
-    if (existing && typeof existing === 'object' && existing.RetrieveUserQuotaSummary && !existing.RetrieveUserQuotaSummary.error) {
-      quotaRawHasSummary = true;
-      return false;
-    }
-  } catch { /* corrupt file -> rewrite */ }
-  return true;
+function shouldWriteQuotaRaw(hasSummary, forceRaw = false) {
+  if (!quotaRawWritten || forceRaw || !existsSync(QUOTA_RAW_PATH)) return true;
+  if (hasSummary && !quotaRawHasSummary) return true;
+  return false;
 }
 
-async function fetchQuota() {
+async function fetchQuota(forceRaw = false) {
   const fetched_at = new Date().toISOString();
   const body = { metadata: LS_METADATA };
   const [status, models, summary] = await Promise.allSettled([
@@ -672,17 +841,17 @@ async function fetchQuota() {
     const noLs = status.reason?.code === 'NO_LS';
     return { pools: [], weekly: {}, plan: null, tier: null, fetched_at, error: noLs ? 'unavailable' : 'failed', message: reason?.message || 'request failed' };
   }
-  if ((!quotaRawWritten || summaryResp) && shouldWriteQuotaRaw(!!summaryResp)) {
+  if (modelsResp || statusResp) writeModelCatalog(modelsResp, statusResp);
+  if (shouldWriteQuotaRaw(!!summaryResp, forceRaw)) {
     quotaRawWritten = true;
     if (summaryResp) quotaRawHasSummary = true;
     try {
-      mkdirSync(DATA_DIR, { recursive: true });
-      writeFileSync(QUOTA_RAW_PATH, JSON.stringify(redact({
+      writeJsonAtomic(QUOTA_RAW_PATH, redact({
         written_at: fetched_at,
         GetUserStatus: statusResp ?? { error: status.reason?.message },
         GetAvailableModels: modelsResp ?? { error: models.reason?.message },
         RetrieveUserQuotaSummary: summaryResp ?? { error: summary.reason?.message },
-      }), null, 2));
+      }));
     } catch (err) {
       console.error('[context] could not write quota-raw.json:', err.message);
     }
@@ -699,7 +868,7 @@ async function fetchQuota() {
 async function quota(refresh) {
   if (!refresh && quotaCache && Date.now() - quotaCache.at < QUOTA_TTL_MS) return quotaCache.result;
   if (!quotaInFlight) {
-    quotaInFlight = fetchQuota()
+    quotaInFlight = fetchQuota(Boolean(refresh))
       .then((result) => {
         // Errors are cached for the same TTL so a broken LS isn't hammered;
         // refresh:true bypasses the cache.
@@ -905,16 +1074,19 @@ async function pricing({ refresh = false, sync = false } = {}) {
 
 // --- history ------------------------------------------------------------------
 
-let historyCache = null; // { at, pricingStamp, result }
+let historyCache = null; // { at, pricingStamp, catalogStamp, result }
 let historyInFlight = null;
 
 async function scanHistory() {
   mkdirSync(DATA_DIR, { recursive: true });
+  await refreshCatalog(false);
   const pricingFile = existsSync(PRICING_PATH) ? PRICING_PATH : null;
+  const modelCatalogPath = existsSync(CATALOG_PATH) ? CATALOG_PATH : null;
   if (await hasNodeSqlite()) {
     return await scanHistoryNative(defaultRoots(GEMINI_DIR), {
       cachePath: HISTORY_CACHE_PATH,
       pricingFile,
+      modelCatalogPath,
     });
   }
   if (!existsSync(HISTORY_SCRIPT)) {
@@ -923,19 +1095,21 @@ async function scanHistory() {
   const { cmd, pre } = await findPython();
   const args = [...pre, HISTORY_SCRIPT, '--json', '--cache', HISTORY_CACHE_PATH];
   if (pricingFile) args.push('--pricing-file', pricingFile);
+  if (modelCatalogPath) args.push('--model-catalog', modelCatalogPath);
   const out = await run(cmd, args, HISTORY_TIMEOUT_MS);
   return JSON.parse(out);
 }
 
 async function history(refresh) {
   const pricingStamp = fileStamp(PRICING_PATH);
-  if (!refresh && historyCache && historyCache.pricingStamp === pricingStamp && Date.now() - historyCache.at < HISTORY_TTL_MS) {
+  const catalogStamp = fileStamp(CATALOG_PATH);
+  if (!refresh && historyCache && historyCache.pricingStamp === pricingStamp && historyCache.catalogStamp === catalogStamp && Date.now() - historyCache.at < HISTORY_TTL_MS) {
     return historyCache.result;
   }
   if (!historyInFlight) {
     historyInFlight = scanHistory()
       .then((result) => {
-        historyCache = { at: Date.now(), pricingStamp: fileStamp(PRICING_PATH), result };
+        historyCache = { at: Date.now(), pricingStamp: fileStamp(PRICING_PATH), catalogStamp: fileStamp(CATALOG_PATH), result };
         return result;
       })
       .finally(() => { historyInFlight = null; });

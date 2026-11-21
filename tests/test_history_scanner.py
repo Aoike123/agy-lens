@@ -533,7 +533,11 @@ class ScannerTest(unittest.TestCase):
         self.assertEqual(hs.price_info("gemini-3.1-flash"), ((0.30, 2.50, 0.075), True))
         self.assertEqual(hs.price_info("gemini-2.5-flash-lite-preview"), ((0.30, 2.50, 0.075), True))
         self.assertEqual(hs.price_info("gemini-flash-worker-agy"), ((0.30, 2.50, 0.075), True))
+        self.assertEqual(hs.price_info("orchestrator-claude-opus-5-5"), ((15.00, 75.00, 1.50), True))
+        self.assertEqual(hs.price_info("gemini-5-flash"), ((0.30, 2.50, 0.075), True))
+        self.assertEqual(hs.price_info("gemini-5-ultra"), ((1.25, 10.00, 0.3125), True))
         # Unpriced / tab / unknown -> (None, False).
+        self.assertEqual(hs.call_cost_info("gemini-embedding-001", 1000, 100, 0), (None, False))
         self.assertEqual(hs.call_cost_info("tab_flash_lite_preview", 1000, 100, 0), (None, False))
         self.assertEqual(hs.call_cost_info("unknown", 1000, 100, 0), (None, False))
         self.assertEqual(hs.call_cost_info("internal-x", 1000, 100, 0), (None, False))
@@ -602,6 +606,7 @@ class ScannerTest(unittest.TestCase):
         self.assertEqual(hs.model_pool("gemini-4-hydrogen-tiered-high"), "gemini")
         self.assertEqual(hs.model_pool("gemini-pro-orchestrator-neon"), "gemini")
         self.assertEqual(hs.model_pool("Orchestrator (Neon)"), "gemini")
+        self.assertEqual(hs.model_pool("Orchestrator (Claude Opus 5.5)"), "claude_gpt")
         self.assertEqual(hs.model_pool("claude-opus-5-5-medium"), "claude_gpt")
         self.assertEqual(hs.model_pool("gpt-oss-120b-medium"), "claude_gpt")
         self.assertEqual(hs.model_pool("openai/gpt-4o"), "claude_gpt")
@@ -630,6 +635,24 @@ class ScannerTest(unittest.TestCase):
         for p in ("gemini", "claude_gpt", "other"):
             self.assertEqual(sum(c["d7_by_pool"][p] for c in r["by_conversation"]), r["d7_by_pool"][p])
             self.assertEqual(sum(m["d7_tokens"] for m in r["by_model"] if m["pool"] == p), r["d7_by_pool"][p])
+
+        cat_file = self.base / "model-catalog.json"
+        cat_file.write_text(json.dumps({
+            "mystery-orch-v9": {
+                "maxTokens": 500000,
+                "displayName": "Mystery Claude Orch",
+                "provider": "MODEL_PROVIDER_ANTHROPIC",
+                "pool": "claude_gpt",
+            }
+        }), encoding="utf-8")
+        make_db(self.desk / "cat.db", [call(0, model="mystery-orch-v9", display="", inp=400, out=100, cache=0)])
+        rc = hs.scan([(self.desk, "desktop")], model_catalog=cat_file)
+        bm_c = {m["model"]: m for m in rc["by_model"]}
+        self.assertEqual(bm_c["mystery-orch-v9"]["pool"], "claude_gpt")
+        self.assertEqual(bm_c["mystery-orch-v9"]["display_name"], "Mystery Claude Orch")
+        bc_c = {c["id"]: c for c in rc["by_conversation"]}
+        self.assertEqual(bc_c["cat"]["pool"], "claude_gpt")
+        self.assertEqual(bc_c["cat"]["display_name"], "Mystery Claude Orch")
 
     def test_perf_200_dbs(self):
         for i in range(200):
