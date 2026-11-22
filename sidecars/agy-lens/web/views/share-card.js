@@ -446,10 +446,21 @@ export function buildShareCardSvg(input = {}) {
   if (dailySlice.length === 1) spanStr = dailySlice[0].date;
   else if (dailySlice.length > 1) spanStr = `${dailySlice[0].date} – ${dailySlice[dailySlice.length - 1].date}`;
 
+  const logoDefs = `<defs>
+    <linearGradient id="agy-sc-bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#1c212a"/><stop offset="100%" stop-color="#11141a"/></linearGradient>
+    <linearGradient id="agy-sc-rim" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="${pal.series[2]}"/><stop offset="100%" stop-color="${pal.series[0]}"/></linearGradient>
+  </defs>`;
   const logo = `<g transform="translate(${PAD},${PAD - 4}) scale(0.5)">
-    <rect width="64" height="64" rx="14" fill="${pal.logoBg}"/>
-    <g fill="${pal.series[0]}"><circle cx="16" cy="16" r="5"/><circle cx="32" cy="16" r="5"/><circle cx="48" cy="16" r="5"/><circle cx="16" cy="32" r="5"/><circle cx="32" cy="32" r="5" fill="${pal.series[1]}"/></g>
-    <g fill="none" stroke="${pal.muted}" stroke-width="2.5"><rect x="43" y="27" width="10" height="10" rx="1.5"/><rect x="11" y="43" width="10" height="10" rx="1.5"/><rect x="27" y="43" width="10" height="10" rx="1.5"/><rect x="43" y="43" width="10" height="10" rx="1.5"/></g>
+    <rect x="1" y="1" width="62" height="62" rx="15" fill="url(#agy-sc-bg)" stroke="#303846" stroke-width="1.25"/>
+    <g fill="#2b3341"><circle cx="15" cy="49" r="2"/><circle cx="26" cy="49" r="2"/><circle cx="49" cy="15" r="2"/><circle cx="49" cy="26" r="2"/><circle cx="49" cy="37" r="2"/></g>
+    <line x1="40.6" y1="40.6" x2="51.2" y2="51.2" stroke="url(#agy-sc-rim)" stroke-width="5.2" stroke-linecap="round"/>
+    <circle cx="28.5" cy="28.5" r="16.5" fill="#141e30" stroke="url(#agy-sc-rim)" stroke-width="3.2"/>
+    <g>
+      <circle cx="21.7" cy="21.7" r="2.35" fill="${pal.series[0]}"/><circle cx="28.5" cy="21.7" r="2.35" fill="${pal.series[0]}"/><circle cx="35.3" cy="21.7" r="2.35" fill="${pal.series[2]}"/>
+      <circle cx="21.7" cy="28.5" r="2.35" fill="${pal.series[0]}"/><circle cx="28.5" cy="28.5" r="2.35" fill="${pal.series[1]}"/><circle cx="35.3" cy="28.5" r="2.35" fill="${pal.series[3]}"/>
+      <circle cx="21.7" cy="35.3" r="2.35" fill="#81c995"/><circle cx="28.5" cy="35.3" r="2.35" fill="${pal.series[0]}"/><circle cx="35.3" cy="35.3" r="2.35" fill="#334155"/>
+    </g>
+    <path d="M17.5 22.8 A12.5 12.5 0 0 1 25.5 16.4" fill="none" stroke="#ffffff" stroke-opacity="0.28" stroke-width="1.6" stroke-linecap="round"/>
   </g>`;
   const header = `${logo}
   ${txt(PAD + 44, PAD + 18, 'Agy Lens', { size: 20, fill: pal.fg, weight: 500 })}
@@ -551,6 +562,7 @@ export function buildShareCardSvg(input = {}) {
   ${txt(RIGHT, 598, 'github.com/Aoike123/agy-lens', { size: 13, fill: pal.dim, anchor: 'end' })}`;
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="${escapeXml(t('shareAria'))}">
+  ${logoDefs}
   <rect x="0" y="0" width="${W}" height="${H}" fill="${pal.bg}"/>
   ${header}
   ${left}

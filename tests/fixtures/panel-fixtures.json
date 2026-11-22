@@ -345,8 +345,8 @@
     "claude_gpt": 1.283443,
     "other": 0
    },
-   "first_at": "2026-11-22T18:34:22+08:00",
-   "last_at": "2026-11-22T19:51:22+08:00",
+   "first_at": "2026-11-22T18:52:46+08:00",
+   "last_at": "2026-11-22T20:09:46+08:00",
    "by_model": [
     {
      "model": "claude-opus-4-6",
@@ -370,7 +370,7 @@
     }
    ]
   },
-  "updatedAt": "2026-11-22T12:34:22.495Z"
+  "updatedAt": "2026-11-22T12:52:46.113Z"
  },
  "quota": {
   "pools": [
@@ -381,7 +381,7 @@
     "label": "Gemini models",
     "label_zh": "Gemini 模型",
     "remaining_fraction": 0.15,
-    "reset_time": "2026-11-22T13:52:22.495Z",
+    "reset_time": "2026-11-22T14:10:46.113Z",
     "limits": [
      {
       "kind": "weekly",
@@ -389,7 +389,7 @@
       "label": "Weekly limit",
       "label_zh": "每周限额",
       "remaining_fraction": 0.8,
-      "reset_time": "2026-11-27T16:34:22.495Z"
+      "reset_time": "2026-11-27T16:52:46.113Z"
      },
      {
       "kind": "5h",
@@ -397,7 +397,7 @@
       "label": "5-hour limit",
       "label_zh": "5 小时限额",
       "remaining_fraction": 0.15,
-      "reset_time": "2026-11-22T13:52:22.495Z"
+      "reset_time": "2026-11-22T14:10:46.113Z"
      }
     ],
     "models": [
@@ -438,7 +438,7 @@
     "label": "Claude / GPT-OSS models",
     "label_zh": "Claude / GPT-OSS 模型",
     "remaining_fraction": 0.72,
-    "reset_time": "2026-11-22T16:16:22.495Z",
+    "reset_time": "2026-11-22T16:34:46.113Z",
     "limits": [
      {
       "kind": "weekly",
@@ -446,7 +446,7 @@
       "label": "Weekly limit",
       "label_zh": "每周限额",
       "remaining_fraction": 0.41,
-      "reset_time": "2026-11-27T00:34:22.495Z"
+      "reset_time": "2026-11-27T00:52:46.113Z"
      },
      {
       "kind": "5h",
@@ -454,7 +454,7 @@
       "label": "5-hour limit",
       "label_zh": "5 小时限额",
       "remaining_fraction": 0.72,
-      "reset_time": "2026-11-22T16:16:22.495Z"
+      "reset_time": "2026-11-22T16:34:46.113Z"
      }
     ],
     "models": [
@@ -521,11 +521,11 @@
   "weekly": {
    "claude_gpt": {
     "remaining_fraction": 0.41,
-    "reset_time": "2026-11-27T00:34:22.495Z"
+    "reset_time": "2026-11-27T00:52:46.113Z"
    },
    "gemini": {
     "remaining_fraction": 0.8,
-    "reset_time": "2026-11-27T16:34:22.495Z"
+    "reset_time": "2026-11-27T16:52:46.113Z"
    }
   },
   "plan": "Pro",
@@ -859,8 +859,8 @@
     "model": "claude-opus-4-6",
     "display_name": "Claude Opus 4.6 (Thinking)",
     "pool": "claude_gpt",
-    "first_at": "2026-11-22T18:34:22+08:00",
-    "last_at": "2026-11-22T19:51:22+08:00",
+    "first_at": "2026-11-22T18:52:46+08:00",
+    "last_at": "2026-11-22T20:09:46+08:00",
     "input": 139756,
     "output": 8190,
     "cache_read": 1591635,
@@ -931,7 +931,7 @@
       "other": 0
      },
      "subagents": 0,
-     "last_at": "2026-11-22T19:51:22+08:00"
+     "last_at": "2026-11-22T20:09:46+08:00"
     },
     "agent": null
    },
@@ -942,8 +942,8 @@
     "model": "gemini-3-pro",
     "display_name": "Gemini 3 Pro (High)",
     "pool": "gemini",
-    "first_at": "2026-11-22T15:34:22+08:00",
-    "last_at": "2026-11-22T15:44:22+08:00",
+    "first_at": "2026-11-22T15:52:46+08:00",
+    "last_at": "2026-11-22T16:02:46+08:00",
     "input": 18000,
     "output": 18600,
     "cache_read": 252000,
@@ -1003,7 +1003,7 @@
       "other": 0
      },
      "subagents": 0,
-     "last_at": "2026-11-22T15:44:22+08:00"
+     "last_at": "2026-11-22T16:02:46+08:00"
     },
     "agent": null
    },
@@ -1014,8 +1014,8 @@
     "model": "claude-sonnet-4-6",
     "display_name": "Claude Sonnet 4.6 (Thinking)",
     "pool": "claude_gpt",
-    "first_at": "2026-11-22T14:20:23+08:00",
-    "last_at": "2026-11-22T15:03:11+08:00",
+    "first_at": "2026-11-22T14:38:47+08:00",
+    "last_at": "2026-11-22T15:21:35+08:00",
     "input": 34941,
     "output": 33041,
     "cache_read": 401914,
@@ -1075,7 +1075,7 @@
       "other": 0
      },
      "subagents": 0,
-     "last_at": "2026-11-22T15:03:11+08:00"
+     "last_at": "2026-11-22T15:21:35+08:00"
     },
     "agent": null
    },
@@ -1086,8 +1086,8 @@
     "model": "gemini-3-flash",
     "display_name": "Gemini 3 Flash",
     "pool": "gemini",
-    "first_at": "2026-11-22T13:34:22+08:00",
-    "last_at": "2026-11-22T13:50:22+08:00",
+    "first_at": "2026-11-22T13:52:46+08:00",
+    "last_at": "2026-11-22T14:08:46+08:00",
     "input": 27000,
     "output": 15300,
     "cache_read": 234000,
@@ -1147,7 +1147,7 @@
       "other": 0
      },
      "subagents": 0,
-     "last_at": "2026-11-22T13:50:22+08:00"
+     "last_at": "2026-11-22T14:08:46+08:00"
     },
     "agent": null
    },
@@ -1158,8 +1158,8 @@
     "model": "gemini-3-pro",
     "display_name": "Gemini 3 Pro (High)",
     "pool": "gemini",
-    "first_at": "2026-11-22T11:34:22+08:00",
-    "last_at": "2026-11-22T11:56:22+08:00",
+    "first_at": "2026-11-22T11:52:46+08:00",
+    "last_at": "2026-11-22T12:14:46+08:00",
     "input": 36000,
     "output": 37200,
     "cache_read": 504000,
@@ -1219,7 +1219,7 @@
       "other": 0
      },
      "subagents": 0,
-     "last_at": "2026-11-22T11:56:22+08:00"
+     "last_at": "2026-11-22T12:14:46+08:00"
     },
     "agent": null
    },
@@ -1230,8 +1230,8 @@
     "model": "gpt-oss-120b",
     "display_name": "GPT-OSS 120B (Medium)",
     "pool": "claude_gpt",
-    "first_at": "2026-11-21T14:12:31+08:00",
-    "last_at": "2026-11-21T15:21:14+08:00",
+    "first_at": "2026-11-21T14:30:55+08:00",
+    "last_at": "2026-11-21T15:39:38+08:00",
     "input": 27677,
     "output": 21903,
     "cache_read": 318383,
@@ -1291,7 +1291,7 @@
       "other": 0
      },
      "subagents": 0,
-     "last_at": "2026-11-21T15:21:14+08:00"
+     "last_at": "2026-11-21T15:39:38+08:00"
     },
     "agent": null
    },
@@ -1302,8 +1302,8 @@
     "model": "claude-opus-4-6",
     "display_name": "Claude Opus 4.6 (Thinking)",
     "pool": "claude_gpt",
-    "first_at": "2026-11-21T07:23:41+08:00",
-    "last_at": "2026-11-21T07:31:23+08:00",
+    "first_at": "2026-11-21T07:42:05+08:00",
+    "last_at": "2026-11-21T07:49:47+08:00",
     "input": 14910,
     "output": 11173,
     "cache_read": 171490,
@@ -1363,7 +1363,7 @@
       "other": 0
      },
      "subagents": 0,
-     "last_at": "2026-11-21T07:31:23+08:00"
+     "last_at": "2026-11-21T07:49:47+08:00"
     },
     "agent": null
    },
@@ -1374,8 +1374,8 @@
     "model": "gpt-oss-120b",
     "display_name": "GPT-OSS 120B (Medium)",
     "pool": "claude_gpt",
-    "first_at": "2026-11-21T05:43:53+08:00",
-    "last_at": "2026-11-21T06:52:38+08:00",
+    "first_at": "2026-11-21T06:02:17+08:00",
+    "last_at": "2026-11-21T07:11:02+08:00",
     "input": 35415,
     "output": 27625,
     "cache_read": 407433,
@@ -1435,7 +1435,7 @@
       "other": 0
      },
      "subagents": 0,
-     "last_at": "2026-11-21T06:52:38+08:00"
+     "last_at": "2026-11-21T07:11:02+08:00"
     },
     "agent": null
    },
@@ -1446,8 +1446,8 @@
     "model": "claude-sonnet-4-6",
     "display_name": "Claude Sonnet 4.6 (Thinking)",
     "pool": "claude_gpt",
-    "first_at": "2026-11-19T06:41:59+08:00",
-    "last_at": "2026-11-19T07:16:47+08:00",
+    "first_at": "2026-11-19T07:00:23+08:00",
+    "last_at": "2026-11-19T07:35:11+08:00",
     "input": 32662,
     "output": 30532,
     "cache_read": 375684,
@@ -1507,7 +1507,7 @@
       "other": 0
      },
      "subagents": 0,
-     "last_at": "2026-11-19T07:16:47+08:00"
+     "last_at": "2026-11-19T07:35:11+08:00"
     },
     "agent": null
    },
@@ -1518,8 +1518,8 @@
     "model": "gemini-3-pro",
     "display_name": "Gemini 3 Pro (High)",
     "pool": "gemini",
-    "first_at": "2026-11-18T10:07:31+08:00",
-    "last_at": "2026-11-18T11:39:08+08:00",
+    "first_at": "2026-11-18T10:25:55+08:00",
+    "last_at": "2026-11-18T11:57:32+08:00",
     "input": 85623,
     "output": 69385,
     "cache_read": 984829,
@@ -1579,7 +1579,7 @@
       "other": 0
      },
      "subagents": 0,
-     "last_at": "2026-11-18T11:39:08+08:00"
+     "last_at": "2026-11-18T11:57:32+08:00"
     },
     "agent": null
    },
@@ -1590,8 +1590,8 @@
     "model": "claude-opus-4-6",
     "display_name": "Claude Opus 4.6 (Thinking)",
     "pool": "claude_gpt",
-    "first_at": "2026-11-17T12:06:17+08:00",
-    "last_at": "2026-11-17T12:44:53+08:00",
+    "first_at": "2026-11-17T12:24:41+08:00",
+    "last_at": "2026-11-17T13:03:17+08:00",
     "input": 41595,
     "output": 32768,
     "cache_read": 478407,
@@ -1651,7 +1651,7 @@
       "other": 0
      },
      "subagents": 0,
-     "last_at": "2026-11-17T12:44:53+08:00"
+     "last_at": "2026-11-17T13:03:17+08:00"
     },
     "agent": null
    },
@@ -1662,8 +1662,8 @@
     "model": "gemini-3-pro",
     "display_name": "Gemini 3 Pro (High)",
     "pool": "gemini",
-    "first_at": "2026-11-14T13:55:05+08:00",
-    "last_at": "2026-11-14T15:27:29+08:00",
+    "first_at": "2026-11-14T14:13:29+08:00",
+    "last_at": "2026-11-14T15:45:53+08:00",
     "input": 81538,
     "output": 65386,
     "cache_read": 937818,
@@ -1723,7 +1723,7 @@
       "other": 0
      },
      "subagents": 0,
-     "last_at": "2026-11-14T15:27:29+08:00"
+     "last_at": "2026-11-14T15:45:53+08:00"
     },
     "agent": null
    },
@@ -1734,8 +1734,8 @@
     "model": "claude-opus-4-6",
     "display_name": "Claude Opus 4.6 (Thinking)",
     "pool": "claude_gpt",
-    "first_at": "2026-11-14T14:10:11+08:00",
-    "last_at": "2026-11-14T15:04:47+08:00",
+    "first_at": "2026-11-14T14:28:35+08:00",
+    "last_at": "2026-11-14T15:23:11+08:00",
     "input": 69830,
     "output": 55882,
     "cache_read": 803130,
@@ -1795,7 +1795,7 @@
       "other": 0
      },
      "subagents": 0,
-     "last_at": "2026-11-14T15:04:47+08:00"
+     "last_at": "2026-11-14T15:23:11+08:00"
     },
     "agent": null
    },
@@ -1806,8 +1806,8 @@
     "model": "gemini-3-pro",
     "display_name": "Gemini 3 Pro (High)",
     "pool": "gemini",
-    "first_at": "2026-11-14T10:01:39+08:00",
-    "last_at": "2026-11-14T10:13:03+08:00",
+    "first_at": "2026-11-14T10:20:03+08:00",
+    "last_at": "2026-11-14T10:31:27+08:00",
     "input": 15507,
     "output": 10229,
     "cache_read": 178351,
@@ -1867,7 +1867,7 @@
       "other": 0
      },
      "subagents": 0,
-     "last_at": "2026-11-14T10:13:03+08:00"
+     "last_at": "2026-11-14T10:31:27+08:00"
     },
     "agent": null
    },
@@ -1878,8 +1878,8 @@
     "model": "claude-sonnet-4-6",
     "display_name": "Claude Sonnet 4.6 (Thinking)",
     "pool": "claude_gpt",
-    "first_at": "2026-11-14T08:23:13+08:00",
-    "last_at": "2026-11-14T09:00:33+08:00",
+    "first_at": "2026-11-14T08:41:37+08:00",
+    "last_at": "2026-11-14T09:18:57+08:00",
     "input": 26177,
     "output": 16020,
     "cache_read": 301081,
@@ -1939,7 +1939,7 @@
       "other": 0
      },
      "subagents": 0,
-     "last_at": "2026-11-14T09:00:33+08:00"
+     "last_at": "2026-11-14T09:18:57+08:00"
     },
     "agent": null
    },
@@ -1950,8 +1950,8 @@
     "model": "claude-sonnet-4-6",
     "display_name": "Claude Sonnet 4.6 (Thinking)",
     "pool": "claude_gpt",
-    "first_at": "2026-11-13T10:38:45+08:00",
-    "last_at": "2026-11-13T12:18:12+08:00",
+    "first_at": "2026-11-13T10:57:09+08:00",
+    "last_at": "2026-11-13T12:36:36+08:00",
     "input": 66058,
     "output": 53823,
     "cache_read": 759822,
@@ -2011,7 +2011,7 @@
       "other": 0
      },
      "subagents": 0,
-     "last_at": "2026-11-13T12:18:12+08:00"
+     "last_at": "2026-11-13T12:36:36+08:00"
     },
     "agent": null
    },
@@ -2022,8 +2022,8 @@
     "model": "gemini-3-flash",
     "display_name": "Gemini 3 Flash",
     "pool": "gemini",
-    "first_at": "2026-11-13T11:11:51+08:00",
-    "last_at": "2026-11-13T12:11:19+08:00",
+    "first_at": "2026-11-13T11:30:15+08:00",
+    "last_at": "2026-11-13T12:29:43+08:00",
     "input": 31795,
     "output": 24553,
     "cache_read": 365727,
@@ -2083,7 +2083,7 @@
       "other": 0
      },
      "subagents": 0,
-     "last_at": "2026-11-13T12:11:19+08:00"
+     "last_at": "2026-11-13T12:29:43+08:00"
     },
     "agent": null
    },
@@ -2094,8 +2094,8 @@
     "model": "claude-opus-4-6",
     "display_name": "Claude Opus 4.6 (Thinking)",
     "pool": "claude_gpt",
-    "first_at": "2026-11-13T07:32:10+08:00",
-    "last_at": "2026-11-13T08:49:46+08:00",
+    "first_at": "2026-11-13T07:50:34+08:00",
+    "last_at": "2026-11-13T09:08:10+08:00",
     "input": 92768,
     "output": 67737,
     "cache_read": 1067018,
@@ -2155,7 +2155,7 @@
       "other": 0
      },
      "subagents": 0,
-     "last_at": "2026-11-13T08:49:46+08:00"
+     "last_at": "2026-11-13T09:08:10+08:00"
     },
     "agent": null
    },
@@ -2166,8 +2166,8 @@
     "model": "claude-opus-4-6",
     "display_name": "Claude Opus 4.6 (Thinking)",
     "pool": "claude_gpt",
-    "first_at": "2026-11-12T07:20:32+08:00",
-    "last_at": "2026-11-12T08:05:08+08:00",
+    "first_at": "2026-11-12T07:38:56+08:00",
+    "last_at": "2026-11-12T08:23:32+08:00",
     "input": 37042,
     "output": 29589,
     "cache_read": 426028,
@@ -2227,7 +2227,7 @@
       "other": 0
      },
      "subagents": 0,
-     "last_at": "2026-11-12T08:05:08+08:00"
+     "last_at": "2026-11-12T08:23:32+08:00"
     },
     "agent": null
    },
@@ -2238,8 +2238,8 @@
     "model": "claude-opus-4-6",
     "display_name": "Claude Opus 4.6 (Thinking)",
     "pool": "claude_gpt",
-    "first_at": "2026-11-11T10:50:02+08:00",
-    "last_at": "2026-11-11T11:52:26+08:00",
+    "first_at": "2026-11-11T11:08:26+08:00",
+    "last_at": "2026-11-11T12:10:50+08:00",
     "input": 71644,
     "output": 61125,
     "cache_read": 824036,
@@ -2299,7 +2299,7 @@
       "other": 0
      },
      "subagents": 0,
-     "last_at": "2026-11-11T11:52:26+08:00"
+     "last_at": "2026-11-11T12:10:50+08:00"
     },
     "agent": null
    },
@@ -2310,8 +2310,8 @@
     "model": "claude-opus-4-6",
     "display_name": "Claude Opus 4.6 (Thinking)",
     "pool": "claude_gpt",
-    "first_at": "2026-11-11T08:38:35+08:00",
-    "last_at": "2026-11-11T08:42:45+08:00",
+    "first_at": "2026-11-11T08:56:59+08:00",
+    "last_at": "2026-11-11T09:01:09+08:00",
     "input": 11910,
     "output": 9762,
     "cache_read": 136979,
@@ -2371,7 +2371,7 @@
       "other": 0
      },
      "subagents": 0,
-     "last_at": "2026-11-11T08:42:45+08:00"
+     "last_at": "2026-11-11T09:01:09+08:00"
     },
     "agent": null
    },
@@ -2382,8 +2382,8 @@
     "model": "claude-opus-4-6",
     "display_name": "Claude Opus 4.6 (Thinking)",
     "pool": "claude_gpt",
-    "first_at": "2026-11-11T06:47:48+08:00",
-    "last_at": "2026-11-11T08:17:30+08:00",
+    "first_at": "2026-11-11T07:06:12+08:00",
+    "last_at": "2026-11-11T08:35:54+08:00",
     "input": 88579,
     "output": 62023,
     "cache_read": 1018841,
@@ -2443,7 +2443,7 @@
       "other": 0
      },
      "subagents": 0,
-     "last_at": "2026-11-11T08:17:30+08:00"
+     "last_at": "2026-11-11T08:35:54+08:00"
     },
     "agent": null
    },
@@ -2454,8 +2454,8 @@
     "model": "gemini-3-pro",
     "display_name": "Gemini 3 Pro (High)",
     "pool": "gemini",
-    "first_at": "2026-11-11T07:56:28+08:00",
-    "last_at": "2026-11-11T08:08:07+08:00",
+    "first_at": "2026-11-11T08:14:52+08:00",
+    "last_at": "2026-11-11T08:26:31+08:00",
     "input": 21882,
     "output": 17331,
     "cache_read": 251678,
@@ -2515,7 +2515,7 @@
       "other": 0
      },
      "subagents": 0,
-     "last_at": "2026-11-11T08:08:07+08:00"
+     "last_at": "2026-11-11T08:26:31+08:00"
     },
     "agent": null
    },
@@ -2526,8 +2526,8 @@
     "model": "claude-opus-4-6",
     "display_name": "Claude Opus 4.6 (Thinking)",
     "pool": "claude_gpt",
-    "first_at": "2026-11-10T07:10:17+08:00",
-    "last_at": "2026-11-10T08:22:23+08:00",
+    "first_at": "2026-11-10T07:28:41+08:00",
+    "last_at": "2026-11-10T08:40:47+08:00",
     "input": 64857,
     "output": 59425,
     "cache_read": 746013,
@@ -2587,7 +2587,7 @@
       "other": 0
      },
      "subagents": 0,
-     "last_at": "2026-11-10T08:22:23+08:00"
+     "last_at": "2026-11-10T08:40:47+08:00"
     },
     "agent": null
    },
@@ -2598,8 +2598,8 @@
     "model": "gemini-3-pro",
     "display_name": "Gemini 3 Pro (High)",
     "pool": "gemini",
-    "first_at": "2026-11-09T11:47:10+08:00",
-    "last_at": "2026-11-09T13:05:05+08:00",
+    "first_at": "2026-11-09T12:05:34+08:00",
+    "last_at": "2026-11-09T13:23:29+08:00",
     "input": 83993,
     "output": 68250,
     "cache_read": 966068,
@@ -2659,7 +2659,7 @@
       "other": 0
      },
      "subagents": 0,
-     "last_at": "2026-11-09T13:05:05+08:00"
+     "last_at": "2026-11-09T13:23:29+08:00"
     },
     "agent": null
    },
@@ -2670,8 +2670,8 @@
     "model": "gemini-3-pro",
     "display_name": "Gemini 3 Pro (High)",
     "pool": "gemini",
-    "first_at": "2026-11-08T11:08:16+08:00",
-    "last_at": "2026-11-08T12:41:26+08:00",
+    "first_at": "2026-11-08T11:26:40+08:00",
+    "last_at": "2026-11-08T12:59:50+08:00",
     "input": 97119,
     "output": 65870,
     "cache_read": 1117009,
@@ -2731,7 +2731,7 @@
       "other": 0
      },
      "subagents": 0,
-     "last_at": "2026-11-08T12:41:26+08:00"
+     "last_at": "2026-11-08T12:59:50+08:00"
     },
     "agent": null
    },
@@ -2742,8 +2742,8 @@
     "model": "gemini-3-flash",
     "display_name": "Gemini 3 Flash",
     "pool": "gemini",
-    "first_at": "2026-11-05T11:27:07+08:00",
-    "last_at": "2026-11-05T12:34:19+08:00",
+    "first_at": "2026-11-05T11:45:31+08:00",
+    "last_at": "2026-11-05T12:52:43+08:00",
     "input": 46891,
     "output": 28679,
     "cache_read": 539363,
@@ -2803,7 +2803,7 @@
       "other": 0
      },
      "subagents": 0,
-     "last_at": "2026-11-05T12:34:19+08:00"
+     "last_at": "2026-11-05T12:52:43+08:00"
     },
     "agent": null
    },
@@ -2814,8 +2814,8 @@
     "model": "claude-sonnet-4-6",
     "display_name": "Claude Sonnet 4.6 (Thinking)",
     "pool": "claude_gpt",
-    "first_at": "2026-11-05T06:11:56+08:00",
-    "last_at": "2026-11-05T06:33:24+08:00",
+    "first_at": "2026-11-05T06:30:20+08:00",
+    "last_at": "2026-11-05T06:51:48+08:00",
     "input": 25745,
     "output": 25718,
     "cache_read": 296120,
@@ -2875,7 +2875,7 @@
       "other": 0
      },
      "subagents": 0,
-     "last_at": "2026-11-05T06:33:24+08:00"
+     "last_at": "2026-11-05T06:51:48+08:00"
     },
     "agent": null
    },
@@ -2886,8 +2886,8 @@
     "model": "gemini-3-pro",
     "display_name": "Gemini 3 Pro (High)",
     "pool": "gemini",
-    "first_at": "2026-11-04T10:41:49+08:00",
-    "last_at": "2026-11-04T10:57:37+08:00",
+    "first_at": "2026-11-04T11:00:13+08:00",
+    "last_at": "2026-11-04T11:16:01+08:00",
     "input": 15453,
     "output": 11904,
     "cache_read": 177742,
@@ -2947,7 +2947,7 @@
       "other": 0
      },
      "subagents": 0,
-     "last_at": "2026-11-04T10:57:37+08:00"
+     "last_at": "2026-11-04T11:16:01+08:00"
     },
     "agent": null
    },
@@ -2958,8 +2958,8 @@
     "model": "claude-opus-4-6",
     "display_name": "Claude Opus 4.6 (Thinking)",
     "pool": "claude_gpt",
-    "first_at": "2026-11-04T09:24:02+08:00",
-    "last_at": "2026-11-04T10:11:04+08:00",
+    "first_at": "2026-11-04T09:42:26+08:00",
+    "last_at": "2026-11-04T10:29:28+08:00",
     "input": 55946,
     "output": 39471,
     "cache_read": 643480,
@@ -3019,7 +3019,7 @@
       "other": 0
      },
      "subagents": 0,
-     "last_at": "2026-11-04T10:11:04+08:00"
+     "last_at": "2026-11-04T10:29:28+08:00"
     },
     "agent": null
    },
@@ -3030,8 +3030,8 @@
     "model": "gemini-3-pro",
     "display_name": "Gemini 3 Pro (High)",
     "pool": "gemini",
-    "first_at": "2026-11-03T12:57:10+08:00",
-    "last_at": "2026-11-03T14:18:12+08:00",
+    "first_at": "2026-11-03T13:15:34+08:00",
+    "last_at": "2026-11-03T14:36:36+08:00",
     "input": 80454,
     "output": 64801,
     "cache_read": 925331,
@@ -3091,7 +3091,7 @@
       "other": 0
      },
      "subagents": 0,
-     "last_at": "2026-11-03T14:18:12+08:00"
+     "last_at": "2026-11-03T14:36:36+08:00"
     },
     "agent": null
    },
@@ -3102,8 +3102,8 @@
     "model": "gpt-oss-120b",
     "display_name": "GPT-OSS 120B (Medium)",
     "pool": "claude_gpt",
-    "first_at": "2026-11-03T06:56:16+08:00",
-    "last_at": "2026-11-03T07:37:52+08:00",
+    "first_at": "2026-11-03T07:14:40+08:00",
+    "last_at": "2026-11-03T07:56:16+08:00",
     "input": 18707,
     "output": 14758,
     "cache_read": 215216,
@@ -3163,7 +3163,7 @@
       "other": 0
      },
      "subagents": 0,
-     "last_at": "2026-11-03T07:37:52+08:00"
+     "last_at": "2026-11-03T07:56:16+08:00"
     },
     "agent": null
    },
@@ -3174,8 +3174,8 @@
     "model": "gemini-3-flash",
     "display_name": "Gemini 3 Flash",
     "pool": "gemini",
-    "first_at": "2026-11-02T08:05:27+08:00",
-    "last_at": "2026-11-02T08:43:37+08:00",
+    "first_at": "2026-11-02T08:23:51+08:00",
+    "last_at": "2026-11-02T09:02:01+08:00",
     "input": 21484,
     "output": 15211,
     "cache_read": 247129,
@@ -3235,7 +3235,7 @@
       "other": 0
      },
      "subagents": 0,
-     "last_at": "2026-11-02T08:43:37+08:00"
+     "last_at": "2026-11-02T09:02:01+08:00"
     },
     "agent": null
    },
@@ -3246,8 +3246,8 @@
     "model": "gemini-3-flash",
     "display_name": "Gemini 3 Flash",
     "pool": "gemini",
-    "first_at": "2026-10-31T07:42:57+08:00",
-    "last_at": "2026-10-31T08:29:12+08:00",
+    "first_at": "2026-10-31T08:01:21+08:00",
+    "last_at": "2026-10-31T08:47:36+08:00",
     "input": 31292,
     "output": 22946,
     "cache_read": 359916,
@@ -3307,7 +3307,7 @@
       "other": 0
      },
      "subagents": 0,
-     "last_at": "2026-10-31T08:29:12+08:00"
+     "last_at": "2026-10-31T08:47:36+08:00"
     },
     "agent": null
    },
@@ -3318,8 +3318,8 @@
     "model": "gemini-3-pro",
     "display_name": "Gemini 3 Pro (High)",
     "pool": "gemini",
-    "first_at": "2026-10-31T07:03:51+08:00",
-    "last_at": "2026-10-31T08:05:51+08:00",
+    "first_at": "2026-10-31T07:22:15+08:00",
+    "last_at": "2026-10-31T08:24:15+08:00",
     "input": 69833,
     "output": 50139,
     "cache_read": 803182,
@@ -3379,7 +3379,7 @@
       "other": 0
      },
      "subagents": 0,
-     "last_at": "2026-10-31T08:05:51+08:00"
+     "last_at": "2026-10-31T08:24:15+08:00"
     },
     "agent": null
    },
@@ -3390,8 +3390,8 @@
     "model": "claude-opus-4-6",
     "display_name": "Claude Opus 4.6 (Thinking)",
     "pool": "claude_gpt",
-    "first_at": "2026-10-31T06:53:25+08:00",
-    "last_at": "2026-10-31T07:25:37+08:00",
+    "first_at": "2026-10-31T07:11:49+08:00",
+    "last_at": "2026-10-31T07:44:01+08:00",
     "input": 40628,
     "output": 34919,
     "cache_read": 467308,
@@ -3451,7 +3451,7 @@
       "other": 0
      },
      "subagents": 0,
-     "last_at": "2026-10-31T07:25:37+08:00"
+     "last_at": "2026-10-31T07:44:01+08:00"
     },
     "agent": null
    },
@@ -3462,8 +3462,8 @@
     "model": "gemini-3-pro",
     "display_name": "Gemini 3 Pro (High)",
     "pool": "gemini",
-    "first_at": "2026-10-30T10:49:55+08:00",
-    "last_at": "2026-10-30T12:19:31+08:00",
+    "first_at": "2026-10-30T11:08:19+08:00",
+    "last_at": "2026-10-30T12:37:55+08:00",
     "input": 72785,
     "output": 60305,
     "cache_read": 837168,
@@ -3523,7 +3523,7 @@
       "other": 0
      },
      "subagents": 0,
-     "last_at": "2026-10-30T12:19:31+08:00"
+     "last_at": "2026-10-30T12:37:55+08:00"
     },
     "agent": null
    },
@@ -3534,8 +3534,8 @@
     "model": "claude-opus-4-6",
     "display_name": "Claude Opus 4.6 (Thinking)",
     "pool": "claude_gpt",
-    "first_at": "2026-10-30T06:15:26+08:00",
-    "last_at": "2026-10-30T06:30:51+08:00",
+    "first_at": "2026-10-30T06:33:50+08:00",
+    "last_at": "2026-10-30T06:49:15+08:00",
     "input": 22558,
     "output": 13966,
     "cache_read": 259441,
@@ -3595,7 +3595,7 @@
       "other": 0
      },
      "subagents": 0,
-     "last_at": "2026-10-30T06:30:51+08:00"
+     "last_at": "2026-10-30T06:49:15+08:00"
     },
     "agent": null
    },
@@ -3606,8 +3606,8 @@
     "model": "gemini-3-pro",
     "display_name": "Gemini 3 Pro (High)",
     "pool": "gemini",
-    "first_at": "2026-10-29T14:13:58+08:00",
-    "last_at": "2026-10-29T14:52:39+08:00",
+    "first_at": "2026-10-29T14:32:22+08:00",
+    "last_at": "2026-10-29T15:11:03+08:00",
     "input": 45377,
     "output": 34997,
     "cache_read": 521912,
@@ -3667,7 +3667,7 @@
       "other": 0
      },
      "subagents": 0,
-     "last_at": "2026-10-29T14:52:39+08:00"
+     "last_at": "2026-10-29T15:11:03+08:00"
     },
     "agent": null
    },
@@ -3678,8 +3678,8 @@
     "model": "gemini-3-pro",
     "display_name": "Gemini 3 Pro (High)",
     "pool": "gemini",
-    "first_at": "2026-10-29T11:14:18+08:00",
-    "last_at": "2026-10-29T12:42:16+08:00",
+    "first_at": "2026-10-29T11:32:42+08:00",
+    "last_at": "2026-10-29T13:00:40+08:00",
     "input": 82161,
     "output": 68607,
     "cache_read": 944998,
@@ -3739,7 +3739,7 @@
       "other": 0
      },
      "subagents": 0,
-     "last_at": "2026-10-29T12:42:16+08:00"
+     "last_at": "2026-10-29T13:00:40+08:00"
     },
     "agent": null
    },
@@ -3750,8 +3750,8 @@
     "model": "claude-opus-4-6",
     "display_name": "Claude Opus 4.6 (Thinking)",
     "pool": "claude_gpt",
-    "first_at": "2026-10-28T11:42:30+08:00",
-    "last_at": "2026-10-28T13:06:06+08:00",
+    "first_at": "2026-10-28T12:00:54+08:00",
+    "last_at": "2026-10-28T13:24:30+08:00",
     "input": 65844,
     "output": 56235,
     "cache_read": 757321,
@@ -3811,7 +3811,7 @@
       "other": 0
      },
      "subagents": 0,
-     "last_at": "2026-10-28T13:06:06+08:00"
+     "last_at": "2026-10-28T13:24:30+08:00"
     },
     "agent": null
    },
@@ -3822,8 +3822,8 @@
     "model": "claude-opus-4-6",
     "display_name": "Claude Opus 4.6 (Thinking)",
     "pool": "claude_gpt",
-    "first_at": "2026-10-28T11:43:06+08:00",
-    "last_at": "2026-10-28T12:41:21+08:00",
+    "first_at": "2026-10-28T12:01:30+08:00",
+    "last_at": "2026-10-28T12:59:45+08:00",
     "input": 47940,
     "output": 32085,
     "cache_read": 551379,
@@ -3883,7 +3883,7 @@
       "other": 0
      },
      "subagents": 0,
-     "last_at": "2026-10-28T12:41:21+08:00"
+     "last_at": "2026-10-28T12:59:45+08:00"
     },
     "agent": null
    },
@@ -3894,8 +3894,8 @@
     "model": "gemini-3-pro",
     "display_name": "Gemini 3 Pro (High)",
     "pool": "gemini",
-    "first_at": "2026-10-28T07:59:11+08:00",
-    "last_at": "2026-10-28T09:03:23+08:00",
+    "first_at": "2026-10-28T08:17:35+08:00",
+    "last_at": "2026-10-28T09:21:47+08:00",
     "input": 47152,
     "output": 47293,
     "cache_read": 542338,
@@ -3955,7 +3955,7 @@
       "other": 0
      },
      "subagents": 0,
-     "last_at": "2026-10-28T09:03:23+08:00"
+     "last_at": "2026-10-28T09:21:47+08:00"
     },
     "agent": null
    },
@@ -3966,8 +3966,8 @@
     "model": "claude-sonnet-4-6",
     "display_name": "Claude Sonnet 4.6 (Thinking)",
     "pool": "claude_gpt",
-    "first_at": "2026-10-27T10:49:56+08:00",
-    "last_at": "2026-10-27T11:19:20+08:00",
+    "first_at": "2026-10-27T11:08:20+08:00",
+    "last_at": "2026-10-27T11:37:44+08:00",
     "input": 29886,
     "output": 25389,
     "cache_read": 343767,
@@ -4027,7 +4027,7 @@
       "other": 0
      },
      "subagents": 0,
-     "last_at": "2026-10-27T11:19:20+08:00"
+     "last_at": "2026-10-27T11:37:44+08:00"
     },
     "agent": null
    },
@@ -4038,8 +4038,8 @@
     "model": "claude-sonnet-4-6",
     "display_name": "Claude Sonnet 4.6 (Thinking)",
     "pool": "claude_gpt",
-    "first_at": "2026-10-27T08:25:07+08:00",
-    "last_at": "2026-10-27T10:04:59+08:00",
+    "first_at": "2026-10-27T08:43:31+08:00",
+    "last_at": "2026-10-27T10:23:23+08:00",
     "input": 61675,
     "output": 53363,
     "cache_read": 709375,
@@ -4099,7 +4099,7 @@
       "other": 0
      },
      "subagents": 0,
-     "last_at": "2026-10-27T10:04:59+08:00"
+     "last_at": "2026-10-27T10:23:23+08:00"
     },
     "agent": null
    },
@@ -4110,8 +4110,8 @@
     "model": "claude-opus-4-6",
     "display_name": "Claude Opus 4.6 (Thinking)",
     "pool": "claude_gpt",
-    "first_at": "2026-10-27T08:37:32+08:00",
-    "last_at": "2026-10-27T09:08:20+08:00",
+    "first_at": "2026-10-27T08:55:56+08:00",
+    "last_at": "2026-10-27T09:26:44+08:00",
     "input": 24157,
     "output": 20078,
     "cache_read": 277847,
@@ -4171,7 +4171,7 @@
       "other": 0
      },
      "subagents": 0,
-     "last_at": "2026-10-27T09:08:20+08:00"
+     "last_at": "2026-10-27T09:26:44+08:00"
     },
     "agent": null
    },
@@ -4182,8 +4182,8 @@
     "model": "claude-sonnet-4-6",
     "display_name": "Claude Sonnet 4.6 (Thinking)",
     "pool": "claude_gpt",
-    "first_at": "2026-10-25T09:37:15+08:00",
-    "last_at": "2026-10-25T10:17:02+08:00",
+    "first_at": "2026-10-25T09:55:39+08:00",
+    "last_at": "2026-10-25T10:35:26+08:00",
     "input": 31022,
     "output": 18931,
     "cache_read": 356833,
@@ -4243,7 +4243,7 @@
       "other": 0
      },
      "subagents": 0,
-     "last_at": "2026-10-25T10:17:02+08:00"
+     "last_at": "2026-10-25T10:35:26+08:00"
     },
     "agent": null
    },
@@ -4254,8 +4254,8 @@
     "model": "gpt-oss-120b",
     "display_name": "GPT-OSS 120B (Medium)",
     "pool": "claude_gpt",
-    "first_at": "2026-10-25T08:44:56+08:00",
-    "last_at": "2026-10-25T09:51:45+08:00",
+    "first_at": "2026-10-25T09:03:20+08:00",
+    "last_at": "2026-10-25T10:10:09+08:00",
     "input": 24117,
     "output": 21753,
     "cache_read": 277486,
@@ -4315,7 +4315,7 @@
       "other": 0
      },
      "subagents": 0,
-     "last_at": "2026-10-25T09:51:45+08:00"
+     "last_at": "2026-10-25T10:10:09+08:00"
     },
     "agent": null
    },
@@ -4326,8 +4326,8 @@
     "model": "gemini-3-flash",
     "display_name": "Gemini 3 Flash",
     "pool": "gemini",
-    "first_at": "2026-10-24T14:16:54+08:00",
-    "last_at": "2026-10-24T15:23:43+08:00",
+    "first_at": "2026-10-24T14:35:18+08:00",
+    "last_at": "2026-10-24T15:42:07+08:00",
     "input": 44383,
     "output": 25356,
     "cache_read": 510504,
@@ -4387,7 +4387,7 @@
       "other": 0
      },
      "subagents": 0,
-     "last_at": "2026-10-24T15:23:43+08:00"
+     "last_at": "2026-10-24T15:42:07+08:00"
     },
     "agent": null
    },
@@ -4398,8 +4398,8 @@
     "model": "gemini-3-pro",
     "display_name": "Gemini 3 Pro (High)",
     "pool": "gemini",
-    "first_at": "2026-10-24T12:35:12+08:00",
-    "last_at": "2026-10-24T13:56:24+08:00",
+    "first_at": "2026-10-24T12:53:36+08:00",
+    "last_at": "2026-10-24T14:14:48+08:00",
     "input": 77733,
     "output": 72540,
     "cache_read": 894084,
@@ -4459,7 +4459,7 @@
       "other": 0
      },
      "subagents": 0,
-     "last_at": "2026-10-24T13:56:24+08:00"
+     "last_at": "2026-10-24T14:14:48+08:00"
     },
     "agent": null
    },
@@ -4470,8 +4470,8 @@
     "model": "claude-opus-4-6",
     "display_name": "Claude Opus 4.6 (Thinking)",
     "pool": "claude_gpt",
-    "first_at": "2026-10-24T10:42:30+08:00",
-    "last_at": "2026-10-24T11:52:50+08:00",
+    "first_at": "2026-10-24T11:00:54+08:00",
+    "last_at": "2026-10-24T12:11:14+08:00",
     "input": 61295,
     "output": 49320,
     "cache_read": 704999,
@@ -4531,7 +4531,7 @@
       "other": 0
      },
      "subagents": 0,
-     "last_at": "2026-10-24T11:52:50+08:00"
+     "last_at": "2026-10-24T12:11:14+08:00"
     },
     "agent": null
    },
@@ -4542,8 +4542,8 @@
     "model": "gemini-3-pro",
     "display_name": "Gemini 3 Pro (High)",
     "pool": "gemini",
-    "first_at": "2026-10-24T10:51:40+08:00",
-    "last_at": "2026-10-24T11:48:52+08:00",
+    "first_at": "2026-10-24T11:10:04+08:00",
+    "last_at": "2026-10-24T12:07:16+08:00",
     "input": 78903,
     "output": 65039,
     "cache_read": 907489,
@@ -4603,7 +4603,7 @@
       "other": 0
      },
      "subagents": 0,
-     "last_at": "2026-10-24T11:48:52+08:00"
+     "last_at": "2026-10-24T12:07:16+08:00"
     },
     "agent": null
    },
@@ -4614,8 +4614,8 @@
     "model": "gemini-3-pro",
     "display_name": "Gemini 3 Pro (High)",
     "pool": "gemini",
-    "first_at": "2026-10-23T11:37:08+08:00",
-    "last_at": "2026-10-23T12:16:11+08:00",
+    "first_at": "2026-10-23T11:55:32+08:00",
+    "last_at": "2026-10-23T12:34:35+08:00",
     "input": 36260,
     "output": 33269,
     "cache_read": 417063,
@@ -4675,7 +4675,7 @@
       "other": 0
      },
      "subagents": 0,
-     "last_at": "2026-10-23T12:16:11+08:00"
+     "last_at": "2026-10-23T12:34:35+08:00"
     },
     "agent": null
    },
@@ -4686,8 +4686,8 @@
     "model": "gemini-3-pro",
     "display_name": "Gemini 3 Pro (High)",
     "pool": "gemini",
-    "first_at": "2026-10-23T10:01:54+08:00",
-    "last_at": "2026-10-23T10:52:00+08:00",
+    "first_at": "2026-10-23T10:20:18+08:00",
+    "last_at": "2026-10-23T11:10:24+08:00",
     "input": 54114,
     "output": 50048,
     "cache_read": 622406,
@@ -4747,7 +4747,7 @@
       "other": 0
      },
      "subagents": 0,
-     "last_at": "2026-10-23T10:52:00+08:00"
+     "last_at": "2026-10-23T11:10:24+08:00"
     },
     "agent": null
    },
@@ -4758,8 +4758,8 @@
     "model": "gemini-3-pro",
     "display_name": "Gemini 3 Pro (High)",
     "pool": "gemini",
-    "first_at": "2026-10-22T14:08:41+08:00",
-    "last_at": "2026-10-22T15:17:37+08:00",
+    "first_at": "2026-10-22T14:27:05+08:00",
+    "last_at": "2026-10-22T15:36:01+08:00",
     "input": 73271,
     "output": 65943,
     "cache_read": 842744,
@@ -4819,7 +4819,7 @@
       "other": 0
      },
      "subagents": 0,
-     "last_at": "2026-10-22T15:17:37+08:00"
+     "last_at": "2026-10-22T15:36:01+08:00"
     },
     "agent": null
    },
@@ -4830,8 +4830,8 @@
     "model": "gpt-oss-120b",
     "display_name": "GPT-OSS 120B (Medium)",
     "pool": "claude_gpt",
-    "first_at": "2026-10-22T11:29:33+08:00",
-    "last_at": "2026-10-22T12:25:57+08:00",
+    "first_at": "2026-10-22T11:47:57+08:00",
+    "last_at": "2026-10-22T12:44:21+08:00",
     "input": 28615,
     "output": 18473,
     "cache_read": 329161,
@@ -4891,7 +4891,7 @@
       "other": 0
      },
      "subagents": 0,
-     "last_at": "2026-10-22T12:25:57+08:00"
+     "last_at": "2026-10-22T12:44:21+08:00"
     },
     "agent": null
    },
@@ -4902,8 +4902,8 @@
     "model": "gemini-3-pro",
     "display_name": "Gemini 3 Pro (High)",
     "pool": "gemini",
-    "first_at": "2026-10-22T09:44:58+08:00",
-    "last_at": "2026-10-22T10:01:38+08:00",
+    "first_at": "2026-10-22T10:03:22+08:00",
+    "last_at": "2026-10-22T10:20:02+08:00",
     "input": 31711,
     "output": 15771,
     "cache_read": 364735,
@@ -4963,7 +4963,7 @@
       "other": 0
      },
      "subagents": 0,
-     "last_at": "2026-10-22T10:01:38+08:00"
+     "last_at": "2026-10-22T10:20:02+08:00"
     },
     "agent": null
    },
@@ -4974,8 +4974,8 @@
     "model": "gpt-oss-120b",
     "display_name": "GPT-OSS 120B (Medium)",
     "pool": "claude_gpt",
-    "first_at": "2026-10-22T08:24:45+08:00",
-    "last_at": "2026-10-22T09:26:21+08:00",
+    "first_at": "2026-10-22T08:43:09+08:00",
+    "last_at": "2026-10-22T09:44:45+08:00",
     "input": 27699,
     "output": 23312,
     "cache_read": 318644,
@@ -5035,7 +5035,7 @@
       "other": 0
      },
      "subagents": 0,
-     "last_at": "2026-10-22T09:26:21+08:00"
+     "last_at": "2026-10-22T09:44:45+08:00"
     },
     "agent": null
    },
@@ -5046,8 +5046,8 @@
     "model": "claude-opus-4-6",
     "display_name": "Claude Opus 4.6 (Thinking)",
     "pool": "claude_gpt",
-    "first_at": "2026-10-21T12:53:50+08:00",
-    "last_at": "2026-10-21T13:38:10+08:00",
+    "first_at": "2026-10-21T13:12:14+08:00",
+    "last_at": "2026-10-21T13:56:34+08:00",
     "input": 56855,
     "output": 43878,
     "cache_read": 653910,
@@ -5107,7 +5107,7 @@
       "other": 0
      },
      "subagents": 0,
-     "last_at": "2026-10-21T13:38:10+08:00"
+     "last_at": "2026-10-21T13:56:34+08:00"
     },
     "agent": null
    },
@@ -5118,8 +5118,8 @@
     "model": "gemini-3-pro",
     "display_name": "Gemini 3 Pro (High)",
     "pool": "gemini",
-    "first_at": "2026-10-21T10:22:08+08:00",
-    "last_at": "2026-10-21T10:45:32+08:00",
+    "first_at": "2026-10-21T10:40:32+08:00",
+    "last_at": "2026-10-21T11:03:56+08:00",
     "input": 44900,
     "output": 31600,
     "cache_read": 516407,
@@ -5179,7 +5179,7 @@
       "other": 0
      },
      "subagents": 0,
-     "last_at": "2026-10-21T10:45:32+08:00"
+     "last_at": "2026-10-21T11:03:56+08:00"
     },
     "agent": null
    },
@@ -5190,8 +5190,8 @@
     "model": "gemini-3-flash",
     "display_name": "Gemini 3 Flash",
     "pool": "gemini",
-    "first_at": "2026-10-20T10:26:49+08:00",
-    "last_at": "2026-10-20T10:51:53+08:00",
+    "first_at": "2026-10-20T10:45:13+08:00",
+    "last_at": "2026-10-20T11:10:17+08:00",
     "input": 19745,
     "output": 14907,
     "cache_read": 227117,
@@ -5251,7 +5251,7 @@
       "other": 0
      },
      "subagents": 0,
-     "last_at": "2026-10-20T10:51:53+08:00"
+     "last_at": "2026-10-20T11:10:17+08:00"
     },
     "agent": null
    },
@@ -5262,8 +5262,8 @@
     "model": "gemini-3-flash",
     "display_name": "Gemini 3 Flash",
     "pool": "gemini",
-    "first_at": "2026-10-20T06:46:51+08:00",
-    "last_at": "2026-10-20T07:42:21+08:00",
+    "first_at": "2026-10-20T07:05:15+08:00",
+    "last_at": "2026-10-20T08:00:45+08:00",
     "input": 31774,
     "output": 22913,
     "cache_read": 365475,
@@ -5323,7 +5323,7 @@
       "other": 0
      },
      "subagents": 0,
-     "last_at": "2026-10-20T07:42:21+08:00"
+     "last_at": "2026-10-20T08:00:45+08:00"
     },
     "agent": null
    }
@@ -7213,33 +7213,33 @@
    },
    {
     "hour": 11,
-    "tokens": 577200,
-    "calls": 12
+    "tokens": 192400,
+    "calls": 4
    },
    {
     "hour": 12,
-    "tokens": 0,
-    "calls": 0
+    "tokens": 384800,
+    "calls": 8
    },
    {
     "hour": 13,
-    "tokens": 276300,
-    "calls": 9
+    "tokens": 122800,
+    "calls": 4
    },
    {
     "hour": 14,
-    "tokens": 431679,
-    "calls": 17
+    "tokens": 434539,
+    "calls": 16
    },
    {
     "hour": 15,
-    "tokens": 326817,
-    "calls": 7
+    "tokens": 381257,
+    "calls": 11
    },
    {
     "hour": 16,
-    "tokens": 0,
-    "calls": 0
+    "tokens": 96200,
+    "calls": 2
    },
    {
     "hour": 17,
@@ -7248,18 +7248,18 @@
    },
    {
     "hour": 18,
-    "tokens": 402763,
-    "calls": 4
+    "tokens": 177413,
+    "calls": 2
    },
    {
     "hour": 19,
-    "tokens": 1336818,
+    "tokens": 1160833,
     "calls": 8
    },
    {
     "hour": 20,
-    "tokens": 0,
-    "calls": 0
+    "tokens": 401335,
+    "calls": 2
    },
    {
     "hour": 21,
@@ -7285,10 +7285,10 @@
   "weekly_cycles": {
    "gemini": [
     {
-     "cycle_start": "2026-11-20T16:34:22.495Z",
-     "reset_time": "2026-11-27T16:34:22.495Z",
-     "observed_at": "2026-11-22T12:34:22.495Z",
-     "eval_obs_at": "2026-11-22T12:34:22.495Z",
+     "cycle_start": "2026-11-20T16:52:46.113Z",
+     "reset_time": "2026-11-27T16:52:46.113Z",
+     "observed_at": "2026-11-22T12:52:46.113Z",
+     "eval_obs_at": "2026-11-22T12:52:46.113Z",
      "remaining_fraction": 0.8,
      "used_fraction": 0.2,
      "eval_used_fraction": 0.2,
@@ -7307,10 +7307,10 @@
      "tier": "Pro"
     },
     {
-     "cycle_start": "2026-11-13T16:34:22.495Z",
-     "reset_time": "2026-11-20T16:34:22.495Z",
-     "observed_at": "2026-11-20T15:34:22.495Z",
-     "eval_obs_at": "2026-11-20T15:34:22.495Z",
+     "cycle_start": "2026-11-13T16:52:46.113Z",
+     "reset_time": "2026-11-20T16:52:46.113Z",
+     "observed_at": "2026-11-20T15:52:46.113Z",
+     "eval_obs_at": "2026-11-20T15:52:46.113Z",
      "remaining_fraction": 0.15,
      "used_fraction": 0.85,
      "eval_used_fraction": 0.85,
@@ -7331,10 +7331,10 @@
    ],
    "claude_gpt": [
     {
-     "cycle_start": "2026-11-20T00:34:22.495Z",
-     "reset_time": "2026-11-27T00:34:22.495Z",
-     "observed_at": "2026-11-22T12:34:22.495Z",
-     "eval_obs_at": "2026-11-22T12:34:22.495Z",
+     "cycle_start": "2026-11-20T00:52:46.113Z",
+     "reset_time": "2026-11-27T00:52:46.113Z",
+     "observed_at": "2026-11-22T12:52:46.113Z",
+     "eval_obs_at": "2026-11-22T12:52:46.113Z",
      "remaining_fraction": 0.41,
      "used_fraction": 0.59,
      "eval_used_fraction": 0.59,
@@ -7353,10 +7353,10 @@
      "tier": "Pro"
     },
     {
-     "cycle_start": "2026-11-13T00:34:22.495Z",
-     "reset_time": "2026-11-20T00:34:22.495Z",
-     "observed_at": "2026-11-19T23:34:22.495Z",
-     "eval_obs_at": "2026-11-19T23:34:22.495Z",
+     "cycle_start": "2026-11-13T00:52:46.113Z",
+     "reset_time": "2026-11-20T00:52:46.113Z",
+     "observed_at": "2026-11-19T23:52:46.113Z",
+     "eval_obs_at": "2026-11-19T23:52:46.113Z",
      "remaining_fraction": 0.08,
      "used_fraction": 0.92,
      "eval_used_fraction": 0.92,
@@ -7390,8 +7390,8 @@
   },
   "archived_conversations": 0,
   "errors": 0,
-  "scanned_at": "2026-11-22T20:34:28+08:00",
-  "elapsed_ms": 77
+  "scanned_at": "2026-11-22T20:52:52+08:00",
+  "elapsed_ms": 60
  },
  "pricing": {
   "source": "builtin",
