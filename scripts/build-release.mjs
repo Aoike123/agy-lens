@@ -1,40 +1,70 @@
 #!/usr/bin/env node
 /**
- * Builds the zero-Python direct-install release ZIP for Pulse (antigravity-pulse)
+ * Builds the pure Node.js direct-install release ZIP for Agy Lens (agy-lens)
  * using only built-in Node.js modules (zero external dependencies).
  *
  * Outputs:
- *   dist/antigravity-pulse.zip
- *   dist/antigravity-pulse-v<version>.zip
+ *   dist/agy-lens.zip
+ *   dist/agy-lens-v<version>.zip
  *   dist/SHA256SUMS.txt
  */
 
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { dirname, join, posix, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { deflateRawSync } from 'node:zlib';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, '..');
 const DIST = join(ROOT, 'dist');
-const TOP_DIR = 'antigravity-pulse';
+export const TOP_DIR = 'agy-lens';
 
 export const RUNTIME_FILES = [
   'plugin.json',
+  'package.json',
   'LICENSE',
   'README.md',
   'assets/logo.svg',
-  'sidecars/context/sidecar.json',
-  'sidecars/context/package.json',
-  'sidecars/context/main.mjs',
-  'sidecars/context/pb.mjs',
-  'sidecars/context/context_report.mjs',
-  'sidecars/context/history_scanner.mjs',
-  'sidecars/context/index.html',
-  'sidecars/context/app.js',
-  'sidecars/context/styles.css',
+  'bin/cli.mjs',
+  'sidecars/agy-lens/package.json',
+  'sidecars/agy-lens/sidecar.json',
+  'sidecars/agy-lens/main.mjs',
 ];
+
+const IGNORED_DIRS = new Set(['__pycache__', '.data', 'node_modules']);
+
+function collectFiles(rootDir, relDir, exts) {
+  const absDir = join(rootDir, relDir);
+  if (!existsSync(absDir)) return [];
+  const results = [];
+  const walk = (absCur, relCur) => {
+    const entries = readdirSync(absCur, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name));
+    for (const ent of entries) {
+      if (ent.name.startsWith('.')) continue;
+      if (ent.isDirectory()) {
+        if (IGNORED_DIRS.has(ent.name)) continue;
+        walk(join(absCur, ent.name), posix.join(relCur, ent.name));
+      } else if (ent.isFile()) {
+        if (exts.some((ext) => ent.name.endsWith(ext))) {
+          results.push(posix.join(relCur, ent.name));
+        }
+      }
+    }
+  };
+  walk(absDir, relDir.replace(/\\/g, '/'));
+  return results.sort();
+}
+
+export function collectRuntimeFiles(rootDir = ROOT) {
+  const files = [...RUNTIME_FILES];
+  if (existsSync(join(rootDir, 'README.zh-CN.md'))) {
+    files.push('README.zh-CN.md');
+  }
+  files.push(...collectFiles(rootDir, 'sidecars/agy-lens/lib', ['.mjs']));
+  files.push(...collectFiles(rootDir, 'sidecars/agy-lens/web', ['.html', '.css', '.js']));
+  return Array.from(new Set(files)).sort();
+}
 
 const CRC_TABLE = (() => {
   const t = new Uint32Array(256);
@@ -136,7 +166,7 @@ export function buildZipBuffer(entries) {
 export function buildRelease(rootDir = ROOT, outDir = DIST) {
   const manifest = JSON.parse(readFileSync(join(rootDir, 'plugin.json'), 'utf8'));
   const version = String(manifest.version || '0.0.0').replace(/^v/, '');
-  const entries = RUNTIME_FILES.map((rel) => {
+  const entries = collectRuntimeFiles(rootDir).map((rel) => {
     const abs = join(rootDir, rel);
     return {
       name: `${TOP_DIR}/${rel}`,

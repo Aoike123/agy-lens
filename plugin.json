@@ -1,7 +1,25 @@
 {
-  "name": "antigravity-pulse",
-  "title": "Pulse",
-  "description": "A zero-Python, zero-dependency live side panel for the Antigravity desktop app: context window usage by category, output speed, model quota (Weekly + 5-hour limits), per-conversation totals, categorized usage history, automatic weekly quota attribution, and public-price cost estimates. Local by default, zero tokens per refresh.",
-  "version": "2.1.1",
+  "$schema": "https://antigravity.google/schemas/v1/plugin.json",
+  "name": "agy-lens",
+  "displayName": "Agy Lens",
+  "version": "2.2.0",
+  "description": "All-in-one local cockpit and terminal CLI for Antigravity 2.0: context window breakdown, streaming tok/s speed, 5-hour & weekly model quotas, per-conversation totals, categorized usage history, and public-price cost estimates. Pure Node.js 24+, zero dependencies, local by default.",
+  "author": {
+    "name": "Aoike123",
+    "url": "https://github.com/Aoike123"
+  },
+  "homepage": "https://github.com/Aoike123/agy-lens",
+  "repository": "https://github.com/Aoike123/agy-lens",
+  "license": "MIT",
+  "keywords": [
+    "antigravity",
+    "agy-lens",
+    "context-window",
+    "token-usage",
+    "quota",
+    "sidecar",
+    "cli",
+    "nodejs"
+  ],
   "logo": "assets/logo.svg"
 }

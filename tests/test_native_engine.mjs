@@ -1,9 +1,8 @@
-// Tests for the zero-Python pure-Node engine (pb.mjs, context_report.mjs,
-// history_scanner.mjs), cross-engine parity with Python, and release ZIP builder.
-// Run (Node >= 22.5 / Antigravity Node 24): node --test tests/test_native_engine.mjs
+// Tests for the zero-Python pure-Node engine (lib/pb.mjs, lib/context.mjs,
+// lib/history.mjs, lib/catalog.mjs, lib/pricing.mjs) and release ZIP builder.
+// Run (Node >= 24): node --test tests/test_native_engine.mjs
 
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -13,25 +12,21 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { inflateRawSync } from 'node:zlib';
 
-import { RUNTIME_FILES, buildRelease } from '../scripts/build-release.mjs';
+import { RUNTIME_FILES, buildRelease, buildZipBuffer, collectRuntimeFiles } from '../scripts/build-release.mjs';
+import { loadModelCatalog, modelLabel, modelPool } from '../sidecars/agy-lens/lib/catalog.mjs';
 import {
   buildReport,
   collectSpeed,
   collectStats,
   load,
-  modelLabel,
   parseGenerationSpeed,
   pbDurationSec,
-} from '../sidecars/context/context_report.mjs';
+} from '../sidecars/agy-lens/lib/context.mjs';
 import {
   CACHE_VERSION,
-  callCostInfo,
-  loadModelCatalog,
-  loadPricingFile,
-  modelPool,
   parseRoot,
   scan,
-} from '../sidecars/context/history_scanner.mjs';
+} from '../sidecars/agy-lens/lib/history.mjs';
 import {
   Msg,
   encodeVarint,
@@ -39,12 +34,11 @@ import {
   hasNodeSqlite,
   localDateKey,
   readVarint,
-} from '../sidecars/context/pb.mjs';
+} from '../sidecars/agy-lens/lib/pb.mjs';
+import { callCostInfo, loadPricingFile } from '../sidecars/agy-lens/lib/pricing.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, '..');
-const PY_REPORT = join(ROOT, 'sidecars', 'context', 'context_report.py');
-const PY_SCANNER = join(ROOT, 'sidecars', 'context', 'history_scanner.py');
 const UTF8 = new TextEncoder();
 
 // --- protobuf encoding helpers -----------------------------------------------
@@ -148,16 +142,6 @@ function createConvDb(dbPath, { genTable = true } = {}) {
   };
 }
 
-function findPython() {
-  for (const [cmd, pre] of [['python', []], ['python3', []], ['py', ['-3']]]) {
-    try {
-      const out = execFileSync(cmd, [...pre, '--version'], { encoding: 'utf8', timeout: 5000, windowsHide: true });
-      if (/^Python 3\.1[0-9]/i.test(out.trim())) return { cmd, pre };
-    } catch { /* next */ }
-  }
-  return null;
-}
-
 //Minimal ZIP central-directory parser to verify release archive structure & CRCs.
 function parseZipEntries(zipBuf) {
   const view = new DataView(zipBuf.buffer, zipBuf.byteOffset, zipBuf.byteLength);
@@ -214,8 +198,8 @@ test('pb.mjs decodes 64-bit varints, signed32 negatives, timestamps and node:sql
   assert.equal(formatLocalIso(NaN), null);
 });
 
-test('context_report.mjs handles breakdown, rehydration, checkpoints, speed outlier filtering & missing gen_metadata', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'pulse-report-'));
+test('lib/context.mjs handles breakdown, rehydration, checkpoints, speed outlier filtering & missing gen_metadata', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'agy-lens-report-'));
   try {
     const dbPath = join(dir, 'conv-1.db');
     const db = createConvDb(dbPath);
@@ -291,8 +275,8 @@ test('context_report.mjs handles breakdown, rehydration, checkpoints, speed outl
   }
 });
 
-test('history_scanner.mjs scans windows, d7_by_pool, hourly_today, titles, cache v4 & pricing', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'pulse-hist-'));
+test('lib/history.mjs scans windows, d7_by_pool, hourly_today, titles, cache v4 & pricing', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'agy-lens-hist-'));
   try {
     const deskDir = join(dir, 'antigravity', 'conversations');
     const cliDir = join(dir, 'antigravity-cli', 'conversations');
@@ -350,7 +334,7 @@ test('history_scanner.mjs scans windows, d7_by_pool, hourly_today, titles, cache
     assert.equal(convA.title, 'Official Title A');
     assert.equal(convA.is_subagent, false);
     assert.equal(convA.d7_tokens, 500);
-    assert.equal(convA.cost_estimated, true); // gemini-4-neon-high uses preview estimate
+    assert.equal(convA.cost_estimated, false); // gemini-4-neon and claude-opus-4-6 both have published prices
     const convSub = r.by_conversation.find((c) => c.id === 'conv-sub');
     assert.equal(convSub.title, null);
     assert.equal(convSub.is_subagent, true);
@@ -379,7 +363,7 @@ test('history_scanner.mjs scans windows, d7_by_pool, hourly_today, titles, cache
     assert.equal(modelPool('gemini-pro-orchestrator-neon'), 'gemini');
     assert.equal(modelPool('gpt-oss-120b-medium'), 'claude_gpt');
     assert.equal(modelPool('orchestrator-claude-opus-5-5'), 'claude_gpt');
-    assert.deepEqual(callCostInfo('orchestrator-claude-opus-5-5', 1_000_000, 0, 0), [15, true]);
+    assert.deepEqual(callCostInfo('orchestrator-claude-opus-5-5', 1_000_000, 0, 0), [5, true]);
     const catPath = join(dir, 'catalog.json');
     writeFileSync(catPath, JSON.stringify({
       'mystery-orch-v9': { maxTokens: 500000, displayName: 'Mystery Claude Orch', provider: 'MODEL_PROVIDER_ANTHROPIC', pool: 'claude_gpt' },
@@ -392,151 +376,54 @@ test('history_scanner.mjs scans windows, d7_by_pool, hourly_today, titles, cache
   }
 });
 
-test('cross-engine parity: Node .mjs matches Python .py on context_report and history_scanner', async (t) => {
-  const py = findPython();
-  if (!py) {
-    t.skip('Python 3.10+ not available');
-    return;
-  }
-  const dir = mkdtempSync(join(tmpdir(), 'pulse-parity-'));
-  try {
-    const deskDir = join(dir, 'antigravity', 'conversations');
-    mkdirSync(deskDir, { recursive: true });
-    const nowSec = Math.floor(Date.now() / 1000) - 120;
-
-    const sumDb = new DatabaseSync(join(dir, 'antigravity', 'conversation_summaries.db'));
-    sumDb.exec('CREATE TABLE conversation_summaries (conversation_id text, title text, preview text, agent_name text);');
-    sumDb.prepare('INSERT INTO conversation_summaries VALUES (?, ?, ?, ?)').run('conv-p', 'Parity Check Chat', '', '');
-    sumDb.close();
-
-    const dbPath = join(deskDir, 'conv-p.db');
-    const db = createConvDb(dbPath);
-    db.step(14, { metadata: pbTs(nowSec - 60), payloadField: 19, payload: pbField(2, 'Hello parity') });
-    db.step(15, { metadata: pbTs(nowSec - 30), payloadField: 20, payload: pbField(1, 'Reply 1') });
-    db.step(15, { metadata: pbTs(nowSec), payloadField: 20, payload: pbField(1, 'Reply 2') });
-    const groups = [
-      pbGroup(1, 1200, [['skills', 200]]),
-      pbGroup(2, 600),
-      pbGroup(7, 450, [['14: USER_INPUT', 100], ['15: PLANNER_RESPONSE', 350]]),
-    ];
-    db.generation({
-      groups,
-      model: 'claude-sonnet-4-6',
-      displayName: 'Claude Sonnet 4.6',
-      usage: pbUsage({ inp: 800, out: 150, cache: 400, think: 30, resp: 120 }),
-      timing: pbTiming([1, 500_000_000], [1, 250_000_000]),
-    });
-    db.generation({
-      groups,
-      model: 'gemini-4-neon-high',
-      displayName: 'Gemini 4 Neon (High)',
-      usage: pbUsage({ inp: 600, out: 250, cache: 900, think: 50 }),
-      timing: pbTiming([2, 0], [1, 0]),
-    });
-    db.close();
-
-    const pricePath = join(dir, 'pricing.json');
-    writeFileSync(pricePath, JSON.stringify({
-      source: 'openrouter',
-      fetched_at: '2026-11-21T00:00:00Z',
-      models: { 'anthropic/claude-sonnet-4-6': { input: 3, output: 15, cache_read: 0.3 } },
-    }));
-
-    const pyReport = JSON.parse(
-      execFileSync(py.cmd, [...py.pre, PY_REPORT, '--db', dbPath, '--json', '--pricing-file', pricePath], {
-        encoding: 'utf8',
-        windowsHide: true,
-      }),
-    );
-    const jsReport = await buildReport({ dbPath, conversationId: 'conv-p', pricingFile: pricePath });
-
-    for (const k of [
-      'conversation_id', 'model', 'heading', 'grid_segments', 'checkpoint_view', 'text',
-      'model_id', 'request_budget_tokens', 'used_tokens', 'limit_tokens', 'used_pct',
-      'free_tokens', 'has_breakdown', 'compacted', 'checkpoint_buffer', 'categories',
-      'active_checkpoint', 'checkpoints', 'knowledge_files', 'artifact_files', 'skill_files',
-      'speed', 'session',
-    ]) {
-      assert.deepEqual(jsReport[k], pyReport[k], `context_report mismatch on key: ${k}`);
-    }
-    assert.equal(jsReport.session.pool, 'claude_gpt');
-    assert.equal(jsReport.session.d7_tokens, 1800);
-    assert.equal(jsReport.session.d7_by_pool.claude_gpt, 950);
-    assert.equal(jsReport.session.d7_by_pool.gemini, 850);
-
-    const pyHist = JSON.parse(
-      execFileSync(py.cmd, [...py.pre, PY_SCANNER, '--json', '--root', `${deskDir}=desktop`, '--days', '14', '--pricing-file', pricePath], {
-        encoding: 'utf8',
-        windowsHide: true,
-      }),
-    );
-    const jsHist = await scan([[deskDir, 'desktop']], { days: 14, pricingFile: pricePath });
-
-    for (const k of [
-      'totals', 'by_model', 'by_conversation', 'daily', 'hourly_today',
-      'd7_by_pool', 'pricing_source', 'pricing_fetched_at', 'sources', 'errors',
-    ]) {
-      assert.deepEqual(jsHist[k], pyHist[k], `history_scanner mismatch on key: ${k}`);
-    }
-
-    // Dynamic catalog parity across both engines for an unseen model ID.
-    const catDir = join(dir, 'cat_convs');
-    mkdirSync(catDir, { recursive: true });
-    const catDbPath = join(catDir, 'conv-cat.db');
-    const cdb = createConvDb(catDbPath);
-    cdb.step(14, { metadata: pbTs(nowSec - 20), payloadField: 19, payload: pbField(2, 'Catalog parity') });
-    cdb.generation({
-      groups,
-      model: 'mystery-orch-v9',
-      displayName: '',
-      usage: pbUsage({ inp: 500, out: 100, cache: 0 }),
-      timing: pbTiming([1, 0], [1, 0]),
-    });
-    cdb.close();
-    const catFile = join(dir, 'model-catalog.json');
-    writeFileSync(catFile, JSON.stringify({
-      'mystery-orch-v9': {
-        maxTokens: 500_000,
-        displayName: 'Mystery Claude Orch',
-        provider: 'MODEL_PROVIDER_ANTHROPIC',
-        pool: 'claude_gpt',
-      },
-    }));
-    const pyCatReport = JSON.parse(execFileSync(py.cmd, [...py.pre, PY_REPORT, '--db', catDbPath, '--json', '--model-catalog', catFile], { encoding: 'utf8', windowsHide: true }));
-    const jsCatReport = await buildReport({ dbPath: catDbPath, conversationId: 'conv-cat', modelCatalogPath: catFile });
-    assert.deepEqual(jsCatReport.session, pyCatReport.session);
-    assert.equal(jsCatReport.session.pool, 'claude_gpt');
-    assert.equal(jsCatReport.session.by_model[0].display_name, 'Mystery Claude Orch');
-
-    const pyCatHist = JSON.parse(execFileSync(py.cmd, [...py.pre, PY_SCANNER, '--json', '--root', `${catDir}=desktop`, '--days', '14', '--model-catalog', catFile], { encoding: 'utf8', windowsHide: true }));
-    const jsCatHist = await scan([[catDir, 'desktop']], { days: 14, modelCatalogPath: catFile });
-    assert.deepEqual(jsCatHist.d7_by_pool, pyCatHist.d7_by_pool);
-    assert.deepEqual(jsCatHist.by_model, pyCatHist.by_model);
-    assert.equal(jsCatHist.d7_by_pool.claude_gpt, 600);
-    assert.equal(jsCatHist.by_model[0].display_name, 'Mystery Claude Orch');
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+test('buildZipBuffer produces valid PKZIP entries (store + deflate, UTF-8 names)', () => {
+  const small = Buffer.from('hi');
+  const compressible = Buffer.from('agy-lens-'.repeat(200), 'utf8');
+  const zipBuf = buildZipBuffer([
+    { name: 'agy-lens/tiny.txt', data: small, mtime: new Date('2026-11-20T12:00:00Z') },
+    { name: 'agy-lens/目录/large.json', data: compressible, mtime: new Date('2026-11-20T12:00:00Z') },
+  ]);
+  const entries = parseZipEntries(zipBuf);
+  assert.deepEqual(Array.from(entries.keys()).sort(), ['agy-lens/tiny.txt', 'agy-lens/目录/large.json']);
+  assert.deepEqual(entries.get('agy-lens/tiny.txt'), small);
+  assert.deepEqual(entries.get('agy-lens/目录/large.json'), compressible);
 });
 
-test('release ZIP contains all 13 runtime files, zero .py files, and valid SHA256SUMS', () => {
-  const outDir = mkdtempSync(join(tmpdir(), 'pulse-dist-'));
+test('release ZIP contains all runtime files, zero .py files, and valid SHA256SUMS', () => {
+  const outDir = mkdtempSync(join(tmpdir(), 'agy-lens-dist-'));
   try {
     const res = buildRelease(ROOT, outDir);
     const zipBuf = readFileSync(res.genericPath);
     const entries = parseZipEntries(zipBuf);
-    const expected = RUNTIME_FILES.map((f) => `antigravity-pulse/${f}`).sort();
+    const prefix = 'agy-lens';
+    assert.ok(res.genericPath.endsWith('agy-lens.zip'));
+    assert.ok(res.versionedPath.endsWith(`agy-lens-v${res.version}.zip`));
+    const runtimeFiles = collectRuntimeFiles(ROOT);
+    const expected = runtimeFiles.map((f) => `${prefix}/${f}`).sort();
     assert.deepEqual(Array.from(entries.keys()).sort(), expected);
-    for (const name of entries.keys()) {
-      assert.equal(name.endsWith('.py'), false, `ZIP must not contain Python file: ${name}`);
+    for (const req of [
+      'agy-lens/plugin.json',
+      'agy-lens/package.json',
+      'agy-lens/bin/cli.mjs',
+      'agy-lens/sidecars/agy-lens/main.mjs',
+      'agy-lens/sidecars/agy-lens/lib/pb.mjs',
+      'agy-lens/sidecars/agy-lens/web/index.html',
+    ]) {
+      assert.ok(entries.has(req), `Missing required entry: ${req}`);
     }
-    for (const rel of RUNTIME_FILES) {
-      assert.deepEqual(entries.get(`antigravity-pulse/${rel}`), readFileSync(join(ROOT, rel)));
+    for (const name of entries.keys()) {
+      assert.equal(/\.(py|pyc|pyo)$/i.test(name), false, `ZIP must not contain Python file: ${name}`);
+      for (const bad of ['/tests/', '/docs/img/', '/.data/', '/dist/']) {
+        assert.equal(name.includes(bad), false, `ZIP must not contain ${bad}: ${name}`);
+      }
+    }
+    for (const rel of runtimeFiles) {
+      assert.deepEqual(entries.get(`${prefix}/${rel}`), readFileSync(join(ROOT, rel)));
     }
     const sha = createHash('sha256').update(zipBuf).digest('hex');
     const sums = readFileSync(join(outDir, 'SHA256SUMS.txt'), 'utf8');
-    assert.ok(sums.includes(`${sha}  antigravity-pulse.zip`));
-    assert.ok(sums.includes(`${sha}  antigravity-pulse-v${res.version}.zip`));
+    assert.ok(sums.includes(`${sha}  ${prefix}.zip`));
+    assert.ok(sums.includes(`${sha}  ${prefix}-v${res.version}.zip`));
   } finally {
     rmSync(outDir, { recursive: true, force: true });
   }

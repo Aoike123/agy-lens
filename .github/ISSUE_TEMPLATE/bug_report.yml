@@ -1,5 +1,5 @@
 name: Bug report / 问题反馈
-description: Something in the panel is wrong or broken. 面板显示错误或无法工作。
+description: Something in the panel or CLI is wrong or broken. 面板或 CLI 显示错误或无法工作。
 labels: [bug]
 body:
   - type: markdown
@@ -15,6 +15,7 @@ body:
         - Overview (context / output speed / this conversation) 概览
         - Quota 额度
         - History 历史
+        - CLI (npx agy-lens) 终端命令行
         - Install / startup 安装 / 启动
         - Other 其他
     validations:
@@ -34,7 +35,7 @@ body:
     id: plugin-version
     attributes:
       label: Plugin version / 插件版本
-      placeholder: "2.0.0"
+      placeholder: "2.2.0"
     validations:
       required: true
   - type: input
@@ -51,12 +52,13 @@ body:
     validations:
       required: true
   - type: input
-    id: python
+    id: node
     attributes:
-      label: Python version (`python --version`)
+      label: Node.js version (`node --version`, optional for CLI)
+      placeholder: "v24.x.x"
   - type: textarea
     id: logs
     attributes:
       label: Error message or output / 错误信息
-      description: e.g. the panel's error text, or `python sidecars/context/context_report.py --json` output (redacted).
+      description: e.g. the panel's error text, or redacted `npx agy-lens --json` / `agy-lens --json` output.
       render: text

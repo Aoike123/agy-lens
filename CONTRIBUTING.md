@@ -1,42 +1,55 @@
 # Contributing / 贡献指南
 
-Thanks for helping improve Pulse (antigravity-pulse)! 欢迎提交 Issue 与 Pull Request（中文或英文均可）。
+Thanks for helping improve Agy Lens (`agy-lens`). Issues and pull requests are welcome in English or Chinese. 欢迎用中文或英文提交 Issue 与 Pull Request。
 
 ## Setup
 
-1. Clone the repository into `~/.gemini/config/plugins/antigravity-pulse` (see [README](README.md#installation)).
-2. Requirements: Node.js 24+ (for built-in `node:sqlite`, matching Antigravity's bundled runtime) and optionally Python 3.10+ (standard library only, for the parity test / fallback scripts).
-3. After changing sidecar files, turn the plugin off and on again in **Customizations → Installed** to reload it.
+1. Clone the repository into `~/.gemini/config/plugins/agy-lens`:
+
+   ```bash
+   git clone https://github.com/Aoike123/agy-lens.git ~/.gemini/config/plugins/agy-lens
+   ```
+
+2. Requirements: Node.js 24+ (for built-in `node:sqlite`, the same runtime Antigravity 2.0 ships). There are no npm dependencies and no Python.
+3. After changing sidecar files, turn the plugin off and on again under **Customizations → Installed** to reload it.
+
+No global Node? On Windows you can use the runtime inside Antigravity:
+
+```powershell
+$env:ELECTRON_RUN_AS_NODE = '1'
+& "$env:LOCALAPPDATA\Programs\Antigravity\Antigravity.exe" --test tests/*.mjs
+```
 
 ## Project layout
 
-- `sidecars/context/main.mjs` — sidecar backend (`/api/report`, `/api/quota`, `/api/history`, `/api/pricing`).
-- `sidecars/context/pb.mjs` — shared protobuf wire decoder, read-only `node:sqlite` loader and date/number helpers.
-- `sidecars/context/context_report.mjs` (and `.py`) — per-conversation parser.
-- `sidecars/context/history_scanner.mjs` (and `.py`) — multi-conversation scanner.
-- `sidecars/context/index.html`, `app.js`, `styles.css` — panel UI. Every user-facing string goes in the `I18N` table in `app.js` with matching `zh` and `en` entries.
-- `scripts/build-release.mjs`, `install.ps1`, `install.sh` — zero-Python direct-install ZIP builder and one-line installers.
-- `tests/` — Node `node:test` suites (`test_main_helpers.mjs`, `test_native_engine.mjs`) and Python `unittest` suites.
+See [docs/architecture.md](docs/architecture.md) for the full picture. In short:
+
+- `sidecars/agy-lens/main.mjs`: sidecar backend (`/api/report`, `/api/quota`, `/api/history`, `/api/pricing`) and the bundled `/app.js`.
+- `sidecars/agy-lens/lib/`: engines shared by the panel and the CLI (`pb`, `context`, `history`, `quota`, `catalog`, `pricing`, `web-bundle`).
+- `sidecars/agy-lens/web/`: panel UI as ES modules. Every user-facing string goes into `web/i18n.js` with matching `en` and `zh` entries.
+- `bin/cli.mjs`: terminal summary.
+- `scripts/`: release builder, installers, screenshot renderer.
+- `tests/`: `node:test` unit suites, `tests/e2e/` end-to-end suite, `tests/fixtures/` sanitized fixtures.
 
 ## Before opening a pull request
 
 ```bash
-node --check sidecars/context/main.mjs
-node --check sidecars/context/app.js
-node --check scripts/build-release.mjs
-node --test tests/test_main_helpers.mjs tests/test_native_engine.mjs
+node --test tests/*.mjs
+node tests/e2e/run.mjs
 node scripts/build-release.mjs
-python -m unittest discover tests
 ```
 
-CI runs the same checks on Ubuntu, Windows and macOS.
+If you changed the UI, regenerate the images with `node scripts/render-screenshots.mjs` (needs Chrome or Edge).
+
+CI runs the checks on Ubuntu, Windows and macOS.
 
 ## Guidelines
 
-- **Stay local-first and read-only.** Open databases read-only, make no default network calls other than the app's local language server via `lsRequest()` (external requests must be explicit opt-in read-only fetches like `/api/pricing`, with zero user data sent), and never patch the app (`app.asar`) or inject scripts.
-- **No new dependencies.** The sidecar uses only Node built-ins (`node:sqlite`, `node:zlib`, etc.) and the app's `sidecar_sdk`; Python fallbacks use only the standard library.
-- **Additive API changes.** Keep the JSON contracts between the scripts, the backend and the UI backwards compatible.
-- **Never commit personal data.** Redact conversation IDs, tokens, emails and file paths from raw responses, logs and screenshots.
-- Add or update tests for parser, scanner and backend helper changes, and add an entry to [CHANGELOG.md](CHANGELOG.md).
+- **Stay local-first and read-only.** Open databases read-only. The only default network calls go to the app's local language server; external requests must be explicit opt-in read-only fetches like the price sync, with no user data sent. Never patch the app or inject scripts.
+- **No new dependencies.** Use Node built-ins only.
+- **The panel must load as a classic script.** Keep `web/` imports relative and static so `lib/web-bundle.mjs` can bundle them.
+- **Additive API changes.** Keep the JSON contracts between `lib/`, the backend, the UI and the CLI backwards compatible.
+- **Never commit personal data.** Fixtures and screenshots use synthetic data only; no real titles, IDs, emails or paths.
+- Add or update tests for engine and backend changes, and add an entry to [CHANGELOG.md](CHANGELOG.md).
 
 By contributing, you agree that your contributions are licensed under the [MIT License](LICENSE).

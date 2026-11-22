@@ -1,0 +1,5108 @@
+{
+ "report": {
+  "conversation_id": "5a1e0000-0000-4000-8000-000000002329",
+  "model": "Claude Opus 4.6 (Thinking)",
+  "heading": "Token usage by category",
+  "grid_segments": [
+   5200,
+   14814,
+   41748,
+   78111,
+   9200
+  ],
+  "checkpoint_view": null,
+  "text": "└ Context Usage\n\n◉ ◉ ◉ ◉ ◉ ◉ ◉ ◉ ◉ ◉ ◉ ◉ ◉ ◉ ◉ ◉ ◉ ◉ ◉ ◉   Claude Opus 4.6 (Thinking) · 149.1k/1M tokens\n◉ ◉ ◉ ◉ ◉ ◉ ◉ ◉ ◉ ◉ ◉ ◉ □ □ □ □ □ □ □ □    (14.9%)\n□ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □   Token usage by category\n□ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □   ◉ User messages: 14.8k tokens (1.5%)\n□ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □   ◉ Agent responses: 41.7k tokens (4.2%)\n□ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □   ◉ Tool calls: 78.1k tokens (7.8%)\n□ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □   ⛁ System prompt: 2.4k tokens (0.2%)\n□ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □   ⛁ System tools: 2.8k tokens (0.3%)\n□ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □   ⛁ Rules: 5.1k tokens (0.5%)\n□ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □   ⛁ Skills: 4.1k tokens (0.4%)\n□ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □   □ Free space: 850.9k (85.1%)\n\nRelated: /artifact · /skill · /rewind",
+  "model_id": "claude-opus-4-6",
+  "request_budget_tokens": 256000,
+  "used_tokens": 149073,
+  "limit_tokens": 1000000,
+  "used_pct": 14.9,
+  "free_tokens": 850927,
+  "has_breakdown": true,
+  "compacted": false,
+  "checkpoint_buffer": 0,
+  "categories": [
+   {
+    "icon": "◉",
+    "name": "User messages",
+    "key": "user",
+    "tokens": 14814,
+    "pct": 1.5
+   },
+   {
+    "icon": "◉",
+    "name": "Agent responses",
+    "key": "agent",
+    "tokens": 41748,
+    "pct": 4.2
+   },
+   {
+    "icon": "◉",
+    "name": "Tool calls",
+    "key": "tool",
+    "tokens": 78111,
+    "pct": 7.8
+   },
+   {
+    "icon": "⛁",
+    "name": "System prompt",
+    "key": "system_prompt",
+    "tokens": 2400,
+    "pct": 0.2
+   },
+   {
+    "icon": "⛁",
+    "name": "System tools",
+    "key": "system_tools",
+    "tokens": 2800,
+    "pct": 0.3
+   },
+   {
+    "icon": "⛁",
+    "name": "Rules",
+    "key": "rules",
+    "tokens": 5100,
+    "pct": 0.5
+   },
+   {
+    "icon": "⛁",
+    "name": "Skills",
+    "key": "skills",
+    "tokens": 4100,
+    "pct": 0.4
+   }
+  ],
+  "active_checkpoint": -1,
+  "checkpoints": [],
+  "knowledge_files": [],
+  "artifact_files": [],
+  "skill_files": [],
+  "system_files": [],
+  "speed": {
+   "latest": {
+    "output_tokens": 455,
+    "thinking_tokens": 172,
+    "response_tokens": 282,
+    "ttft_sec": 2.7,
+    "streaming_sec": 3.9,
+    "total_sec": 6.6,
+    "streaming_tps": 116.7,
+    "e2e_tps": 68.9,
+    "cache_hit_pct": 94.6,
+    "buffered": false
+   },
+   "calls": 12,
+   "avg_streaming_tps": 122.4,
+   "median_streaming_tps": 116.7,
+   "avg_e2e_tps": 89.4,
+   "avg_ttft_sec": 2.06,
+   "total_output_tokens": 8190,
+   "recent": [
+    {
+     "streaming_tps": 111.3,
+     "e2e_tps": 94.5,
+     "ttft_sec": 2.2,
+     "streaming_sec": 12.4,
+     "total_sec": 14.6,
+     "output_tokens": 1380,
+     "buffered": false
+    },
+    {
+     "streaming_tps": 195.8,
+     "e2e_tps": 134.3,
+     "ttft_sec": 1.1,
+     "streaming_sec": 2.4,
+     "total_sec": 3.5,
+     "output_tokens": 470,
+     "buffered": false
+    },
+    {
+     "streaming_tps": 120.2,
+     "e2e_tps": 74.3,
+     "ttft_sec": 2.6,
+     "streaming_sec": 4.2,
+     "total_sec": 6.8,
+     "output_tokens": 505,
+     "buffered": false
+    },
+    {
+     "streaming_tps": 116.1,
+     "e2e_tps": 94.4,
+     "ttft_sec": 2,
+     "streaming_sec": 8.7,
+     "total_sec": 10.7,
+     "output_tokens": 1010,
+     "buffered": false
+    },
+    {
+     "streaming_tps": 200,
+     "e2e_tps": 131,
+     "ttft_sec": 1,
+     "streaming_sec": 1.9,
+     "total_sec": 2.9,
+     "output_tokens": 380,
+     "buffered": false
+    },
+    {
+     "streaming_tps": 112,
+     "e2e_tps": 74.7,
+     "ttft_sec": 2.5,
+     "streaming_sec": 5,
+     "total_sec": 7.5,
+     "output_tokens": 560,
+     "buffered": false
+    },
+    {
+     "streaming_tps": 115.1,
+     "e2e_tps": 87.5,
+     "ttft_sec": 2.3,
+     "streaming_sec": 7.3,
+     "total_sec": 9.6,
+     "output_tokens": 840,
+     "buffered": false
+    },
+    {
+     "streaming_tps": 116.7,
+     "e2e_tps": 68.9,
+     "ttft_sec": 2.7,
+     "streaming_sec": 3.9,
+     "total_sec": 6.6,
+     "output_tokens": 455,
+     "buffered": false
+    }
+   ],
+   "by_model": [
+    {
+     "model": "claude-opus-4-6",
+     "display_name": "Claude Opus 4.6 (Thinking)",
+     "latest": {
+      "output_tokens": 455,
+      "thinking_tokens": 172,
+      "response_tokens": 282,
+      "ttft_sec": 2.7,
+      "streaming_sec": 3.9,
+      "total_sec": 6.6,
+      "streaming_tps": 116.7,
+      "e2e_tps": 68.9,
+      "cache_hit_pct": 94.6,
+      "buffered": false
+     },
+     "calls": 9,
+     "avg_streaming_tps": 114.9,
+     "median_streaming_tps": 116.1,
+     "avg_e2e_tps": 84.8,
+     "avg_ttft_sec": 2.41,
+     "output_tokens": 7010,
+     "recent": [
+      {
+       "streaming_tps": 117.3,
+       "e2e_tps": 96.6,
+       "ttft_sec": 2.1,
+       "streaming_sec": 9.8,
+       "total_sec": 11.9,
+       "output_tokens": 1150,
+       "buffered": false
+      },
+      {
+       "streaming_tps": 113.1,
+       "e2e_tps": 76.7,
+       "ttft_sec": 2.9,
+       "streaming_sec": 6.1,
+       "total_sec": 9,
+       "output_tokens": 690,
+       "buffered": false
+      },
+      {
+       "streaming_tps": 111.3,
+       "e2e_tps": 94.5,
+       "ttft_sec": 2.2,
+       "streaming_sec": 12.4,
+       "total_sec": 14.6,
+       "output_tokens": 1380,
+       "buffered": false
+      },
+      {
+       "streaming_tps": 120.2,
+       "e2e_tps": 74.3,
+       "ttft_sec": 2.6,
+       "streaming_sec": 4.2,
+       "total_sec": 6.8,
+       "output_tokens": 505,
+       "buffered": false
+      },
+      {
+       "streaming_tps": 116.1,
+       "e2e_tps": 94.4,
+       "ttft_sec": 2,
+       "streaming_sec": 8.7,
+       "total_sec": 10.7,
+       "output_tokens": 1010,
+       "buffered": false
+      },
+      {
+       "streaming_tps": 112,
+       "e2e_tps": 74.7,
+       "ttft_sec": 2.5,
+       "streaming_sec": 5,
+       "total_sec": 7.5,
+       "output_tokens": 560,
+       "buffered": false
+      },
+      {
+       "streaming_tps": 115.1,
+       "e2e_tps": 87.5,
+       "ttft_sec": 2.3,
+       "streaming_sec": 7.3,
+       "total_sec": 9.6,
+       "output_tokens": 840,
+       "buffered": false
+      },
+      {
+       "streaming_tps": 116.7,
+       "e2e_tps": 68.9,
+       "ttft_sec": 2.7,
+       "streaming_sec": 3.9,
+       "total_sec": 6.6,
+       "output_tokens": 455,
+       "buffered": false
+      }
+     ]
+    },
+    {
+     "model": "gemini-3-flash",
+     "display_name": "Gemini 3 Flash",
+     "latest": {
+      "output_tokens": 380,
+      "thinking_tokens": 144,
+      "response_tokens": 235,
+      "ttft_sec": 1,
+      "streaming_sec": 1.9,
+      "total_sec": 2.9,
+      "streaming_tps": 200,
+      "e2e_tps": 131,
+      "cache_hit_pct": 92.5,
+      "buffered": false
+     },
+     "calls": 3,
+     "avg_streaming_tps": 200,
+     "median_streaming_tps": 200,
+     "avg_e2e_tps": 132.6,
+     "avg_ttft_sec": 1,
+     "output_tokens": 1180,
+     "recent": [
+      {
+       "streaming_tps": 206.2,
+       "e2e_tps": 132,
+       "ttft_sec": 0.9,
+       "streaming_sec": 1.6,
+       "total_sec": 2.5,
+       "output_tokens": 330,
+       "buffered": false
+      },
+      {
+       "streaming_tps": 195.8,
+       "e2e_tps": 134.3,
+       "ttft_sec": 1.1,
+       "streaming_sec": 2.4,
+       "total_sec": 3.5,
+       "output_tokens": 470,
+       "buffered": false
+      },
+      {
+       "streaming_tps": 200,
+       "e2e_tps": 131,
+       "ttft_sec": 1,
+       "streaming_sec": 1.9,
+       "total_sec": 2.9,
+       "output_tokens": 380,
+       "buffered": false
+      }
+     ]
+    }
+   ]
+  },
+  "session": {
+   "input": 139756,
+   "output": 8190,
+   "cache_read": 1591635,
+   "thinking": 3106,
+   "calls": 12,
+   "total_tokens": 147946,
+   "cache_hit_pct": 91.9,
+   "est_cost_usd": 3.8925,
+   "cost_partial": false,
+   "cost_estimated": false,
+   "pricing_source": "builtin",
+   "pool": "claude_gpt",
+   "d7_tokens": 147946,
+   "d7_by_pool": {
+    "gemini": 40592,
+    "claude_gpt": 107354,
+    "other": 0
+   },
+   "first_at": "2026-11-22T12:56:35+08:00",
+   "last_at": "2026-11-22T14:13:35+08:00",
+   "by_model": [
+    {
+     "model": "claude-opus-4-6",
+     "display_name": "Claude Opus 4.6 (Thinking)",
+     "input": 100344,
+     "output": 7010,
+     "cache_read": 1212946,
+     "calls": 9,
+     "est_cost_usd": 3.8503,
+     "cost_estimated": false
+    },
+    {
+     "model": "gemini-3-flash",
+     "display_name": "Gemini 3 Flash",
+     "input": 39412,
+     "output": 1180,
+     "cache_read": 378689,
+     "calls": 3,
+     "est_cost_usd": 0.0422,
+     "cost_estimated": false
+    }
+   ]
+  },
+  "updatedAt": "2026-11-22T06:56:35.247Z"
+ },
+ "quota": {
+  "pools": [
+   {
+    "id": "gemini",
+    "category": "gemini",
+    "kind": "models",
+    "label": "Gemini models",
+    "label_zh": "Gemini 模型",
+    "remaining_fraction": 0.15,
+    "reset_time": "2026-11-22T08:14:35.247Z",
+    "limits": [
+     {
+      "kind": "weekly",
+      "inferred": false,
+      "label": "Weekly limit",
+      "label_zh": "每周限额",
+      "remaining_fraction": 0.8,
+      "reset_time": "2026-11-27T10:56:35.247Z"
+     },
+     {
+      "kind": "5h",
+      "inferred": false,
+      "label": "5-hour limit",
+      "label_zh": "5 小时限额",
+      "remaining_fraction": 0.15,
+      "reset_time": "2026-11-22T08:14:35.247Z"
+     }
+    ],
+    "models": [
+     {
+      "id": "gemini-3-pro-high",
+      "display_name": "Gemini 3 Pro (High)"
+     },
+     {
+      "id": "gemini-3-pro-low",
+      "display_name": "Gemini 3 Pro (Low)"
+     },
+     {
+      "id": "gemini-3-flash",
+      "display_name": "Gemini 3 Flash"
+     }
+    ],
+    "families": [
+     {
+      "id": "gemini-3-pro",
+      "display_name": "Gemini 3 Pro",
+      "levels": [
+       "Low",
+       "High"
+      ]
+     },
+     {
+      "id": "gemini-3-flash",
+      "display_name": "Gemini 3 Flash",
+      "levels": []
+     }
+    ],
+    "hidden_models": []
+   },
+   {
+    "id": "claude_gpt",
+    "category": "claude_gpt",
+    "kind": "models",
+    "label": "Claude / GPT-OSS models",
+    "label_zh": "Claude / GPT-OSS 模型",
+    "remaining_fraction": 0.72,
+    "reset_time": "2026-11-22T10:38:35.247Z",
+    "limits": [
+     {
+      "kind": "weekly",
+      "inferred": false,
+      "label": "Weekly limit",
+      "label_zh": "每周限额",
+      "remaining_fraction": 0.41,
+      "reset_time": "2026-11-26T18:56:35.247Z"
+     },
+     {
+      "kind": "5h",
+      "inferred": false,
+      "label": "5-hour limit",
+      "label_zh": "5 小时限额",
+      "remaining_fraction": 0.72,
+      "reset_time": "2026-11-22T10:38:35.247Z"
+     }
+    ],
+    "models": [
+     {
+      "id": "claude-opus-4-6",
+      "display_name": "Claude Opus 4.6 (Thinking)"
+     },
+     {
+      "id": "claude-sonnet-4-6",
+      "display_name": "Claude Sonnet 4.6 (Thinking)"
+     },
+     {
+      "id": "gpt-oss-120b",
+      "display_name": "GPT-OSS 120B (Medium)"
+     }
+    ],
+    "families": [
+     {
+      "id": "claude-opus-4-6",
+      "display_name": "Claude Opus 4.6 (Thinking)",
+      "levels": []
+     },
+     {
+      "id": "claude-sonnet-4-6",
+      "display_name": "Claude Sonnet 4.6 (Thinking)",
+      "levels": []
+     },
+     {
+      "id": "gpt-oss-120b",
+      "display_name": "GPT-OSS 120B (Medium)",
+      "levels": []
+     }
+    ],
+    "hidden_models": []
+   },
+   {
+    "id": "tab",
+    "category": "tab",
+    "kind": "tab",
+    "label": "Tab completion",
+    "label_zh": "Tab 补全",
+    "remaining_fraction": 1,
+    "reset_time": null,
+    "limits": [
+     {
+      "kind": "none",
+      "inferred": true,
+      "label": "Unlimited · no reset",
+      "label_zh": "不限 · 无重置",
+      "remaining_fraction": 1,
+      "reset_time": null
+     }
+    ],
+    "models": [],
+    "families": [],
+    "hidden_models": [
+     {
+      "id": "tab_flash_lite_preview",
+      "display_name": "tab_flash_lite_preview"
+     }
+    ]
+   }
+  ],
+  "weekly": {
+   "claude_gpt": {
+    "remaining_fraction": 0.41,
+    "reset_time": "2026-11-26T18:56:35.247Z"
+   },
+   "gemini": {
+    "remaining_fraction": 0.8,
+    "reset_time": "2026-11-27T10:56:35.247Z"
+   }
+  },
+  "plan": "Pro",
+  "tier": "Pro"
+ },
+ "history": {
+  "totals": {
+   "today": {
+    "input": 255697,
+    "output": 112331,
+    "cache_read": 2983549,
+    "thinking": 9074,
+    "calls": 57,
+    "conversations": 5,
+    "est_cost_usd": 5.6134,
+    "cost_estimated": false
+   },
+   "d7": {
+    "input": 493579,
+    "output": 305717,
+    "cache_read": 5719775,
+    "thinking": 45312,
+    "calls": 166,
+    "conversations": 11,
+    "est_cost_usd": 12.6945,
+    "cost_estimated": false
+   },
+   "d30": {
+    "input": 2577699,
+    "output": 1946525,
+    "cache_read": 29691102,
+    "thinking": 358114,
+    "calls": 952,
+    "conversations": 52,
+    "est_cost_usd": 98.6446,
+    "cost_estimated": false
+   },
+   "all": {
+    "input": 2982643,
+    "output": 2266639,
+    "cache_read": 34348764,
+    "thinking": 419329,
+    "calls": 1119,
+    "conversations": 62,
+    "est_cost_usd": 107.4129,
+    "cost_estimated": false
+   }
+  },
+  "by_model": [
+   {
+    "model": "gemini-3-pro",
+    "display_name": "Gemini 3 Pro (High)",
+    "pool": "gemini",
+    "input": 1249769,
+    "output": 1024507,
+    "cache_read": 14509352,
+    "thinking": 195142,
+    "d7_tokens": 264808,
+    "calls": 411,
+    "est_cost_usd": 17.6955,
+    "cost_estimated": false,
+    "periods": {
+     "today": {
+      "input": 54000,
+      "output": 55800,
+      "cache_read": 756000,
+      "calls": 18
+     },
+     "d7": {
+      "input": 139623,
+      "output": 125185,
+      "cache_read": 1740829,
+      "calls": 46
+     },
+     "d30": {
+      "input": 1009513,
+      "output": 827876,
+      "cache_read": 11745997,
+      "calls": 332
+     },
+     "all": {
+      "input": 1249769,
+      "output": 1024507,
+      "cache_read": 14509352,
+      "calls": 411
+     }
+    }
+   },
+   {
+    "model": "claude-opus-4-6",
+    "display_name": "Claude Opus 4.6 (Thinking)",
+    "pool": "claude_gpt",
+    "input": 968702,
+    "output": 686446,
+    "cache_read": 11200573,
+    "thinking": 121669,
+    "d7_tokens": 207800,
+    "calls": 315,
+    "est_cost_usd": 82.8148,
+    "cost_estimated": false,
+    "periods": {
+     "today": {
+      "input": 100344,
+      "output": 7010,
+      "cache_read": 1212946,
+      "calls": 9
+     },
+     "d7": {
+      "input": 156849,
+      "output": 50951,
+      "cache_read": 1862843,
+      "calls": 27
+     },
+     "d30": {
+      "input": 911847,
+      "output": 642568,
+      "cache_read": 10546663,
+      "calls": 295
+     },
+     "all": {
+      "input": 968702,
+      "output": 686446,
+      "cache_read": 11200573,
+      "calls": 315
+     }
+    }
+   },
+   {
+    "model": "claude-sonnet-4-6",
+    "display_name": "Claude Sonnet 4.6 (Thinking)",
+    "pool": "claude_gpt",
+    "input": 308166,
+    "output": 256817,
+    "cache_read": 3544596,
+    "thinking": 49076,
+    "d7_tokens": 131176,
+    "calls": 141,
+    "est_cost_usd": 5.8401,
+    "cost_estimated": false,
+    "periods": {
+     "today": {
+      "input": 34941,
+      "output": 33041,
+      "cache_read": 401914,
+      "calls": 18
+     },
+     "d7": {
+      "input": 67603,
+      "output": 63573,
+      "cache_read": 777598,
+      "calls": 33
+     },
+     "d30": {
+      "input": 308166,
+      "output": 256817,
+      "cache_read": 3544596,
+      "calls": 141
+     },
+     "all": {
+      "input": 308166,
+      "output": 256817,
+      "cache_read": 3544596,
+      "calls": 141
+     }
+    }
+   },
+   {
+    "model": "gemini-3-flash",
+    "display_name": "Gemini 3 Flash",
+    "pool": "gemini",
+    "input": 293776,
+    "output": 171045,
+    "cache_read": 3227920,
+    "thinking": 28846,
+    "d7_tokens": 82892,
+    "calls": 126,
+    "est_cost_usd": 0.8214,
+    "cost_estimated": false,
+    "periods": {
+     "today": {
+      "input": 66412,
+      "output": 16480,
+      "cache_read": 612689,
+      "calls": 12
+     },
+     "d7": {
+      "input": 66412,
+      "output": 16480,
+      "cache_read": 612689,
+      "calls": 12
+     },
+     "d30": {
+      "input": 242257,
+      "output": 133225,
+      "cache_read": 2635328,
+      "calls": 100
+     },
+     "all": {
+      "input": 293776,
+      "output": 171045,
+      "cache_read": 3227920,
+      "calls": 126
+     }
+    }
+   },
+   {
+    "model": "gpt-oss-120b",
+    "display_name": "GPT-OSS 120B (Medium)",
+    "pool": "claude_gpt",
+    "input": 162230,
+    "output": 127824,
+    "cache_read": 1866323,
+    "thinking": 24596,
+    "d7_tokens": 112620,
+    "calls": 126,
+    "est_cost_usd": 0.241,
+    "cost_estimated": false,
+    "periods": {
+     "today": {
+      "input": 0,
+      "output": 0,
+      "cache_read": 0,
+      "calls": 0
+     },
+     "d7": {
+      "input": 63092,
+      "output": 49528,
+      "cache_read": 725816,
+      "calls": 48
+     },
+     "d30": {
+      "input": 105916,
+      "output": 86039,
+      "cache_read": 1218518,
+      "calls": 84
+     },
+     "all": {
+      "input": 162230,
+      "output": 127824,
+      "cache_read": 1866323,
+      "calls": 126
+     }
+    }
+   }
+  ],
+  "by_conversation": [
+   {
+    "id": "5a1e0000-0000-4000-8000-000000002329",
+    "source": "desktop",
+    "title": "Refactor payment retry logic",
+    "model": "claude-opus-4-6",
+    "display_name": "Claude Opus 4.6 (Thinking)",
+    "pool": "claude_gpt",
+    "first_at": "2026-11-22T12:56:35+08:00",
+    "last_at": "2026-11-22T14:13:35+08:00",
+    "input": 139756,
+    "output": 8190,
+    "cache_read": 1591635,
+    "thinking": 3106,
+    "d7_tokens": 147946,
+    "d7_by_pool": {
+     "gemini": 40592,
+     "claude_gpt": 107354,
+     "other": 0
+    },
+    "calls": 12,
+    "est_cost_usd": 3.8925,
+    "cost_partial": false,
+    "cost_estimated": false,
+    "is_subagent": false,
+    "by_model": [
+     {
+      "model": "claude-opus-4-6",
+      "display_name": "Claude Opus 4.6 (Thinking)",
+      "input": 100344,
+      "output": 7010,
+      "cache_read": 1212946,
+      "thinking": 2659,
+      "calls": 9,
+      "est_cost_usd": 3.8503,
+      "cost_estimated": false
+     },
+     {
+      "model": "gemini-3-flash",
+      "display_name": "Gemini 3 Flash",
+      "input": 39412,
+      "output": 1180,
+      "cache_read": 378689,
+      "thinking": 447,
+      "calls": 3,
+      "est_cost_usd": 0.0422,
+      "cost_estimated": false
+     }
+    ]
+   },
+   {
+    "id": "5a1e0000-0000-4000-8000-00000000238c",
+    "source": "desktop",
+    "title": "Clean up feature flags",
+    "model": "gemini-3-pro",
+    "display_name": "Gemini 3 Pro (High)",
+    "pool": "gemini",
+    "first_at": "2026-11-22T09:56:35+08:00",
+    "last_at": "2026-11-22T10:06:35+08:00",
+    "input": 18000,
+    "output": 18600,
+    "cache_read": 252000,
+    "thinking": 0,
+    "d7_tokens": 36600,
+    "d7_by_pool": {
+     "gemini": 36600,
+     "claude_gpt": 0,
+     "other": 0
+    },
+    "calls": 6,
+    "est_cost_usd": 0.3096,
+    "cost_partial": false,
+    "cost_estimated": false,
+    "is_subagent": false,
+    "by_model": [
+     {
+      "model": "gemini-3-pro",
+      "display_name": "Gemini 3 Pro (High)",
+      "input": 18000,
+      "output": 18600,
+      "cache_read": 252000,
+      "thinking": 0,
+      "calls": 6,
+      "est_cost_usd": 0.3096,
+      "cost_estimated": false
+     }
+    ]
+   },
+   {
+    "id": "5a1e0000-0000-4000-8000-00000000003a",
+    "source": "desktop",
+    "title": "Add CSV export to reports",
+    "model": "claude-sonnet-4-6",
+    "display_name": "Claude Sonnet 4.6 (Thinking)",
+    "pool": "claude_gpt",
+    "first_at": "2026-11-22T08:42:36+08:00",
+    "last_at": "2026-11-22T09:25:24+08:00",
+    "input": 34941,
+    "output": 33041,
+    "cache_read": 401914,
+    "thinking": 5968,
+    "d7_tokens": 67982,
+    "d7_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 67982,
+     "other": 0
+    },
+    "calls": 18,
+    "est_cost_usd": 0.721,
+    "cost_partial": false,
+    "cost_estimated": false,
+    "is_subagent": false,
+    "by_model": [
+     {
+      "model": "claude-sonnet-4-6",
+      "display_name": "Claude Sonnet 4.6 (Thinking)",
+      "input": 34941,
+      "output": 33041,
+      "cache_read": 401914,
+      "thinking": 5968,
+      "calls": 18,
+      "est_cost_usd": 0.721,
+      "cost_estimated": false
+     }
+    ]
+   },
+   {
+    "id": "5a1e0000-0000-4000-8000-00000000238d",
+    "source": "desktop",
+    "title": "Write onboarding docs",
+    "model": "gemini-3-flash",
+    "display_name": "Gemini 3 Flash",
+    "pool": "gemini",
+    "first_at": "2026-11-22T07:56:35+08:00",
+    "last_at": "2026-11-22T08:12:35+08:00",
+    "input": 27000,
+    "output": 15300,
+    "cache_read": 234000,
+    "thinking": 0,
+    "d7_tokens": 42300,
+    "d7_by_pool": {
+     "gemini": 42300,
+     "claude_gpt": 0,
+     "other": 0
+    },
+    "calls": 9,
+    "est_cost_usd": 0.0711,
+    "cost_partial": false,
+    "cost_estimated": false,
+    "is_subagent": false,
+    "by_model": [
+     {
+      "model": "gemini-3-flash",
+      "display_name": "Gemini 3 Flash",
+      "input": 27000,
+      "output": 15300,
+      "cache_read": 234000,
+      "thinking": 0,
+      "calls": 9,
+      "est_cost_usd": 0.0711,
+      "cost_estimated": false
+     }
+    ]
+   },
+   {
+    "id": "5a1e0000-0000-4000-8000-00000000238e",
+    "source": "desktop",
+    "title": "Design rate limiter",
+    "model": "gemini-3-pro",
+    "display_name": "Gemini 3 Pro (High)",
+    "pool": "gemini",
+    "first_at": "2026-11-22T05:56:35+08:00",
+    "last_at": "2026-11-22T06:18:35+08:00",
+    "input": 36000,
+    "output": 37200,
+    "cache_read": 504000,
+    "thinking": 0,
+    "d7_tokens": 73200,
+    "d7_by_pool": {
+     "gemini": 73200,
+     "claude_gpt": 0,
+     "other": 0
+    },
+    "calls": 12,
+    "est_cost_usd": 0.6192,
+    "cost_partial": false,
+    "cost_estimated": false,
+    "is_subagent": false,
+    "by_model": [
+     {
+      "model": "gemini-3-pro",
+      "display_name": "Gemini 3 Pro (High)",
+      "input": 36000,
+      "output": 37200,
+      "cache_read": 504000,
+      "thinking": 0,
+      "calls": 12,
+      "est_cost_usd": 0.6192,
+      "cost_estimated": false
+     }
+    ]
+   },
+   {
+    "id": "5a1e0000-0000-4000-8000-000000000039",
+    "source": "desktop",
+    "title": "Migrate auth middleware to v2",
+    "model": "gpt-oss-120b",
+    "display_name": "GPT-OSS 120B (Medium)",
+    "pool": "claude_gpt",
+    "first_at": "2026-11-21T08:34:44+08:00",
+    "last_at": "2026-11-21T09:43:27+08:00",
+    "input": 27677,
+    "output": 21903,
+    "cache_read": 318383,
+    "thinking": 5101,
+    "d7_tokens": 49580,
+    "d7_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 49580,
+     "other": 0
+    },
+    "calls": 22,
+    "est_cost_usd": 0.0412,
+    "cost_partial": false,
+    "cost_estimated": false,
+    "is_subagent": false,
+    "by_model": [
+     {
+      "model": "gpt-oss-120b",
+      "display_name": "GPT-OSS 120B (Medium)",
+      "input": 27677,
+      "output": 21903,
+      "cache_read": 318383,
+      "thinking": 5101,
+      "calls": 22,
+      "est_cost_usd": 0.0412,
+      "cost_estimated": false
+     }
+    ]
+   },
+   {
+    "id": "5a1e0000-0000-4000-8000-000000000037",
+    "source": "desktop",
+    "title": "Write onboarding docs",
+    "model": "claude-opus-4-6",
+    "display_name": "Claude Opus 4.6 (Thinking)",
+    "pool": "claude_gpt",
+    "first_at": "2026-11-21T01:45:54+08:00",
+    "last_at": "2026-11-21T01:53:36+08:00",
+    "input": 14910,
+    "output": 11173,
+    "cache_read": 171490,
+    "thinking": 1964,
+    "d7_tokens": 26083,
+    "d7_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 26083,
+     "other": 0
+    },
+    "calls": 5,
+    "est_cost_usd": 1.3189,
+    "cost_partial": false,
+    "cost_estimated": false,
+    "is_subagent": false,
+    "by_model": [
+     {
+      "model": "claude-opus-4-6",
+      "display_name": "Claude Opus 4.6 (Thinking)",
+      "input": 14910,
+      "output": 11173,
+      "cache_read": 171490,
+      "thinking": 1964,
+      "calls": 5,
+      "est_cost_usd": 1.3189,
+      "cost_estimated": false
+     }
+    ]
+   },
+   {
+    "id": "5a1e0000-0000-4000-8000-000000000038",
+    "source": "desktop",
+    "title": "Clean up feature flags",
+    "model": "gpt-oss-120b",
+    "display_name": "GPT-OSS 120B (Medium)",
+    "pool": "claude_gpt",
+    "first_at": "2026-11-21T00:06:06+08:00",
+    "last_at": "2026-11-21T01:14:51+08:00",
+    "input": 35415,
+    "output": 27625,
+    "cache_read": 407433,
+    "thinking": 5421,
+    "d7_tokens": 63040,
+    "d7_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 63040,
+     "other": 0
+    },
+    "calls": 26,
+    "est_cost_usd": 0.0524,
+    "cost_partial": false,
+    "cost_estimated": false,
+    "is_subagent": false,
+    "by_model": [
+     {
+      "model": "gpt-oss-120b",
+      "display_name": "GPT-OSS 120B (Medium)",
+      "input": 35415,
+      "output": 27625,
+      "cache_read": 407433,
+      "thinking": 5421,
+      "calls": 26,
+      "est_cost_usd": 0.0524,
+      "cost_estimated": false
+     }
+    ]
+   },
+   {
+    "id": "5a1e0000-0000-4000-8000-000000000036",
+    "source": "desktop",
+    "title": "Upgrade build tooling",
+    "model": "claude-sonnet-4-6",
+    "display_name": "Claude Sonnet 4.6 (Thinking)",
+    "pool": "claude_gpt",
+    "first_at": "2026-11-19T01:04:12+08:00",
+    "last_at": "2026-11-19T01:39:00+08:00",
+    "input": 32662,
+    "output": 30532,
+    "cache_read": 375684,
+    "thinking": 4428,
+    "d7_tokens": 63194,
+    "d7_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 63194,
+     "other": 0
+    },
+    "calls": 15,
+    "est_cost_usd": 0.6687,
+    "cost_partial": false,
+    "cost_estimated": false,
+    "is_subagent": false,
+    "by_model": [
+     {
+      "model": "claude-sonnet-4-6",
+      "display_name": "Claude Sonnet 4.6 (Thinking)",
+      "input": 32662,
+      "output": 30532,
+      "cache_read": 375684,
+      "thinking": 4428,
+      "calls": 15,
+      "est_cost_usd": 0.6687,
+      "cost_estimated": false
+     }
+    ]
+   },
+   {
+    "id": "5a1e0000-0000-4000-8000-000000000035",
+    "source": "desktop",
+    "title": "Review API pagination",
+    "model": "gemini-3-pro",
+    "display_name": "Gemini 3 Pro (High)",
+    "pool": "gemini",
+    "first_at": "2026-11-18T04:29:44+08:00",
+    "last_at": "2026-11-18T06:01:21+08:00",
+    "input": 85623,
+    "output": 69385,
+    "cache_read": 984829,
+    "thinking": 15061,
+    "d7_tokens": 155008,
+    "d7_by_pool": {
+     "gemini": 155008,
+     "claude_gpt": 0,
+     "other": 0
+    },
+    "calls": 28,
+    "est_cost_usd": 1.2008,
+    "cost_partial": false,
+    "cost_estimated": false,
+    "is_subagent": false,
+    "by_model": [
+     {
+      "model": "gemini-3-pro",
+      "display_name": "Gemini 3 Pro (High)",
+      "input": 85623,
+      "output": 69385,
+      "cache_read": 984829,
+      "thinking": 15061,
+      "calls": 28,
+      "est_cost_usd": 1.2008,
+      "cost_estimated": false
+     }
+    ]
+   },
+   {
+    "id": "5a1e0000-0000-4000-8000-000000000034",
+    "source": "desktop",
+    "title": "Fix flaky checkout e2e test",
+    "model": "claude-opus-4-6",
+    "display_name": "Claude Opus 4.6 (Thinking)",
+    "pool": "claude_gpt",
+    "first_at": "2026-11-17T06:28:30+08:00",
+    "last_at": "2026-11-17T07:07:06+08:00",
+    "input": 41595,
+    "output": 32768,
+    "cache_read": 478407,
+    "thinking": 4263,
+    "d7_tokens": 74363,
+    "d7_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 74363,
+     "other": 0
+    },
+    "calls": 13,
+    "est_cost_usd": 3.7991,
+    "cost_partial": false,
+    "cost_estimated": false,
+    "is_subagent": false,
+    "by_model": [
+     {
+      "model": "claude-opus-4-6",
+      "display_name": "Claude Opus 4.6 (Thinking)",
+      "input": 41595,
+      "output": 32768,
+      "cache_read": 478407,
+      "thinking": 4263,
+      "calls": 13,
+      "est_cost_usd": 3.7991,
+      "cost_estimated": false
+     }
+    ]
+   },
+   {
+    "id": "5a1e0000-0000-4000-8000-000000000033",
+    "source": "desktop",
+    "title": "Localize dashboard strings",
+    "model": "gemini-3-pro",
+    "display_name": "Gemini 3 Pro (High)",
+    "pool": "gemini",
+    "first_at": "2026-11-14T08:17:18+08:00",
+    "last_at": "2026-11-14T09:49:42+08:00",
+    "input": 81538,
+    "output": 65386,
+    "cache_read": 937818,
+    "thinking": 11647,
+    "d7_tokens": 0,
+    "d7_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0,
+     "other": 0
+    },
+    "calls": 25,
+    "est_cost_usd": 1.1353,
+    "cost_partial": false,
+    "cost_estimated": false,
+    "is_subagent": false,
+    "by_model": [
+     {
+      "model": "gemini-3-pro",
+      "display_name": "Gemini 3 Pro (High)",
+      "input": 81538,
+      "output": 65386,
+      "cache_read": 937818,
+      "thinking": 11647,
+      "calls": 25,
+      "est_cost_usd": 1.1353,
+      "cost_estimated": false
+     }
+    ]
+   },
+   {
+    "id": "5a1e0000-0000-4000-8000-000000000030",
+    "source": "desktop",
+    "title": "Investigate memory leak in worker",
+    "model": "claude-opus-4-6",
+    "display_name": "Claude Opus 4.6 (Thinking)",
+    "pool": "claude_gpt",
+    "first_at": "2026-11-14T08:32:24+08:00",
+    "last_at": "2026-11-14T09:27:00+08:00",
+    "input": 69830,
+    "output": 55882,
+    "cache_read": 803130,
+    "thinking": 7038,
+    "d7_tokens": 0,
+    "d7_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0,
+     "other": 0
+    },
+    "calls": 23,
+    "est_cost_usd": 6.4433,
+    "cost_partial": false,
+    "cost_estimated": false,
+    "is_subagent": false,
+    "by_model": [
+     {
+      "model": "claude-opus-4-6",
+      "display_name": "Claude Opus 4.6 (Thinking)",
+      "input": 69830,
+      "output": 55882,
+      "cache_read": 803130,
+      "thinking": 7038,
+      "calls": 23,
+      "est_cost_usd": 6.4433,
+      "cost_estimated": false
+     }
+    ]
+   },
+   {
+    "id": "5a1e0000-0000-4000-8000-000000000031",
+    "source": "desktop",
+    "title": "Optimize image pipeline",
+    "model": "gemini-3-pro",
+    "display_name": "Gemini 3 Pro (High)",
+    "pool": "gemini",
+    "first_at": "2026-11-14T04:23:52+08:00",
+    "last_at": "2026-11-14T04:35:16+08:00",
+    "input": 15507,
+    "output": 10229,
+    "cache_read": 178351,
+    "thinking": 2891,
+    "d7_tokens": 0,
+    "d7_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0,
+     "other": 0
+    },
+    "calls": 5,
+    "est_cost_usd": 0.1894,
+    "cost_partial": false,
+    "cost_estimated": false,
+    "is_subagent": false,
+    "by_model": [
+     {
+      "model": "gemini-3-pro",
+      "display_name": "Gemini 3 Pro (High)",
+      "input": 15507,
+      "output": 10229,
+      "cache_read": 178351,
+      "thinking": 2891,
+      "calls": 5,
+      "est_cost_usd": 0.1894,
+      "cost_estimated": false
+     }
+    ]
+   },
+   {
+    "id": "5a1e0000-0000-4000-8000-000000000032",
+    "source": "desktop",
+    "title": "Fix flaky checkout e2e test",
+    "model": "claude-sonnet-4-6",
+    "display_name": "Claude Sonnet 4.6 (Thinking)",
+    "pool": "claude_gpt",
+    "first_at": "2026-11-14T02:45:26+08:00",
+    "last_at": "2026-11-14T03:22:46+08:00",
+    "input": 26177,
+    "output": 16020,
+    "cache_read": 301081,
+    "thinking": 2906,
+    "d7_tokens": 0,
+    "d7_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0,
+     "other": 0
+    },
+    "calls": 11,
+    "est_cost_usd": 0.4092,
+    "cost_partial": false,
+    "cost_estimated": false,
+    "is_subagent": false,
+    "by_model": [
+     {
+      "model": "claude-sonnet-4-6",
+      "display_name": "Claude Sonnet 4.6 (Thinking)",
+      "input": 26177,
+      "output": 16020,
+      "cache_read": 301081,
+      "thinking": 2906,
+      "calls": 11,
+      "est_cost_usd": 0.4092,
+      "cost_estimated": false
+     }
+    ]
+   },
+   {
+    "id": "5a1e0000-0000-4000-8000-00000000002e",
+    "source": "desktop",
+    "title": "Refactor payment retry logic",
+    "model": "claude-sonnet-4-6",
+    "display_name": "Claude Sonnet 4.6 (Thinking)",
+    "pool": "claude_gpt",
+    "first_at": "2026-11-13T05:00:58+08:00",
+    "last_at": "2026-11-13T06:40:25+08:00",
+    "input": 66058,
+    "output": 53823,
+    "cache_read": 759822,
+    "thinking": 10546,
+    "d7_tokens": 0,
+    "d7_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0,
+     "other": 0
+    },
+    "calls": 30,
+    "est_cost_usd": 1.2335,
+    "cost_partial": false,
+    "cost_estimated": false,
+    "is_subagent": false,
+    "by_model": [
+     {
+      "model": "claude-sonnet-4-6",
+      "display_name": "Claude Sonnet 4.6 (Thinking)",
+      "input": 66058,
+      "output": 53823,
+      "cache_read": 759822,
+      "thinking": 10546,
+      "calls": 30,
+      "est_cost_usd": 1.2335,
+      "cost_estimated": false
+     }
+    ]
+   },
+   {
+    "id": "5a1e0000-0000-4000-8000-00000000002f",
+    "source": "desktop",
+    "title": "Investigate memory leak in worker",
+    "model": "gemini-3-flash",
+    "display_name": "Gemini 3 Flash",
+    "pool": "gemini",
+    "first_at": "2026-11-13T05:34:04+08:00",
+    "last_at": "2026-11-13T06:33:32+08:00",
+    "input": 31795,
+    "output": 24553,
+    "cache_read": 365727,
+    "thinking": 4540,
+    "d7_tokens": 0,
+    "d7_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0,
+     "other": 0
+    },
+    "calls": 17,
+    "est_cost_usd": 0.1078,
+    "cost_partial": false,
+    "cost_estimated": false,
+    "is_subagent": false,
+    "by_model": [
+     {
+      "model": "gemini-3-flash",
+      "display_name": "Gemini 3 Flash",
+      "input": 31795,
+      "output": 24553,
+      "cache_read": 365727,
+      "thinking": 4540,
+      "calls": 17,
+      "est_cost_usd": 0.1078,
+      "cost_estimated": false
+     }
+    ]
+   },
+   {
+    "id": "5a1e0000-0000-4000-8000-00000000002d",
+    "source": "desktop",
+    "title": "Refactor payment retry logic",
+    "model": "claude-opus-4-6",
+    "display_name": "Claude Opus 4.6 (Thinking)",
+    "pool": "claude_gpt",
+    "first_at": "2026-11-13T01:54:23+08:00",
+    "last_at": "2026-11-13T03:11:59+08:00",
+    "input": 92768,
+    "output": 67737,
+    "cache_read": 1067018,
+    "thinking": 13320,
+    "d7_tokens": 0,
+    "d7_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0,
+     "other": 0
+    },
+    "calls": 31,
+    "est_cost_usd": 8.0723,
+    "cost_partial": false,
+    "cost_estimated": false,
+    "is_subagent": false,
+    "by_model": [
+     {
+      "model": "claude-opus-4-6",
+      "display_name": "Claude Opus 4.6 (Thinking)",
+      "input": 92768,
+      "output": 67737,
+      "cache_read": 1067018,
+      "thinking": 13320,
+      "calls": 31,
+      "est_cost_usd": 8.0723,
+      "cost_estimated": false
+     }
+    ]
+   },
+   {
+    "id": "5a1e0000-0000-4000-8000-00000000002c",
+    "source": "desktop",
+    "title": "Clean up feature flags",
+    "model": "claude-opus-4-6",
+    "display_name": "Claude Opus 4.6 (Thinking)",
+    "pool": "claude_gpt",
+    "first_at": "2026-11-12T01:42:45+08:00",
+    "last_at": "2026-11-12T02:27:21+08:00",
+    "input": 37042,
+    "output": 29589,
+    "cache_read": 426028,
+    "thinking": 4702,
+    "d7_tokens": 0,
+    "d7_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0,
+     "other": 0
+    },
+    "calls": 13,
+    "est_cost_usd": 3.4138,
+    "cost_partial": false,
+    "cost_estimated": false,
+    "is_subagent": false,
+    "by_model": [
+     {
+      "model": "claude-opus-4-6",
+      "display_name": "Claude Opus 4.6 (Thinking)",
+      "input": 37042,
+      "output": 29589,
+      "cache_read": 426028,
+      "thinking": 4702,
+      "calls": 13,
+      "est_cost_usd": 3.4138,
+      "cost_estimated": false
+     }
+    ]
+   },
+   {
+    "id": "5a1e0000-0000-4000-8000-00000000002b",
+    "source": "desktop",
+    "title": "Fix flaky checkout e2e test",
+    "model": "claude-opus-4-6",
+    "display_name": "Claude Opus 4.6 (Thinking)",
+    "pool": "claude_gpt",
+    "first_at": "2026-11-11T05:12:15+08:00",
+    "last_at": "2026-11-11T06:14:39+08:00",
+    "input": 71644,
+    "output": 61125,
+    "cache_read": 824036,
+    "thinking": 12056,
+    "d7_tokens": 0,
+    "d7_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0,
+     "other": 0
+    },
+    "calls": 26,
+    "est_cost_usd": 6.8951,
+    "cost_partial": false,
+    "cost_estimated": false,
+    "is_subagent": false,
+    "by_model": [
+     {
+      "model": "claude-opus-4-6",
+      "display_name": "Claude Opus 4.6 (Thinking)",
+      "input": 71644,
+      "output": 61125,
+      "cache_read": 824036,
+      "thinking": 12056,
+      "calls": 26,
+      "est_cost_usd": 6.8951,
+      "cost_estimated": false
+     }
+    ]
+   },
+   {
+    "id": "5a1e0000-0000-4000-8000-000000000029",
+    "source": "cli",
+    "title": "Refactor payment retry logic",
+    "model": "claude-opus-4-6",
+    "display_name": "Claude Opus 4.6 (Thinking)",
+    "pool": "claude_gpt",
+    "first_at": "2026-11-11T03:00:48+08:00",
+    "last_at": "2026-11-11T03:04:58+08:00",
+    "input": 11910,
+    "output": 9762,
+    "cache_read": 136979,
+    "thinking": 496,
+    "d7_tokens": 0,
+    "d7_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0,
+     "other": 0
+    },
+    "calls": 4,
+    "est_cost_usd": 1.1163,
+    "cost_partial": false,
+    "cost_estimated": false,
+    "is_subagent": false,
+    "by_model": [
+     {
+      "model": "claude-opus-4-6",
+      "display_name": "Claude Opus 4.6 (Thinking)",
+      "input": 11910,
+      "output": 9762,
+      "cache_read": 136979,
+      "thinking": 496,
+      "calls": 4,
+      "est_cost_usd": 1.1163,
+      "cost_estimated": false
+     }
+    ]
+   },
+   {
+    "id": "5a1e0000-0000-4000-8000-000000000028",
+    "source": "desktop",
+    "title": "Prototype search ranking",
+    "model": "claude-opus-4-6",
+    "display_name": "Claude Opus 4.6 (Thinking)",
+    "pool": "claude_gpt",
+    "first_at": "2026-11-11T01:10:01+08:00",
+    "last_at": "2026-11-11T02:39:43+08:00",
+    "input": 88579,
+    "output": 62023,
+    "cache_read": 1018841,
+    "thinking": 11499,
+    "d7_tokens": 0,
+    "d7_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0,
+     "other": 0
+    },
+    "calls": 30,
+    "est_cost_usd": 7.5087,
+    "cost_partial": false,
+    "cost_estimated": false,
+    "is_subagent": false,
+    "by_model": [
+     {
+      "model": "claude-opus-4-6",
+      "display_name": "Claude Opus 4.6 (Thinking)",
+      "input": 88579,
+      "output": 62023,
+      "cache_read": 1018841,
+      "thinking": 11499,
+      "calls": 30,
+      "est_cost_usd": 7.5087,
+      "cost_estimated": false
+     }
+    ]
+   },
+   {
+    "id": "5a1e0000-0000-4000-8000-00000000002a",
+    "source": "desktop",
+    "title": "Write onboarding docs",
+    "model": "gemini-3-pro",
+    "display_name": "Gemini 3 Pro (High)",
+    "pool": "gemini",
+    "first_at": "2026-11-11T02:18:41+08:00",
+    "last_at": "2026-11-11T02:30:20+08:00",
+    "input": 21882,
+    "output": 17331,
+    "cache_read": 251678,
+    "thinking": 3288,
+    "d7_tokens": 0,
+    "d7_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0,
+     "other": 0
+    },
+    "calls": 7,
+    "est_cost_usd": 0.3021,
+    "cost_partial": false,
+    "cost_estimated": false,
+    "is_subagent": false,
+    "by_model": [
+     {
+      "model": "gemini-3-pro",
+      "display_name": "Gemini 3 Pro (High)",
+      "input": 21882,
+      "output": 17331,
+      "cache_read": 251678,
+      "thinking": 3288,
+      "calls": 7,
+      "est_cost_usd": 0.3021,
+      "cost_estimated": false
+     }
+    ]
+   },
+   {
+    "id": "5a1e0000-0000-4000-8000-000000000027",
+    "source": "desktop",
+    "title": "Prototype search ranking",
+    "model": "claude-opus-4-6",
+    "display_name": "Claude Opus 4.6 (Thinking)",
+    "pool": "claude_gpt",
+    "first_at": "2026-11-10T01:32:30+08:00",
+    "last_at": "2026-11-10T02:44:36+08:00",
+    "input": 64857,
+    "output": 59425,
+    "cache_read": 746013,
+    "thinking": 11673,
+    "d7_tokens": 0,
+    "d7_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0,
+     "other": 0
+    },
+    "calls": 28,
+    "est_cost_usd": 6.5487,
+    "cost_partial": false,
+    "cost_estimated": false,
+    "is_subagent": false,
+    "by_model": [
+     {
+      "model": "claude-opus-4-6",
+      "display_name": "Claude Opus 4.6 (Thinking)",
+      "input": 64857,
+      "output": 59425,
+      "cache_read": 746013,
+      "thinking": 11673,
+      "calls": 28,
+      "est_cost_usd": 6.5487,
+      "cost_estimated": false
+     }
+    ]
+   },
+   {
+    "id": "5a1e0000-0000-4000-8000-000000000026",
+    "source": "desktop",
+    "title": "Prototype search ranking",
+    "model": "gemini-3-pro",
+    "display_name": "Gemini 3 Pro (High)",
+    "pool": "gemini",
+    "first_at": "2026-11-09T06:09:23+08:00",
+    "last_at": "2026-11-09T07:27:18+08:00",
+    "input": 83993,
+    "output": 68250,
+    "cache_read": 966068,
+    "thinking": 13569,
+    "d7_tokens": 0,
+    "d7_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0,
+     "other": 0
+    },
+    "calls": 27,
+    "est_cost_usd": 1.1802,
+    "cost_partial": false,
+    "cost_estimated": false,
+    "is_subagent": false,
+    "by_model": [
+     {
+      "model": "gemini-3-pro",
+      "display_name": "Gemini 3 Pro (High)",
+      "input": 83993,
+      "output": 68250,
+      "cache_read": 966068,
+      "thinking": 13569,
+      "calls": 27,
+      "est_cost_usd": 1.1802,
+      "cost_estimated": false
+     }
+    ]
+   },
+   {
+    "id": "5a1e0000-0000-4000-8000-000000000025",
+    "source": "desktop",
+    "title": "Refactor payment retry logic",
+    "model": "gemini-3-pro",
+    "display_name": "Gemini 3 Pro (High)",
+    "pool": "gemini",
+    "first_at": "2026-11-08T05:30:29+08:00",
+    "last_at": "2026-11-08T07:03:39+08:00",
+    "input": 97119,
+    "output": 65870,
+    "cache_read": 1117009,
+    "thinking": 14724,
+    "d7_tokens": 0,
+    "d7_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0,
+     "other": 0
+    },
+    "calls": 30,
+    "est_cost_usd": 1.2081,
+    "cost_partial": false,
+    "cost_estimated": false,
+    "is_subagent": false,
+    "by_model": [
+     {
+      "model": "gemini-3-pro",
+      "display_name": "Gemini 3 Pro (High)",
+      "input": 97119,
+      "output": 65870,
+      "cache_read": 1117009,
+      "thinking": 14724,
+      "calls": 30,
+      "est_cost_usd": 1.2081,
+      "cost_estimated": false
+     }
+    ]
+   },
+   {
+    "id": "5a1e0000-0000-4000-8000-000000000024",
+    "source": "desktop",
+    "title": "Migrate auth middleware to v2",
+    "model": "gemini-3-flash",
+    "display_name": "Gemini 3 Flash",
+    "pool": "gemini",
+    "first_at": "2026-11-05T05:49:20+08:00",
+    "last_at": "2026-11-05T06:56:32+08:00",
+    "input": 46891,
+    "output": 28679,
+    "cache_read": 539363,
+    "thinking": 5463,
+    "d7_tokens": 0,
+    "d7_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0,
+     "other": 0
+    },
+    "calls": 22,
+    "est_cost_usd": 0.1365,
+    "cost_partial": false,
+    "cost_estimated": false,
+    "is_subagent": false,
+    "by_model": [
+     {
+      "model": "gemini-3-flash",
+      "display_name": "Gemini 3 Flash",
+      "input": 46891,
+      "output": 28679,
+      "cache_read": 539363,
+      "thinking": 5463,
+      "calls": 22,
+      "est_cost_usd": 0.1365,
+      "cost_estimated": false
+     }
+    ]
+   },
+   {
+    "id": "5a1e0000-0000-4000-8000-000000000023",
+    "source": "desktop",
+    "title": "Optimize image pipeline",
+    "model": "claude-sonnet-4-6",
+    "display_name": "Claude Sonnet 4.6 (Thinking)",
+    "pool": "claude_gpt",
+    "first_at": "2026-11-05T00:34:09+08:00",
+    "last_at": "2026-11-05T00:55:37+08:00",
+    "input": 25745,
+    "output": 25718,
+    "cache_read": 296120,
+    "thinking": 5058,
+    "d7_tokens": 0,
+    "d7_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0,
+     "other": 0
+    },
+    "calls": 13,
+    "est_cost_usd": 0.5518,
+    "cost_partial": false,
+    "cost_estimated": false,
+    "is_subagent": false,
+    "by_model": [
+     {
+      "model": "claude-sonnet-4-6",
+      "display_name": "Claude Sonnet 4.6 (Thinking)",
+      "input": 25745,
+      "output": 25718,
+      "cache_read": 296120,
+      "thinking": 5058,
+      "calls": 13,
+      "est_cost_usd": 0.5518,
+      "cost_estimated": false
+     }
+    ]
+   },
+   {
+    "id": "5a1e0000-0000-4000-8000-000000000022",
+    "source": "desktop",
+    "title": "Design rate limiter",
+    "model": "gemini-3-pro",
+    "display_name": "Gemini 3 Pro (High)",
+    "pool": "gemini",
+    "first_at": "2026-11-04T05:04:02+08:00",
+    "last_at": "2026-11-04T05:19:50+08:00",
+    "input": 15453,
+    "output": 11904,
+    "cache_read": 177742,
+    "thinking": 2810,
+    "d7_tokens": 0,
+    "d7_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0,
+     "other": 0
+    },
+    "calls": 5,
+    "est_cost_usd": 0.2093,
+    "cost_partial": false,
+    "cost_estimated": false,
+    "is_subagent": false,
+    "by_model": [
+     {
+      "model": "gemini-3-pro",
+      "display_name": "Gemini 3 Pro (High)",
+      "input": 15453,
+      "output": 11904,
+      "cache_read": 177742,
+      "thinking": 2810,
+      "calls": 5,
+      "est_cost_usd": 0.2093,
+      "cost_estimated": false
+     }
+    ]
+   },
+   {
+    "id": "5a1e0000-0000-4000-8000-000000000021",
+    "source": "desktop",
+    "title": "Add CSV export to reports",
+    "model": "claude-opus-4-6",
+    "display_name": "Claude Opus 4.6 (Thinking)",
+    "pool": "claude_gpt",
+    "first_at": "2026-11-04T03:46:15+08:00",
+    "last_at": "2026-11-04T04:33:17+08:00",
+    "input": 55946,
+    "output": 39471,
+    "cache_read": 643480,
+    "thinking": 7172,
+    "d7_tokens": 0,
+    "d7_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0,
+     "other": 0
+    },
+    "calls": 19,
+    "est_cost_usd": 4.7647,
+    "cost_partial": false,
+    "cost_estimated": false,
+    "is_subagent": false,
+    "by_model": [
+     {
+      "model": "claude-opus-4-6",
+      "display_name": "Claude Opus 4.6 (Thinking)",
+      "input": 55946,
+      "output": 39471,
+      "cache_read": 643480,
+      "thinking": 7172,
+      "calls": 19,
+      "est_cost_usd": 4.7647,
+      "cost_estimated": false
+     }
+    ]
+   },
+   {
+    "id": "5a1e0000-0000-4000-8000-00000000001f",
+    "source": "desktop",
+    "title": "Write onboarding docs",
+    "model": "gemini-3-pro",
+    "display_name": "Gemini 3 Pro (High)",
+    "pool": "gemini",
+    "first_at": "2026-11-03T07:19:23+08:00",
+    "last_at": "2026-11-03T08:40:25+08:00",
+    "input": 80454,
+    "output": 64801,
+    "cache_read": 925331,
+    "thinking": 11400,
+    "d7_tokens": 0,
+    "d7_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0,
+     "other": 0
+    },
+    "calls": 25,
+    "est_cost_usd": 1.1236,
+    "cost_partial": false,
+    "cost_estimated": false,
+    "is_subagent": false,
+    "by_model": [
+     {
+      "model": "gemini-3-pro",
+      "display_name": "Gemini 3 Pro (High)",
+      "input": 80454,
+      "output": 64801,
+      "cache_read": 925331,
+      "thinking": 11400,
+      "calls": 25,
+      "est_cost_usd": 1.1236,
+      "cost_estimated": false
+     }
+    ]
+   },
+   {
+    "id": "5a1e0000-0000-4000-8000-000000000020",
+    "source": "desktop",
+    "title": "Optimize image pipeline",
+    "model": "gpt-oss-120b",
+    "display_name": "GPT-OSS 120B (Medium)",
+    "pool": "claude_gpt",
+    "first_at": "2026-11-03T01:18:29+08:00",
+    "last_at": "2026-11-03T02:00:05+08:00",
+    "input": 18707,
+    "output": 14758,
+    "cache_read": 215216,
+    "thinking": 2079,
+    "d7_tokens": 0,
+    "d7_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0,
+     "other": 0
+    },
+    "calls": 14,
+    "est_cost_usd": 0.0278,
+    "cost_partial": false,
+    "cost_estimated": false,
+    "is_subagent": false,
+    "by_model": [
+     {
+      "model": "gpt-oss-120b",
+      "display_name": "GPT-OSS 120B (Medium)",
+      "input": 18707,
+      "output": 14758,
+      "cache_read": 215216,
+      "thinking": 2079,
+      "calls": 14,
+      "est_cost_usd": 0.0278,
+      "cost_estimated": false
+     }
+    ]
+   },
+   {
+    "id": "5a1e0000-0000-4000-8000-00000000001e",
+    "source": "desktop",
+    "title": "Upgrade build tooling",
+    "model": "gemini-3-flash",
+    "display_name": "Gemini 3 Flash",
+    "pool": "gemini",
+    "first_at": "2026-11-02T02:27:40+08:00",
+    "last_at": "2026-11-02T03:05:50+08:00",
+    "input": 21484,
+    "output": 15211,
+    "cache_read": 247129,
+    "thinking": 2088,
+    "d7_tokens": 0,
+    "d7_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0,
+     "other": 0
+    },
+    "calls": 11,
+    "est_cost_usd": 0.0687,
+    "cost_partial": false,
+    "cost_estimated": false,
+    "is_subagent": false,
+    "by_model": [
+     {
+      "model": "gemini-3-flash",
+      "display_name": "Gemini 3 Flash",
+      "input": 21484,
+      "output": 15211,
+      "cache_read": 247129,
+      "thinking": 2088,
+      "calls": 11,
+      "est_cost_usd": 0.0687,
+      "cost_estimated": false
+     }
+    ]
+   },
+   {
+    "id": "5a1e0000-0000-4000-8000-00000000001b",
+    "source": "desktop",
+    "title": "Harden input validation",
+    "model": "gemini-3-flash",
+    "display_name": "Gemini 3 Flash",
+    "pool": "gemini",
+    "first_at": "2026-10-31T02:05:10+08:00",
+    "last_at": "2026-10-31T02:51:25+08:00",
+    "input": 31292,
+    "output": 22946,
+    "cache_read": 359916,
+    "thinking": 4484,
+    "d7_tokens": 0,
+    "d7_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0,
+     "other": 0
+    },
+    "calls": 16,
+    "est_cost_usd": 0.1025,
+    "cost_partial": false,
+    "cost_estimated": false,
+    "is_subagent": false,
+    "by_model": [
+     {
+      "model": "gemini-3-flash",
+      "display_name": "Gemini 3 Flash",
+      "input": 31292,
+      "output": 22946,
+      "cache_read": 359916,
+      "thinking": 4484,
+      "calls": 16,
+      "est_cost_usd": 0.1025,
+      "cost_estimated": false
+     }
+    ]
+   },
+   {
+    "id": "5a1e0000-0000-4000-8000-00000000001c",
+    "source": "desktop",
+    "title": "Fix flaky checkout e2e test",
+    "model": "gemini-3-pro",
+    "display_name": "Gemini 3 Pro (High)",
+    "pool": "gemini",
+    "first_at": "2026-10-31T01:26:04+08:00",
+    "last_at": "2026-10-31T02:28:04+08:00",
+    "input": 69833,
+    "output": 50139,
+    "cache_read": 803182,
+    "thinking": 9082,
+    "d7_tokens": 0,
+    "d7_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0,
+     "other": 0
+    },
+    "calls": 21,
+    "est_cost_usd": 0.902,
+    "cost_partial": false,
+    "cost_estimated": false,
+    "is_subagent": false,
+    "by_model": [
+     {
+      "model": "gemini-3-pro",
+      "display_name": "Gemini 3 Pro (High)",
+      "input": 69833,
+      "output": 50139,
+      "cache_read": 803182,
+      "thinking": 9082,
+      "calls": 21,
+      "est_cost_usd": 0.902,
+      "cost_estimated": false
+     }
+    ]
+   },
+   {
+    "id": "5a1e0000-0000-4000-8000-00000000001d",
+    "source": "desktop",
+    "title": "Prototype search ranking",
+    "model": "claude-opus-4-6",
+    "display_name": "Claude Opus 4.6 (Thinking)",
+    "pool": "claude_gpt",
+    "first_at": "2026-10-31T01:15:38+08:00",
+    "last_at": "2026-10-31T01:47:50+08:00",
+    "input": 40628,
+    "output": 34919,
+    "cache_read": 467308,
+    "thinking": 5729,
+    "d7_tokens": 0,
+    "d7_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0,
+     "other": 0
+    },
+    "calls": 16,
+    "est_cost_usd": 3.9293,
+    "cost_partial": false,
+    "cost_estimated": false,
+    "is_subagent": false,
+    "by_model": [
+     {
+      "model": "claude-opus-4-6",
+      "display_name": "Claude Opus 4.6 (Thinking)",
+      "input": 40628,
+      "output": 34919,
+      "cache_read": 467308,
+      "thinking": 5729,
+      "calls": 16,
+      "est_cost_usd": 3.9293,
+      "cost_estimated": false
+     }
+    ]
+   },
+   {
+    "id": "5a1e0000-0000-4000-8000-000000000019",
+    "source": "desktop",
+    "title": "Investigate memory leak in worker",
+    "model": "gemini-3-pro",
+    "display_name": "Gemini 3 Pro (High)",
+    "pool": "gemini",
+    "first_at": "2026-10-30T05:12:08+08:00",
+    "last_at": "2026-10-30T06:41:44+08:00",
+    "input": 72785,
+    "output": 60305,
+    "cache_read": 837168,
+    "thinking": 15317,
+    "d7_tokens": 0,
+    "d7_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0,
+     "other": 0
+    },
+    "calls": 26,
+    "est_cost_usd": 1.0367,
+    "cost_partial": false,
+    "cost_estimated": false,
+    "is_subagent": false,
+    "by_model": [
+     {
+      "model": "gemini-3-pro",
+      "display_name": "Gemini 3 Pro (High)",
+      "input": 72785,
+      "output": 60305,
+      "cache_read": 837168,
+      "thinking": 15317,
+      "calls": 26,
+      "est_cost_usd": 1.0367,
+      "cost_estimated": false
+     }
+    ]
+   },
+   {
+    "id": "5a1e0000-0000-4000-8000-00000000001a",
+    "source": "desktop",
+    "title": "Localize dashboard strings",
+    "model": "claude-opus-4-6",
+    "display_name": "Claude Opus 4.6 (Thinking)",
+    "pool": "claude_gpt",
+    "first_at": "2026-10-30T00:37:39+08:00",
+    "last_at": "2026-10-30T00:53:04+08:00",
+    "input": 22558,
+    "output": 13966,
+    "cache_read": 259441,
+    "thinking": 2602,
+    "d7_tokens": 0,
+    "d7_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0,
+     "other": 0
+    },
+    "calls": 7,
+    "est_cost_usd": 1.775,
+    "cost_partial": false,
+    "cost_estimated": false,
+    "is_subagent": false,
+    "by_model": [
+     {
+      "model": "claude-opus-4-6",
+      "display_name": "Claude Opus 4.6 (Thinking)",
+      "input": 22558,
+      "output": 13966,
+      "cache_read": 259441,
+      "thinking": 2602,
+      "calls": 7,
+      "est_cost_usd": 1.775,
+      "cost_estimated": false
+     }
+    ]
+   },
+   {
+    "id": "5a1e0000-0000-4000-8000-000000000018",
+    "source": "cli",
+    "title": "Add dark mode to settings page",
+    "model": "gemini-3-pro",
+    "display_name": "Gemini 3 Pro (High)",
+    "pool": "gemini",
+    "first_at": "2026-10-29T08:36:11+08:00",
+    "last_at": "2026-10-29T09:14:52+08:00",
+    "input": 45377,
+    "output": 34997,
+    "cache_read": 521912,
+    "thinking": 7186,
+    "d7_tokens": 0,
+    "d7_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0,
+     "other": 0
+    },
+    "calls": 14,
+    "est_cost_usd": 0.6151,
+    "cost_partial": false,
+    "cost_estimated": false,
+    "is_subagent": false,
+    "by_model": [
+     {
+      "model": "gemini-3-pro",
+      "display_name": "Gemini 3 Pro (High)",
+      "input": 45377,
+      "output": 34997,
+      "cache_read": 521912,
+      "thinking": 7186,
+      "calls": 14,
+      "est_cost_usd": 0.6151,
+      "cost_estimated": false
+     }
+    ]
+   },
+   {
+    "id": "5a1e0000-0000-4000-8000-000000000017",
+    "source": "desktop",
+    "title": "Migrate auth middleware to v2",
+    "model": "gemini-3-pro",
+    "display_name": "Gemini 3 Pro (High)",
+    "pool": "gemini",
+    "first_at": "2026-10-29T05:36:31+08:00",
+    "last_at": "2026-10-29T07:04:29+08:00",
+    "input": 82161,
+    "output": 68607,
+    "cache_read": 944998,
+    "thinking": 13634,
+    "d7_tokens": 0,
+    "d7_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0,
+     "other": 0
+    },
+    "calls": 30,
+    "est_cost_usd": 1.1766,
+    "cost_partial": false,
+    "cost_estimated": false,
+    "is_subagent": false,
+    "by_model": [
+     {
+      "model": "gemini-3-pro",
+      "display_name": "Gemini 3 Pro (High)",
+      "input": 82161,
+      "output": 68607,
+      "cache_read": 944998,
+      "thinking": 13634,
+      "calls": 30,
+      "est_cost_usd": 1.1766,
+      "cost_estimated": false
+     }
+    ]
+   },
+   {
+    "id": "5a1e0000-0000-4000-8000-000000000016",
+    "source": "desktop",
+    "title": "Add dark mode to settings page",
+    "model": "claude-opus-4-6",
+    "display_name": "Claude Opus 4.6 (Thinking)",
+    "pool": "claude_gpt",
+    "first_at": "2026-10-28T06:04:43+08:00",
+    "last_at": "2026-10-28T07:28:19+08:00",
+    "input": 65844,
+    "output": 56235,
+    "cache_read": 757321,
+    "thinking": 9150,
+    "d7_tokens": 0,
+    "d7_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0,
+     "other": 0
+    },
+    "calls": 25,
+    "est_cost_usd": 6.3413,
+    "cost_partial": false,
+    "cost_estimated": false,
+    "is_subagent": false,
+    "by_model": [
+     {
+      "model": "claude-opus-4-6",
+      "display_name": "Claude Opus 4.6 (Thinking)",
+      "input": 65844,
+      "output": 56235,
+      "cache_read": 757321,
+      "thinking": 9150,
+      "calls": 25,
+      "est_cost_usd": 6.3413,
+      "cost_estimated": false
+     }
+    ]
+   },
+   {
+    "id": "5a1e0000-0000-4000-8000-000000000015",
+    "source": "desktop",
+    "title": "Review API pagination",
+    "model": "claude-opus-4-6",
+    "display_name": "Claude Opus 4.6 (Thinking)",
+    "pool": "claude_gpt",
+    "first_at": "2026-10-28T06:05:19+08:00",
+    "last_at": "2026-10-28T07:03:34+08:00",
+    "input": 47940,
+    "output": 32085,
+    "cache_read": 551379,
+    "thinking": 7026,
+    "d7_tokens": 0,
+    "d7_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0,
+     "other": 0
+    },
+    "calls": 16,
+    "est_cost_usd": 3.9525,
+    "cost_partial": false,
+    "cost_estimated": false,
+    "is_subagent": false,
+    "by_model": [
+     {
+      "model": "claude-opus-4-6",
+      "display_name": "Claude Opus 4.6 (Thinking)",
+      "input": 47940,
+      "output": 32085,
+      "cache_read": 551379,
+      "thinking": 7026,
+      "calls": 16,
+      "est_cost_usd": 3.9525,
+      "cost_estimated": false
+     }
+    ]
+   },
+   {
+    "id": "5a1e0000-0000-4000-8000-000000000014",
+    "source": "desktop",
+    "title": "Fix flaky checkout e2e test",
+    "model": "gemini-3-pro",
+    "display_name": "Gemini 3 Pro (High)",
+    "pool": "gemini",
+    "first_at": "2026-10-28T02:21:24+08:00",
+    "last_at": "2026-10-28T03:25:36+08:00",
+    "input": 47152,
+    "output": 47293,
+    "cache_read": 542338,
+    "thinking": 9769,
+    "d7_tokens": 0,
+    "d7_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0,
+     "other": 0
+    },
+    "calls": 19,
+    "est_cost_usd": 0.7703,
+    "cost_partial": false,
+    "cost_estimated": false,
+    "is_subagent": false,
+    "by_model": [
+     {
+      "model": "gemini-3-pro",
+      "display_name": "Gemini 3 Pro (High)",
+      "input": 47152,
+      "output": 47293,
+      "cache_read": 542338,
+      "thinking": 9769,
+      "calls": 19,
+      "est_cost_usd": 0.7703,
+      "cost_estimated": false
+     }
+    ]
+   },
+   {
+    "id": "5a1e0000-0000-4000-8000-000000000011",
+    "source": "desktop",
+    "title": "Localize dashboard strings",
+    "model": "claude-sonnet-4-6",
+    "display_name": "Claude Sonnet 4.6 (Thinking)",
+    "pool": "claude_gpt",
+    "first_at": "2026-10-27T05:12:09+08:00",
+    "last_at": "2026-10-27T05:41:33+08:00",
+    "input": 29886,
+    "output": 25389,
+    "cache_read": 343767,
+    "thinking": 4825,
+    "d7_tokens": 0,
+    "d7_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0,
+     "other": 0
+    },
+    "calls": 13,
+    "est_cost_usd": 0.5736,
+    "cost_partial": false,
+    "cost_estimated": false,
+    "is_subagent": false,
+    "by_model": [
+     {
+      "model": "claude-sonnet-4-6",
+      "display_name": "Claude Sonnet 4.6 (Thinking)",
+      "input": 29886,
+      "output": 25389,
+      "cache_read": 343767,
+      "thinking": 4825,
+      "calls": 13,
+      "est_cost_usd": 0.5736,
+      "cost_estimated": false
+     }
+    ]
+   },
+   {
+    "id": "5a1e0000-0000-4000-8000-000000000012",
+    "source": "desktop",
+    "title": "Clean up feature flags",
+    "model": "claude-sonnet-4-6",
+    "display_name": "Claude Sonnet 4.6 (Thinking)",
+    "pool": "claude_gpt",
+    "first_at": "2026-10-27T02:47:20+08:00",
+    "last_at": "2026-10-27T04:27:12+08:00",
+    "input": 61675,
+    "output": 53363,
+    "cache_read": 709375,
+    "thinking": 11833,
+    "d7_tokens": 0,
+    "d7_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0,
+     "other": 0
+    },
+    "calls": 29,
+    "est_cost_usd": 1.1983,
+    "cost_partial": false,
+    "cost_estimated": false,
+    "is_subagent": false,
+    "by_model": [
+     {
+      "model": "claude-sonnet-4-6",
+      "display_name": "Claude Sonnet 4.6 (Thinking)",
+      "input": 61675,
+      "output": 53363,
+      "cache_read": 709375,
+      "thinking": 11833,
+      "calls": 29,
+      "est_cost_usd": 1.1983,
+      "cost_estimated": false
+     }
+    ]
+   },
+   {
+    "id": "5a1e0000-0000-4000-8000-000000000013",
+    "source": "desktop",
+    "title": "Design rate limiter",
+    "model": "claude-opus-4-6",
+    "display_name": "Claude Opus 4.6 (Thinking)",
+    "pool": "claude_gpt",
+    "first_at": "2026-10-27T02:59:45+08:00",
+    "last_at": "2026-10-27T03:30:33+08:00",
+    "input": 24157,
+    "output": 20078,
+    "cache_read": 277847,
+    "thinking": 1547,
+    "d7_tokens": 0,
+    "d7_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0,
+     "other": 0
+    },
+    "calls": 9,
+    "est_cost_usd": 2.285,
+    "cost_partial": false,
+    "cost_estimated": false,
+    "is_subagent": false,
+    "by_model": [
+     {
+      "model": "claude-opus-4-6",
+      "display_name": "Claude Opus 4.6 (Thinking)",
+      "input": 24157,
+      "output": 20078,
+      "cache_read": 277847,
+      "thinking": 1547,
+      "calls": 9,
+      "est_cost_usd": 2.285,
+      "cost_estimated": false
+     }
+    ]
+   },
+   {
+    "id": "5a1e0000-0000-4000-8000-000000000010",
+    "source": "desktop",
+    "title": "Prototype search ranking",
+    "model": "claude-sonnet-4-6",
+    "display_name": "Claude Sonnet 4.6 (Thinking)",
+    "pool": "claude_gpt",
+    "first_at": "2026-10-25T03:59:28+08:00",
+    "last_at": "2026-10-25T04:39:15+08:00",
+    "input": 31022,
+    "output": 18931,
+    "cache_read": 356833,
+    "thinking": 3512,
+    "d7_tokens": 0,
+    "d7_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0,
+     "other": 0
+    },
+    "calls": 12,
+    "est_cost_usd": 0.4841,
+    "cost_partial": false,
+    "cost_estimated": false,
+    "is_subagent": false,
+    "by_model": [
+     {
+      "model": "claude-sonnet-4-6",
+      "display_name": "Claude Sonnet 4.6 (Thinking)",
+      "input": 31022,
+      "output": 18931,
+      "cache_read": 356833,
+      "thinking": 3512,
+      "calls": 12,
+      "est_cost_usd": 0.4841,
+      "cost_estimated": false
+     }
+    ]
+   },
+   {
+    "id": "5a1e0000-0000-4000-8000-00000000000f",
+    "source": "cli",
+    "title": "Write onboarding docs",
+    "model": "gpt-oss-120b",
+    "display_name": "GPT-OSS 120B (Medium)",
+    "pool": "claude_gpt",
+    "first_at": "2026-10-25T03:07:09+08:00",
+    "last_at": "2026-10-25T04:13:58+08:00",
+    "input": 24117,
+    "output": 21753,
+    "cache_read": 277486,
+    "thinking": 4424,
+    "d7_tokens": 0,
+    "d7_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0,
+     "other": 0
+    },
+    "calls": 22,
+    "est_cost_usd": 0.0375,
+    "cost_partial": false,
+    "cost_estimated": false,
+    "is_subagent": false,
+    "by_model": [
+     {
+      "model": "gpt-oss-120b",
+      "display_name": "GPT-OSS 120B (Medium)",
+      "input": 24117,
+      "output": 21753,
+      "cache_read": 277486,
+      "thinking": 4424,
+      "calls": 22,
+      "est_cost_usd": 0.0375,
+      "cost_estimated": false
+     }
+    ]
+   },
+   {
+    "id": "5a1e0000-0000-4000-8000-00000000000c",
+    "source": "desktop",
+    "title": "Migrate auth middleware to v2",
+    "model": "gemini-3-flash",
+    "display_name": "Gemini 3 Flash",
+    "pool": "gemini",
+    "first_at": "2026-10-24T08:39:07+08:00",
+    "last_at": "2026-10-24T09:45:56+08:00",
+    "input": 44383,
+    "output": 25356,
+    "cache_read": 510504,
+    "thinking": 5812,
+    "d7_tokens": 0,
+    "d7_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0,
+     "other": 0
+    },
+    "calls": 22,
+    "est_cost_usd": 0.1238,
+    "cost_partial": false,
+    "cost_estimated": false,
+    "is_subagent": false,
+    "by_model": [
+     {
+      "model": "gemini-3-flash",
+      "display_name": "Gemini 3 Flash",
+      "input": 44383,
+      "output": 25356,
+      "cache_read": 510504,
+      "thinking": 5812,
+      "calls": 22,
+      "est_cost_usd": 0.1238,
+      "cost_estimated": false
+     }
+    ]
+   },
+   {
+    "id": "5a1e0000-0000-4000-8000-00000000000e",
+    "source": "desktop",
+    "title": "Clean up feature flags",
+    "model": "gemini-3-pro",
+    "display_name": "Gemini 3 Pro (High)",
+    "pool": "gemini",
+    "first_at": "2026-10-24T06:57:25+08:00",
+    "last_at": "2026-10-24T08:18:37+08:00",
+    "input": 77733,
+    "output": 72540,
+    "cache_read": 894084,
+    "thinking": 16597,
+    "d7_tokens": 0,
+    "d7_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0,
+     "other": 0
+    },
+    "calls": 29,
+    "est_cost_usd": 1.2048,
+    "cost_partial": false,
+    "cost_estimated": false,
+    "is_subagent": false,
+    "by_model": [
+     {
+      "model": "gemini-3-pro",
+      "display_name": "Gemini 3 Pro (High)",
+      "input": 77733,
+      "output": 72540,
+      "cache_read": 894084,
+      "thinking": 16597,
+      "calls": 29,
+      "est_cost_usd": 1.2048,
+      "cost_estimated": false
+     }
+    ]
+   },
+   {
+    "id": "5a1e0000-0000-4000-8000-00000000000d",
+    "source": "desktop",
+    "title": "Harden input validation",
+    "model": "claude-opus-4-6",
+    "display_name": "Claude Opus 4.6 (Thinking)",
+    "pool": "claude_gpt",
+    "first_at": "2026-10-24T05:04:43+08:00",
+    "last_at": "2026-10-24T06:15:03+08:00",
+    "input": 61295,
+    "output": 49320,
+    "cache_read": 704999,
+    "thinking": 8690,
+    "d7_tokens": 0,
+    "d7_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0,
+     "other": 0
+    },
+    "calls": 21,
+    "est_cost_usd": 5.6759,
+    "cost_partial": false,
+    "cost_estimated": false,
+    "is_subagent": false,
+    "by_model": [
+     {
+      "model": "claude-opus-4-6",
+      "display_name": "Claude Opus 4.6 (Thinking)",
+      "input": 61295,
+      "output": 49320,
+      "cache_read": 704999,
+      "thinking": 8690,
+      "calls": 21,
+      "est_cost_usd": 5.6759,
+      "cost_estimated": false
+     }
+    ]
+   },
+   {
+    "id": "5a1e0000-0000-4000-8000-00000000000b",
+    "source": "desktop",
+    "title": "Migrate auth middleware to v2",
+    "model": "gemini-3-pro",
+    "display_name": "Gemini 3 Pro (High)",
+    "pool": "gemini",
+    "first_at": "2026-10-24T05:13:53+08:00",
+    "last_at": "2026-10-24T06:11:05+08:00",
+    "input": 78903,
+    "output": 65039,
+    "cache_read": 907489,
+    "thinking": 10618,
+    "d7_tokens": 0,
+    "d7_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0,
+     "other": 0
+    },
+    "calls": 23,
+    "est_cost_usd": 1.1198,
+    "cost_partial": false,
+    "cost_estimated": false,
+    "is_subagent": false,
+    "by_model": [
+     {
+      "model": "gemini-3-pro",
+      "display_name": "Gemini 3 Pro (High)",
+      "input": 78903,
+      "output": 65039,
+      "cache_read": 907489,
+      "thinking": 10618,
+      "calls": 23,
+      "est_cost_usd": 1.1198,
+      "cost_estimated": false
+     }
+    ]
+   },
+   {
+    "id": "5a1e0000-0000-4000-8000-00000000000a",
+    "source": "desktop",
+    "title": "Optimize image pipeline",
+    "model": "gemini-3-pro",
+    "display_name": "Gemini 3 Pro (High)",
+    "pool": "gemini",
+    "first_at": "2026-10-23T05:59:21+08:00",
+    "last_at": "2026-10-23T06:38:24+08:00",
+    "input": 36260,
+    "output": 33269,
+    "cache_read": 417063,
+    "thinking": 6540,
+    "d7_tokens": 0,
+    "d7_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0,
+     "other": 0
+    },
+    "calls": 13,
+    "est_cost_usd": 0.5552,
+    "cost_partial": false,
+    "cost_estimated": false,
+    "is_subagent": false,
+    "by_model": [
+     {
+      "model": "gemini-3-pro",
+      "display_name": "Gemini 3 Pro (High)",
+      "input": 36260,
+      "output": 33269,
+      "cache_read": 417063,
+      "thinking": 6540,
+      "calls": 13,
+      "est_cost_usd": 0.5552,
+      "cost_estimated": false
+     }
+    ]
+   },
+   {
+    "id": "5a1e0000-0000-4000-8000-000000000009",
+    "source": "desktop",
+    "title": "Add dark mode to settings page",
+    "model": "gemini-3-pro",
+    "display_name": "Gemini 3 Pro (High)",
+    "pool": "gemini",
+    "first_at": "2026-10-23T04:24:07+08:00",
+    "last_at": "2026-10-23T05:14:13+08:00",
+    "input": 54114,
+    "output": 50048,
+    "cache_read": 622406,
+    "thinking": 9689,
+    "d7_tokens": 0,
+    "d7_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0,
+     "other": 0
+    },
+    "calls": 19,
+    "est_cost_usd": 0.8333,
+    "cost_partial": false,
+    "cost_estimated": false,
+    "is_subagent": false,
+    "by_model": [
+     {
+      "model": "gemini-3-pro",
+      "display_name": "Gemini 3 Pro (High)",
+      "input": 54114,
+      "output": 50048,
+      "cache_read": 622406,
+      "thinking": 9689,
+      "calls": 19,
+      "est_cost_usd": 0.8333,
+      "cost_estimated": false
+     }
+    ]
+   },
+   {
+    "id": "5a1e0000-0000-4000-8000-000000000007",
+    "source": "desktop",
+    "title": "Prototype search ranking",
+    "model": "gemini-3-pro",
+    "display_name": "Gemini 3 Pro (High)",
+    "pool": "gemini",
+    "first_at": "2026-10-22T08:30:54+08:00",
+    "last_at": "2026-10-22T09:39:50+08:00",
+    "input": 73271,
+    "output": 65943,
+    "cache_read": 842744,
+    "thinking": 12107,
+    "d7_tokens": 0,
+    "d7_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0,
+     "other": 0
+    },
+    "calls": 26,
+    "est_cost_usd": 1.1064,
+    "cost_partial": false,
+    "cost_estimated": false,
+    "is_subagent": false,
+    "by_model": [
+     {
+      "model": "gemini-3-pro",
+      "display_name": "Gemini 3 Pro (High)",
+      "input": 73271,
+      "output": 65943,
+      "cache_read": 842744,
+      "thinking": 12107,
+      "calls": 26,
+      "est_cost_usd": 1.1064,
+      "cost_estimated": false
+     }
+    ]
+   },
+   {
+    "id": "5a1e0000-0000-4000-8000-000000000006",
+    "source": "desktop",
+    "title": "Clean up feature flags",
+    "model": "gpt-oss-120b",
+    "display_name": "GPT-OSS 120B (Medium)",
+    "pool": "claude_gpt",
+    "first_at": "2026-10-22T05:51:46+08:00",
+    "last_at": "2026-10-22T06:48:10+08:00",
+    "input": 28615,
+    "output": 18473,
+    "cache_read": 329161,
+    "thinking": 3533,
+    "d7_tokens": 0,
+    "d7_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0,
+     "other": 0
+    },
+    "calls": 19,
+    "est_cost_usd": 0.0401,
+    "cost_partial": false,
+    "cost_estimated": false,
+    "is_subagent": false,
+    "by_model": [
+     {
+      "model": "gpt-oss-120b",
+      "display_name": "GPT-OSS 120B (Medium)",
+      "input": 28615,
+      "output": 18473,
+      "cache_read": 329161,
+      "thinking": 3533,
+      "calls": 19,
+      "est_cost_usd": 0.0401,
+      "cost_estimated": false
+     }
+    ]
+   },
+   {
+    "id": "5a1e0000-0000-4000-8000-000000000008",
+    "source": "cli",
+    "title": "Upgrade build tooling",
+    "model": "gemini-3-pro",
+    "display_name": "Gemini 3 Pro (High)",
+    "pool": "gemini",
+    "first_at": "2026-10-22T04:07:11+08:00",
+    "last_at": "2026-10-22T04:23:51+08:00",
+    "input": 31711,
+    "output": 15771,
+    "cache_read": 364735,
+    "thinking": 3766,
+    "d7_tokens": 0,
+    "d7_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0,
+     "other": 0
+    },
+    "calls": 9,
+    "est_cost_usd": 0.3256,
+    "cost_partial": false,
+    "cost_estimated": false,
+    "is_subagent": false,
+    "by_model": [
+     {
+      "model": "gemini-3-pro",
+      "display_name": "Gemini 3 Pro (High)",
+      "input": 31711,
+      "output": 15771,
+      "cache_read": 364735,
+      "thinking": 3766,
+      "calls": 9,
+      "est_cost_usd": 0.3256,
+      "cost_estimated": false
+     }
+    ]
+   },
+   {
+    "id": "5a1e0000-0000-4000-8000-000000000005",
+    "source": "desktop",
+    "title": "Fix flaky checkout e2e test",
+    "model": "gpt-oss-120b",
+    "display_name": "GPT-OSS 120B (Medium)",
+    "pool": "claude_gpt",
+    "first_at": "2026-10-22T02:46:58+08:00",
+    "last_at": "2026-10-22T03:48:34+08:00",
+    "input": 27699,
+    "output": 23312,
+    "cache_read": 318644,
+    "thinking": 4038,
+    "d7_tokens": 0,
+    "d7_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0,
+     "other": 0
+    },
+    "calls": 23,
+    "est_cost_usd": 0.042,
+    "cost_partial": false,
+    "cost_estimated": false,
+    "is_subagent": false,
+    "by_model": [
+     {
+      "model": "gpt-oss-120b",
+      "display_name": "GPT-OSS 120B (Medium)",
+      "input": 27699,
+      "output": 23312,
+      "cache_read": 318644,
+      "thinking": 4038,
+      "calls": 23,
+      "est_cost_usd": 0.042,
+      "cost_estimated": false
+     }
+    ]
+   },
+   {
+    "id": "5a1e0000-0000-4000-8000-000000000003",
+    "source": "desktop",
+    "title": "Write onboarding docs",
+    "model": "claude-opus-4-6",
+    "display_name": "Claude Opus 4.6 (Thinking)",
+    "pool": "claude_gpt",
+    "first_at": "2026-10-21T07:16:03+08:00",
+    "last_at": "2026-10-21T08:00:23+08:00",
+    "input": 56855,
+    "output": 43878,
+    "cache_read": 653910,
+    "thinking": 10083,
+    "d7_tokens": 0,
+    "d7_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0,
+     "other": 0
+    },
+    "calls": 20,
+    "est_cost_usd": 5.1245,
+    "cost_partial": false,
+    "cost_estimated": false,
+    "is_subagent": false,
+    "by_model": [
+     {
+      "model": "claude-opus-4-6",
+      "display_name": "Claude Opus 4.6 (Thinking)",
+      "input": 56855,
+      "output": 43878,
+      "cache_read": 653910,
+      "thinking": 10083,
+      "calls": 20,
+      "est_cost_usd": 5.1245,
+      "cost_estimated": false
+     }
+    ]
+   },
+   {
+    "id": "5a1e0000-0000-4000-8000-000000000004",
+    "source": "desktop",
+    "title": "Refactor payment retry logic",
+    "model": "gemini-3-pro",
+    "display_name": "Gemini 3 Pro (High)",
+    "pool": "gemini",
+    "first_at": "2026-10-21T04:44:21+08:00",
+    "last_at": "2026-10-21T05:07:45+08:00",
+    "input": 44900,
+    "output": 31600,
+    "cache_read": 516407,
+    "thinking": 5447,
+    "d7_tokens": 0,
+    "d7_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0,
+     "other": 0
+    },
+    "calls": 12,
+    "est_cost_usd": 0.5723,
+    "cost_partial": false,
+    "cost_estimated": false,
+    "is_subagent": false,
+    "by_model": [
+     {
+      "model": "gemini-3-pro",
+      "display_name": "Gemini 3 Pro (High)",
+      "input": 44900,
+      "output": 31600,
+      "cache_read": 516407,
+      "thinking": 5447,
+      "calls": 12,
+      "est_cost_usd": 0.5723,
+      "cost_estimated": false
+     }
+    ]
+   },
+   {
+    "id": "5a1e0000-0000-4000-8000-000000000001",
+    "source": "desktop",
+    "title": "Review API pagination",
+    "model": "gemini-3-flash",
+    "display_name": "Gemini 3 Flash",
+    "pool": "gemini",
+    "first_at": "2026-10-20T04:49:02+08:00",
+    "last_at": "2026-10-20T05:14:06+08:00",
+    "input": 19745,
+    "output": 14907,
+    "cache_read": 227117,
+    "thinking": 2647,
+    "d7_tokens": 0,
+    "d7_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0,
+     "other": 0
+    },
+    "calls": 10,
+    "est_cost_usd": 0.0659,
+    "cost_partial": false,
+    "cost_estimated": false,
+    "is_subagent": false,
+    "by_model": [
+     {
+      "model": "gemini-3-flash",
+      "display_name": "Gemini 3 Flash",
+      "input": 19745,
+      "output": 14907,
+      "cache_read": 227117,
+      "thinking": 2647,
+      "calls": 10,
+      "est_cost_usd": 0.0659,
+      "cost_estimated": false
+     }
+    ]
+   },
+   {
+    "id": "5a1e0000-0000-4000-8000-000000000002",
+    "source": "desktop",
+    "title": "Upgrade build tooling",
+    "model": "gemini-3-flash",
+    "display_name": "Gemini 3 Flash",
+    "pool": "gemini",
+    "first_at": "2026-10-20T01:09:04+08:00",
+    "last_at": "2026-10-20T02:04:34+08:00",
+    "input": 31774,
+    "output": 22913,
+    "cache_read": 365475,
+    "thinking": 3365,
+    "d7_tokens": 0,
+    "d7_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0,
+     "other": 0
+    },
+    "calls": 16,
+    "est_cost_usd": 0.1029,
+    "cost_partial": false,
+    "cost_estimated": false,
+    "is_subagent": false,
+    "by_model": [
+     {
+      "model": "gemini-3-flash",
+      "display_name": "Gemini 3 Flash",
+      "input": 31774,
+      "output": 22913,
+      "cache_read": 365475,
+      "thinking": 3365,
+      "calls": 16,
+      "est_cost_usd": 0.1029,
+      "cost_estimated": false
+     }
+    ]
+   }
+  ],
+  "daily": [
+   {
+    "date": "2025-11-23",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2025-11-24",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2025-11-25",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2025-11-26",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2025-11-27",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2025-11-28",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2025-11-29",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2025-11-30",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2025-12-01",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2025-12-02",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2025-12-03",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2025-12-04",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2025-12-05",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2025-12-06",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2025-12-07",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2025-12-08",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2025-12-09",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2025-12-10",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2025-12-11",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2025-12-12",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2025-12-13",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2025-12-14",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2025-12-15",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2025-12-16",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2025-12-17",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2025-12-18",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2025-12-19",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2025-12-20",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2025-12-21",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2025-12-22",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2025-12-23",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2025-12-24",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2025-12-25",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2025-12-26",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2025-12-27",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2025-12-28",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2025-12-29",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2025-12-30",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2025-12-31",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-01-01",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-01-02",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-01-03",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-01-04",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-01-05",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-01-06",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-01-07",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-01-08",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-01-09",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-01-10",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-01-11",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-01-12",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-01-13",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-01-14",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-01-15",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-01-16",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-01-17",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-01-18",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-01-19",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-01-20",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-01-21",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-01-22",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-01-23",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-01-24",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-01-25",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-01-26",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-01-27",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-01-28",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-01-29",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-01-30",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-01-31",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-02-01",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-02-02",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-02-03",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-02-04",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-02-05",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-02-06",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-02-07",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-02-08",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-02-09",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-02-10",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-02-11",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-02-12",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-02-13",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-02-14",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-02-15",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-02-16",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-02-17",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-02-18",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-02-19",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-02-20",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-02-21",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-02-22",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-02-23",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-02-24",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-02-25",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-02-26",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-02-27",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-02-28",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-03-01",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-03-02",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-03-03",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-03-04",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-03-05",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-03-06",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-03-07",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-03-08",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-03-09",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-03-10",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-03-11",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-03-12",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-03-13",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-03-14",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-03-15",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-03-16",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-03-17",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-03-18",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-03-19",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-03-20",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-03-21",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-03-22",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-03-23",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-03-24",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-03-25",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-03-26",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-03-27",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-03-28",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-03-29",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-03-30",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-03-31",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-04-01",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-04-02",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-04-03",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-04-04",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-04-05",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-04-06",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-04-07",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-04-08",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-04-09",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-04-10",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-04-11",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-04-12",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-04-13",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-04-14",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-04-15",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-04-16",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-04-17",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-04-18",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-04-19",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-04-20",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-04-21",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-04-22",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-04-23",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-04-24",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-04-25",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-04-26",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-04-27",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-04-28",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-04-29",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-04-30",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-05-01",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-05-02",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-05-03",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-05-04",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-05-05",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-05-06",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-05-07",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-05-08",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-05-09",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-05-10",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-05-11",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-05-12",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-05-13",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-05-14",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-05-15",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-05-16",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-05-17",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-05-18",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-05-19",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-05-20",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-05-21",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-05-22",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-05-23",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-05-24",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-05-25",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-05-26",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-05-27",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-05-28",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-05-29",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-05-30",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-05-31",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-06-01",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-06-02",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-06-03",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-06-04",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-06-05",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-06-06",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-06-07",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-06-08",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-06-09",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-06-10",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-06-11",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-06-12",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-06-13",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-06-14",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-06-15",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-06-16",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-06-17",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-06-18",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-06-19",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-06-20",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-06-21",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-06-22",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-06-23",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-06-24",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-06-25",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-06-26",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-06-27",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-06-28",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-06-29",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-06-30",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-07-01",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-07-02",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-07-03",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-07-04",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-07-05",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-07-06",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-07-07",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-07-08",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-07-09",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-07-10",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-07-11",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-07-12",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-07-13",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-07-14",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-07-15",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-07-16",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-07-17",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-07-18",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-07-19",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-07-20",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-07-21",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-07-22",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-07-23",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-07-24",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-07-25",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-07-26",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-07-27",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-07-28",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-07-29",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-07-30",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-07-31",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-08-01",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-08-02",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-08-03",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-08-04",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-08-05",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-08-06",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-08-07",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-08-08",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-08-09",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-08-10",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-08-11",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-08-12",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-08-13",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-08-14",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-08-15",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-08-16",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-08-17",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-08-18",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-08-19",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-08-20",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-08-21",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-08-22",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-08-23",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-08-24",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-08-25",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-08-26",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-08-27",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-08-28",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-08-29",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-08-30",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-08-31",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-09-01",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-09-02",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-09-03",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-09-04",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-09-05",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-09-06",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-09-07",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-09-08",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-09-09",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-09-10",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-09-11",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-09-12",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-09-13",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-09-14",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-09-15",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-09-16",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-09-17",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-09-18",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-09-19",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-09-20",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-09-21",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-09-22",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-09-23",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-09-24",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-09-25",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-09-26",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-09-27",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-09-28",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-09-29",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-09-30",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-10-01",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-10-02",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-10-03",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-10-04",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-10-05",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-10-06",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-10-07",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-10-08",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-10-09",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-10-10",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-10-11",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-10-12",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-10-13",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-10-14",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-10-15",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-10-16",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-10-17",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-10-18",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-10-19",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-10-20",
+    "tokens": 681931,
+    "calls": 26
+   },
+   {
+    "date": "2026-10-21",
+    "tokens": 1347550,
+    "calls": 32
+   },
+   {
+    "date": "2026-10-22",
+    "tokens": 2140079,
+    "calls": 77
+   },
+   {
+    "date": "2026-10-23",
+    "tokens": 1213160,
+    "calls": 32
+   },
+   {
+    "date": "2026-10-24",
+    "tokens": 3491645,
+    "calls": 95
+   },
+   {
+    "date": "2026-10-25",
+    "tokens": 730142,
+    "calls": 34
+   },
+   {
+    "date": "2026-10-26",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-10-27",
+    "tokens": 1545537,
+    "calls": 51
+   },
+   {
+    "date": "2026-10-28",
+    "tokens": 2147587,
+    "calls": 60
+   },
+   {
+    "date": "2026-10-29",
+    "tokens": 1698052,
+    "calls": 44
+   },
+   {
+    "date": "2026-10-30",
+    "tokens": 1266223,
+    "calls": 33
+   },
+   {
+    "date": "2026-10-31",
+    "tokens": 1880163,
+    "calls": 53
+   },
+   {
+    "date": "2026-11-01",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-11-02",
+    "tokens": 283824,
+    "calls": 11
+   },
+   {
+    "date": "2026-11-03",
+    "tokens": 1319267,
+    "calls": 39
+   },
+   {
+    "date": "2026-11-04",
+    "tokens": 943996,
+    "calls": 24
+   },
+   {
+    "date": "2026-11-05",
+    "tokens": 962516,
+    "calls": 35
+   },
+   {
+    "date": "2026-11-06",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-11-07",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-11-08",
+    "tokens": 1279998,
+    "calls": 30
+   },
+   {
+    "date": "2026-11-09",
+    "tokens": 1118311,
+    "calls": 27
+   },
+   {
+    "date": "2026-11-10",
+    "tokens": 870295,
+    "calls": 28
+   },
+   {
+    "date": "2026-11-11",
+    "tokens": 2575790,
+    "calls": 67
+   },
+   {
+    "date": "2026-11-12",
+    "tokens": 492659,
+    "calls": 13
+   },
+   {
+    "date": "2026-11-13",
+    "tokens": 2529301,
+    "calls": 78
+   },
+   {
+    "date": "2026-11-14",
+    "tokens": 2560949,
+    "calls": 64
+   },
+   {
+    "date": "2026-11-15",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-11-16",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-11-17",
+    "tokens": 552770,
+    "calls": 13
+   },
+   {
+    "date": "2026-11-18",
+    "tokens": 1139837,
+    "calls": 28
+   },
+   {
+    "date": "2026-11-19",
+    "tokens": 438878,
+    "calls": 15
+   },
+   {
+    "date": "2026-11-20",
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "date": "2026-11-21",
+    "tokens": 1036009,
+    "calls": 53
+   },
+   {
+    "date": "2026-11-22",
+    "tokens": 3351577,
+    "calls": 57
+   }
+  ],
+  "hourly_today": [
+   {
+    "hour": 0,
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "hour": 1,
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "hour": 2,
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "hour": 3,
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "hour": 4,
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "hour": 5,
+    "tokens": 96200,
+    "calls": 2
+   },
+   {
+    "hour": 6,
+    "tokens": 481000,
+    "calls": 10
+   },
+   {
+    "hour": 7,
+    "tokens": 61400,
+    "calls": 2
+   },
+   {
+    "hour": 8,
+    "tokens": 438856,
+    "calls": 16
+   },
+   {
+    "hour": 9,
+    "tokens": 342140,
+    "calls": 11
+   },
+   {
+    "hour": 10,
+    "tokens": 192400,
+    "calls": 4
+   },
+   {
+    "hour": 11,
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "hour": 12,
+    "tokens": 85740,
+    "calls": 1
+   },
+   {
+    "hour": 13,
+    "tokens": 1252506,
+    "calls": 9
+   },
+   {
+    "hour": 14,
+    "tokens": 401335,
+    "calls": 2
+   },
+   {
+    "hour": 15,
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "hour": 16,
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "hour": 17,
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "hour": 18,
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "hour": 19,
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "hour": 20,
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "hour": 21,
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "hour": 22,
+    "tokens": 0,
+    "calls": 0
+   },
+   {
+    "hour": 23,
+    "tokens": 0,
+    "calls": 0
+   }
+  ],
+  "d7_by_pool": {
+   "gemini": 347700,
+   "claude_gpt": 451596,
+   "other": 0
+  },
+  "pricing_source": "builtin",
+  "pricing_fetched_at": null,
+  "sources": {
+   "desktop": 58,
+   "cli": 4
+  },
+  "errors": 0,
+  "scanned_at": "2026-11-22T14:56:43+08:00",
+  "elapsed_ms": 128
+ },
+ "pricing": {
+  "source": "builtin",
+  "fetched_at": null,
+  "count": 0,
+  "stale": false
+ }
+}

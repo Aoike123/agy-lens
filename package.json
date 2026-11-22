@@ -1,0 +1,43 @@
+{
+  "name": "agy-lens",
+  "version": "2.2.0",
+  "description": "All-in-one local context window, tok/s speed, quota, and token spend cockpit & CLI for Antigravity 2.0 (pure Node.js 24+, zero dependencies).",
+  "type": "module",
+  "bin": {
+    "agy-lens": "bin/cli.mjs"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Aoike123/agy-lens.git"
+  },
+  "homepage": "https://github.com/Aoike123/agy-lens#readme",
+  "bugs": {
+    "url": "https://github.com/Aoike123/agy-lens/issues"
+  },
+  "license": "MIT",
+  "author": "Aoike123",
+  "keywords": [
+    "antigravity",
+    "agy-lens",
+    "context-window",
+    "token-usage",
+    "quota",
+    "cli",
+    "nodejs"
+  ],
+  "files": [
+    "bin/",
+    "sidecars/agy-lens/",
+    "assets/",
+    "plugin.json",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test tests/*.mjs",
+    "build:release": "node scripts/build-release.mjs"
+  }
+}

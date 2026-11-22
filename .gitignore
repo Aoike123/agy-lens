@@ -1,7 +1,5 @@
-*$py.class
-*.py[cod]
 .DS_Store
 .data/
 .env
-__pycache__/
 dist/
+node_modules/

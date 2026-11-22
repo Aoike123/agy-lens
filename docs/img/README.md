@@ -1,9 +1,14 @@
-# Screenshots
+# Images
 
-Release screenshots referenced by the README (PNG, panel rendered at 420 px wide, 2× DPR, dark theme, personal data redacted):
+Every image here is rendered by `node scripts/render-screenshots.mjs` from synthetic, sanitized data
+(`tests/fixtures/panel-fixtures.json`). No real conversation titles, account data or local paths appear in them.
+Re-run the script after UI changes; it needs Node.js 24+ and a local Chrome or Edge.
 
-| File | Content |
-| --- | --- |
-| `overview.png` | Overview tab: context usage dot grid, request budget, Output Speed (with buffered-burst filtering), This conversation totals & cost estimate |
-| `quota.png` | Quota tab: category pools with inferred 5-hour limit, 20-dot meter, deduplicated model families |
-| `history.png` | History tab: categorized views (Totals with per-pool weekly quota calibration, USD cost & Sync prices, period-adaptive activity heatmap, merged Top 5 models) |
+| File | Size | Used in |
+| --- | --- | --- |
+| `hero-en.png` | 2800×1640 | `README.md`, above the fold |
+| `hero-zh.png` | 2800×1640 | `README.zh-CN.md`, above the fold |
+| `social-preview.png` | 1280×640 | GitHub → Settings → Social preview |
+| `en/overview.png`, `en/quota.png`, `en/history.png` | 840×2080 (420 px panel at 2×) | English screenshots |
+| `zh/overview.png`, `zh/quota.png`, `zh/history.png` | 840×2080 | Chinese screenshots |
+| `en/share-card.png`, `zh/share-card.png` | 2400×1260 | Share card examples (30 days, dark theme) |

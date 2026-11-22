@@ -4,6 +4,42 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [2.2.0] - 2026-11-22
+
+Renamed to **Agy Lens** (`agy-lens`) and repositioned as an English-first, zero-dependency cockpit for Antigravity 2.0.
+
+### Added
+
+- **Terminal CLI** (`bin/cli.mjs`, `npx github:Aoike123/agy-lens`): latest-conversation and history summary in the terminal, with `--json`.
+- **Share card**: export a sanitized usage card (SVG / PNG, dark or light) from History. It shows period totals, the model mix as a 100-dot grid and daily activity; conversation titles and paths are never included.
+- `by_model[].periods` in `/api/history`: per-window (`today`, `d7`, `d30`, `all`) token counts per model, so the share card matches its period.
+- Automatic UI language from `navigator.language` (Chinese locales get Chinese, everything else English); a saved choice still wins.
+- `scripts/render-screenshots.mjs`: regenerates all README images (EN / ZH screenshots, hero composites, share cards, 1280×640 social preview) from synthetic fixtures in `tests/fixtures/`.
+- `README.zh-CN.md`, `docs/architecture.md`, launch drafts in `docs/launch/`, and an end-to-end suite in `tests/e2e/`.
+
+### Fixed
+
+- **Usage disappeared when Antigravity pruned old conversations.** Antigravity keeps only its newest conversation databases; once one was deleted, its tokens and cost vanished from the Today / 7d / 30d / All totals. The history cache now keeps the usage of deleted conversations (merged into 15-minute buckets per model, with long-context calls kept apart so tiered prices stay exact), and they show up in History marked `archived`. A database that is briefly locked keeps its last result instead of dropping out. Cache version 5; v4 caches are upgraded in place.
+- **Subagent usage was not counted toward the conversation that started it.** Subagent conversations (linked through `parent_conversation_id` in Antigravity's conversation summaries, any number of levels deep) are now arranged as a tree. Every conversation keeps its own usage and gets a `total` covering itself and all its subagents. History → By conversation lists top-level conversations ranked by that total, with an "Usage by level" breakdown (this conversation itself vs. subagents) and expandable nested subagents. Overview's "This conversation" includes its subagents too. Parent links are kept in the cache so a subagent stays in its tree after Antigravity deletes it.
+- **Weekly-quota valuation, cycle history & accurate project sizing.** A conversation's or model's `≈ X% weekly` estimate previously divided 7-day input+output tokens by trailing 7-day tokens or drifted with rolling windows and unaligned timestamps. Agy Lens now persists official fixed 7-day reset cycles (`quota-cycles.json`), aligns local USD spend strictly to `[cycle_start, observed_at]` (locking on first 0%-left saturation and preserving `peak_unsaturated` against post-limit AI-credit overshoot), derives each pool's implied **100% weekly quota dollar value** (`weekly_value_usd`), archives completed cycles (`weekly_cycles`) with week-over-week `change_pct` to detect quota shrinkage, and sizes all models and conversations (including historical & >100% multi-week projects) consistently via `cost_by_pool / weekly_value_usd` — with zero rolling 7-day fallback or manual calibration.
+- **Usage already lost to pruning can be recovered.** On first run, history caches left by earlier builds or backups under `~/.gemini/antigravity/sidecar_data` are read once, and their deleted conversations are imported (de-duplicated, keeping the most complete copy).
+- **Context-compaction calls were not counted.** Checkpoint / compaction summary calls are recorded only in step metadata, not in `gen_metadata`, so their tokens and cost were missing from both History and the current conversation. They are now included, de-duplicated by response id, with the model resolved from the conversation's own model ids.
+- **Offline cost estimates were far from synced prices.** The built-in price table was stale: it had no Gemini 4, Gemini 3.6–3.8 Flash or Claude Opus 5.5 entries (so they fell back to older families and showed `≈`), still listed Claude Opus 4.5 / 4.6 at $15 / $75, and used outdated cache-read prices. The table now mirrors the public LiteLLM list (2026-11-22), so prices before and after **Sync prices** match.
+- Unreleased Gemini 4 tier ids (e.g. `gemini-pro-orchestrator-neon`) are estimated from their own tier (Gemini 4 Neon) instead of Gemini 2.5 Pro; unknown Flash / Pro ids use Gemini 3.8 Flash / 3.1 Pro.
+- **Long-context pricing.** Models with an above-200k tier (Gemini 2.5 Pro, 3 Pro, 3.1 Pro) are billed at the higher rate for calls whose prompt (input + cache read) exceeds 200k tokens; synced LiteLLM tiers are kept.
+
+### Changed
+
+- **Pure Node.js 24+.** Removed the Python fallback scripts, Python tests and Python CI jobs.
+- Backend split into `sidecars/agy-lens/lib/{pb,context,history,quota,pricing,catalog}.mjs`; frontend split into `sidecars/agy-lens/web/` modules.
+- `/app.js` is now served as one bundled classic script (`lib/web-bundle.mjs`), fixing the panel staying on "Loading…" in Antigravity's sidecar WebView. Startup errors are shown in the panel.
+- `plugin.json` gained `displayName`, `author`, `homepage`, `repository` and `license`.
+- Installers install to `~/.gemini/config/plugins/agy-lens` and clean up folders left by older versions.
+
+### Removed
+
+- The previous project name and the `sidecars/` single-folder layout.
+
 ## [2.1.1] - 2026-11-21
 
 ### Changed
@@ -64,7 +100,8 @@ Original **Context Usage** panel by Dimitrios Ioannidis
 - Context window and model name from the app's live model catalog, with a built-in fallback table.
 - Zero tokens per refresh; conversation databases opened read-only.
 
-[2.1.1]: https://github.com/Aoike123/antigravity-pulse/releases/tag/v2.1.1
-[2.1.0]: https://github.com/Aoike123/antigravity-pulse/releases/tag/v2.1.0
-[2.0.0]: https://github.com/Aoike123/antigravity-pulse/releases/tag/v2.0.0
+[2.2.0]: https://github.com/Aoike123/agy-lens/releases/tag/v2.2.0
+[2.1.1]: https://github.com/Aoike123/agy-lens/releases/tag/v2.1.1
+[2.1.0]: https://github.com/Aoike123/agy-lens/releases/tag/v2.1.0
+[2.0.0]: https://github.com/Aoike123/agy-lens/releases/tag/v2.0.0
 [1.0.0]: https://github.com/dimitr-io/antigravity-desktop-context

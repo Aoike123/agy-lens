@@ -1,24 +1,42 @@
-// Tests for the pure helpers in sidecars/context/main.mjs.
-// Run (Node >= 18): node --test tests/test_main_helpers.mjs
+// Tests for the pure helpers in sidecars/agy-lens/main.mjs and lib/web-bundle.mjs.
+// Run (Node >= 24): node --test tests/test_main_helpers.mjs
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import vm from 'node:vm';
+import { collectRuntimeFiles } from '../scripts/build-release.mjs';
+import {
+  bundleWebApp,
+  computeWebJsStamp,
+  resolveWebModule,
+  tokenizeJs,
+  transformEsModule,
+} from '../sidecars/agy-lens/lib/web-bundle.mjs';
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const ROOT = join(HERE, '..');
+const WEB_DIR = join(ROOT, 'sidecars', 'agy-lens', 'web');
 
 process.env.CONTEXT_PANEL_NO_SERVER = '1';
 const {
   NO_CACHE_HEADERS,
+  STATIC_HEADERS,
   buildModelCatalog,
+  getBundledAppJs,
   inferLimit,
   parseLiteLLMPricing,
   parseOpenRouterPricing,
   parseQuota,
   parseQuotaSummary,
   redact,
+  renderIndexHtml,
   stampAssetUrls,
   truthy,
-} = await import('../sidecars/context/main.mjs');
+} = await import('../sidecars/agy-lens/main.mjs');
 
 const NOW = Date.parse('2026-11-20T10:00:00Z');
 const G = { remainingFraction: 0.72, resetTime: '2026-11-20T10:56:17Z' };
@@ -205,7 +223,7 @@ test('NO_CACHE_HEADERS disables WebView caching', () => {
 });
 
 test('stampAssetUrls busts cache on styles.css and app.js without touching other refs', () => {
-  const indexPath = join(dirname(fileURLToPath(import.meta.url)), '..', 'sidecars', 'context', 'index.html');
+  const indexPath = join(dirname(fileURLToPath(import.meta.url)), '..', 'sidecars', 'agy-lens', 'web', 'index.html');
   const html = readFileSync(indexPath, 'utf8');
   const stamped = stampAssetUrls(html, { 'styles.css': '1700000000000:4096', 'app.js': '1700000000001:8192' });
   assert.ok(stamped.includes('href="styles.css?v=1700000000000%3A4096"'));
@@ -619,4 +637,936 @@ test('parseQuota groups ungrouped parenthetical multi-variant models dynamically
   assert.deepEqual(claude.families, [
     { id: 'gpt-oss-120b-medium', display_name: 'GPT-OSS 120B (Medium)', levels: [] },
   ]);
+});
+
+// --- M2B Test Group 1: Real web/ classic bundle & packaging ------------------
+
+function findTopLevelEsmTokens(code) {
+  const tokens = tokenizeJs(code);
+  const hits = [];
+  let depth = 0;
+  for (let i = 0; i < tokens.length; i += 1) {
+    const tok = tokens[i];
+    const prev = i > 0 ? tokens[i - 1] : null;
+    const isMember = Boolean(prev && prev.type === 'PUNCT' && (prev.value === '.' || prev.value === '?.'));
+    if (depth === 0 && !isMember && tok.type === 'IDENT' && (tok.value === 'import' || tok.value === 'export')) {
+      const next = tokens[i + 1];
+      if (!(tok.value === 'import' && next && next.type === 'PUNCT' && next.value === '(')) {
+        hits.push(tok);
+      }
+    }
+    if (tok.type === 'PUNCT' && (tok.value === '(' || tok.value === '[' || tok.value === '{')) depth += 1;
+    else if (tok.type === 'TEMPLATE_HEAD') depth += 1;
+    else if (tok.type === 'PUNCT' && (tok.value === ')' || tok.value === ']' || tok.value === '}')) depth -= 1;
+    else if (tok.type === 'TEMPLATE_TAIL') depth -= 1;
+  }
+  return hits;
+}
+
+test('bundleWebApp(WEB_DIR) emits valid classic script with zero top-level import/export and is packaged', () => {
+  const code = bundleWebApp(WEB_DIR, 'app.js');
+  assert.equal(typeof code, 'string');
+  assert.ok(code.length > 5000);
+
+  // Compiles cleanly as a classic non-module script in V8.
+  assert.doesNotThrow(() => new vm.Script(code, { filename: 'app.bundle.js' }));
+
+  // Zero top-level ESM import/export tokens remain.
+  assert.deepEqual(findTopLevelEsmTokens(code), []);
+
+  // All reachable modules under web/ are included in the bundle.
+  for (const modId of [
+    'app.js',
+    'i18n.js',
+    'format.js',
+    'views/overview.js',
+    'views/quota.js',
+    'views/history.js',
+    'views/share-card.js',
+  ]) {
+    assert.ok(code.includes(`__modules[${JSON.stringify(modId)}]`), `Missing module in bundle: ${modId}`);
+  }
+
+  // Executing in a headless global context (no window/document) must not leak internal symbols.
+  const sandbox = {};
+  vm.runInNewContext(code, sandbox, { filename: 'app.bundle.js' });
+  assert.deepEqual(Object.keys(sandbox), []);
+
+  // Packaging script collects sidecars/agy-lens/lib/web-bundle.mjs automatically.
+  assert.ok(collectRuntimeFiles(ROOT).includes('sidecars/agy-lens/lib/web-bundle.mjs'));
+});
+
+// --- M2B Test Group 2: Synthetic ESM edge-case & symbol collision matrix -----
+
+test('web-bundle handles all static ESM forms, lexical traps, collisions, circular deps, and containment', async () => {
+  const tmpDir = mkdtempSync(join(tmpdir(), 'agy-bundle-matrix-'));
+  try {
+    mkdirSync(join(tmpDir, 'sub'), { recursive: true });
+
+    writeFileSync(join(tmpDir, 'shared.js'), [
+      'globalThis.__initCount = (globalThis.__initCount || 0) + 1;',
+      'export const helper = "shared-helper";',
+      'export function render() { return "shared-render"; }',
+    ].join('\n'), 'utf8');
+
+    writeFileSync(join(tmpDir, 'side-effect.js'), [
+      'globalThis.__sideEffects = (globalThis.__sideEffects || 0) + 1;',
+    ].join('\n'), 'utf8');
+
+    writeFileSync(join(tmpDir, 'def-fn.js'), [
+      'export default function greet(name) { return "hi:" + name; }',
+    ].join('\n'), 'utf8');
+
+    writeFileSync(join(tmpDir, 'def-async.js'), [
+      'export default async function (v) { return v + 1; }',
+    ].join('\n'), 'utf8');
+
+    writeFileSync(join(tmpDir, 'def-class.js'), [
+      'export default class Box { constructor(v) { this.v = v; } }',
+    ].join('\n'), 'utf8');
+
+    writeFileSync(join(tmpDir, 'def-expr.js'), [
+      'export default { k: 42, url: import.meta.url };',
+    ].join('\n'), 'utf8');
+
+    writeFileSync(join(tmpDir, 'named.js'), [
+      'export const A = 10;',
+      'export let B = 20;',
+      'export var V = 30;',
+      'export function fn() { return "fn"; }',
+      'export async function afn() { return "afn"; }',
+      'export class Cls { id() { return 7; } }',
+      'const obj = { p: 1, q: 2, nested: [3, 4, 5, 6] };',
+      'export const { p, q: q2 = 9, nested: [n1, , ...nRest] } = obj;',
+      'export { A as A2, B as B2 };',
+      'export default "named-default";',
+    ].join('\n'), 'utf8');
+
+    writeFileSync(join(tmpDir, 'sub', 'star-src.js'), [
+      'import { helper } from "../shared.js";',
+      'export const starVal = helper + ":star";',
+      'export const shadowed = "from-star";',
+      'export default "ignored-by-star";',
+    ].join('\n'), 'utf8');
+
+    writeFileSync(join(tmpDir, 'reexporter.js'), [
+      'export * from "./sub/star-src.js";',
+      'export * as starNs from "./sub/star-src.js";',
+      'export { A, B as renamedB } from "./named.js";',
+      'export { default as reDef } from "./def-fn.js";',
+      'export const shadowed = "local-override";',
+    ].join('\n'), 'utf8');
+
+    // Circular dependency between circ-a.js and circ-b.js exporting functions
+    writeFileSync(join(tmpDir, 'circ-a.js'), [
+      'import { getB } from "./circ-b.js";',
+      'export function getA() { return "A"; }',
+      'export function callBoth() { return getA() + "+" + getB(); }',
+    ].join('\n'), 'utf8');
+
+    writeFileSync(join(tmpDir, 'circ-b.js'), [
+      'import { getA } from "./circ-a.js";',
+      'export function getB() { return "B(" + getA() + ")"; }',
+    ].join('\n'), 'utf8');
+
+    // Symbol collisions + lexical traps (comments, strings, nested templates, regexes with backticks/quotes/[,/], division after paren)
+    writeFileSync(join(tmpDir, 'traps.js'), [
+      'const helper = "traps-helper";',
+      'function render() { return helper; }',
+      'let counter = 1;',
+      '// import fake1 from "./missing.js"; export const fake2 = 1;',
+      '/* import fake3 from "./missing.js";\n export default 0; */',
+      'const s1 = "import x from \'./missing.js\'; export const y = 1;";',
+      'const s2 = \'export { nope } from "./missing.js";\';',
+      'const t1 = `line1\\nimport x from "./missing.js";\\n${`nested ${1 + 2} export default 1`}\\${notInterp}`;',
+      'const re1 = /[\\r\\n"\'<>,;|`]/;',
+      'const re2 = /rgba?\\(\\s*(\\d+)\\s*,\\s*(\\d+)\\s*,\\s*(\\d+)(?:\\s*[,/]\\s*([0-9.]+))?\\s*\\)/i;',
+      'const re3 = /import x from \'\\.\\/missing\\.js\'; export default 1/g;',
+      'const divAfterParen = (20 + 10) / 3 / 2;',
+      'const stmtHeaderRegex = (function (x) { if (x) return /ok/.test(x); return false; })("ok");',
+      'export { helper, render, counter, s1, s2, t1, re1, re2, re3, divAfterParen, stmtHeaderRegex };',
+    ].join('\n'), 'utf8');
+
+    writeFileSync(join(tmpDir, 'entry.js'), [
+      'import "./side-effect.js"',
+      'import "./side-effect.js"',
+      'import greet from "./def-fn.js"',
+      'import defAsync from "./def-async.js"',
+      'import Box from "./def-class.js"',
+      'import defExpr from "./def-expr.js"',
+      'import {',
+      '  A2,',
+      '  B2 as B_alias,',
+      '  fn,',
+      '  afn,',
+      '  Cls,',
+      '  p,',
+      '  q2,',
+      '  n1,',
+      '  nRest,',
+      '} from "./named.js"',
+      'import * as namedNs from "./named.js"',
+      'import def2, * as fnNs from "./def-fn.js"',
+      'import def3, { V } from "./named.js"',
+      'import { starVal, starNs, renamedB, reDef, shadowed } from "./reexporter.js"',
+      'import { callBoth } from "./circ-a.js"',
+      'import * as traps from "./traps.js"',
+      'import { helper as sharedHelper } from "./shared.js"',
+      'const helper = "entry-helper";',
+      'function render() { return helper; }',
+      'let counter = 99;',
+      'globalThis.__resultPromise = (async () => ({',
+      '  initCount: globalThis.__initCount,',
+      '  sideEffects: globalThis.__sideEffects,',
+      '  greet: greet("world"),',
+      '  defAsyncVal: await defAsync(9),',
+      '  boxVal: new Box(55).v,',
+      '  defExpr,',
+      '  named: [A2, B_alias, fn(), await afn(), new Cls().id(), p, q2, n1, nRest, namedNs.A, def2("x"), typeof fnNs.default, def3, V],',
+      '  reexp: { starVal, starNsVal: starNs.starVal, starNsHasDef: starNs.default, renamedB, reDef: reDef("re"), shadowed },',
+      '  circ: callBoth(),',
+      '  collisions: [sharedHelper, traps.helper, traps.render(), render(), counter, traps.counter],',
+      '  traps: {',
+      '    s1: traps.s1,',
+      '    s2: traps.s2,',
+      '    t1: traps.t1,',
+      '    re1Match: traps.re1.test("`"),',
+      '    re2Match: traps.re2.test("rgba(1,2,3/0.5)"),',
+      '    re3Src: traps.re3.source,',
+      '    divAfterParen: traps.divAfterParen,',
+      '    stmtHeaderRegex: traps.stmtHeaderRegex,',
+      '  },',
+      '  metaUrl: import.meta.url,',
+      '}))();',
+    ].join('\n'), 'utf8');
+
+    const bundled = bundleWebApp(tmpDir, 'entry.js');
+    assert.doesNotThrow(() => new vm.Script(bundled, { filename: 'matrix.bundle.js' }));
+    assert.deepEqual(findTopLevelEsmTokens(bundled), []);
+
+    const sandbox = {};
+    vm.runInNewContext(bundled, sandbox, { filename: 'matrix.bundle.js' });
+    const res = JSON.parse(JSON.stringify(await sandbox.__resultPromise));
+
+    assert.equal(res.initCount, 1);
+    assert.equal(res.sideEffects, 1);
+    assert.equal(res.greet, 'hi:world');
+    assert.equal(res.defAsyncVal, 10);
+    assert.equal(res.boxVal, 55);
+    assert.equal(res.defExpr.k, 42);
+    assert.ok(typeof res.defExpr.url === 'string' && res.defExpr.url.includes('def-expr.js'));
+    assert.deepEqual(res.named, [10, 20, 'fn', 'afn', 7, 1, 2, 3, [5, 6], 10, 'hi:x', 'function', 'named-default', 30]);
+    assert.equal(res.reexp.starVal, 'shared-helper:star');
+    assert.equal(res.reexp.starNsVal, 'shared-helper:star');
+    assert.equal(res.reexp.starNsHasDef, 'ignored-by-star');
+    assert.equal(res.reexp.renamedB, 20);
+    assert.equal(res.reexp.reDef, 'hi:re');
+    assert.equal(res.reexp.shadowed, 'local-override');
+    assert.equal(res.circ, 'A+B(A)');
+    assert.deepEqual(res.collisions, ['shared-helper', 'traps-helper', 'traps-helper', 'entry-helper', 99, 1]);
+    assert.ok(res.traps.s1.includes('missing.js'));
+    assert.ok(res.traps.s2.includes('missing.js'));
+    assert.ok(res.traps.t1.includes('nested 3 export default 1') && res.traps.t1.includes('${notInterp}'));
+    assert.equal(res.traps.re1Match, true);
+    assert.equal(res.traps.re2Match, true);
+    assert.ok(res.traps.re3Src.includes('missing'));
+    assert.equal(res.traps.divAfterParen, 5);
+    assert.equal(res.traps.stmtHeaderRegex, true);
+    assert.ok(typeof res.metaUrl === 'string' && res.metaUrl.includes('entry.js'));
+
+    // Direct transformEsModule check on export default class & ASI
+    const clsTx = transformEsModule('export default class {\n  v() { return 1 }\n}\n(function(){})()', 'cls.js', (s) => s);
+    assert.doesNotThrow(() => new vm.Script(`(function(__require,__exports,__module){\n${clsTx.code}\n})`));
+
+    // Path traversal & bare specifier rejection
+    assert.throws(() => resolveWebModule('app.js', '../outside.js', tmpDir), /escapes/i);
+    assert.throws(() => resolveWebModule('sub/star-src.js', '../../outside.js', tmpDir), /escapes/i);
+    assert.throws(() => resolveWebModule('app.js', 'lodash', tmpDir), /non-relative/i);
+  } finally {
+    rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+// --- M2B Test Group 3: Mocked Browser VM Execution of Bundled /app.js -------
+
+function createMockDomSandbox({ navigatorLanguage = 'en-US', brokenStorage = false, fetchFixtures }) {
+  const intervals = new Set();
+  const timeouts = new Set();
+  const fetchedUrls = [];
+  const docListeners = new Map();
+  const winListeners = new Map();
+
+  const parseTagAttrs = (attrText) => {
+    const attrs = new Map();
+    const re = /([A-Za-z0-9_:-]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/g;
+    let m;
+    while ((m = re.exec(attrText)) !== null) {
+      const k = m[1];
+      const v = m[2] ?? m[3] ?? m[4] ?? '';
+      attrs.set(k, v);
+    }
+    return attrs;
+  };
+
+  class MockElement {
+    constructor(tagName = 'div', attrs = {}) {
+      this.tagName = tagName.toUpperCase();
+      this._attrs = new Map();
+      this._listeners = new Map();
+      this._children = [];
+      this._parent = null;
+      this._innerHTML = '';
+      this._textContent = '';
+      this.hidden = false;
+      this.tabIndex = 0;
+      this.title = '';
+      this.value = '';
+      this.open = false;
+      this.dataset = {};
+      for (const [k, v] of Object.entries(attrs)) this.setAttribute(k, v);
+      this.classList = {
+        toggle: (cls, force) => {
+          const cur = new Set(String(this._attrs.get('class') || '').split(/\s+/).filter(Boolean));
+          const add = force === undefined ? !cur.has(cls) : Boolean(force);
+          if (add) cur.add(cls); else cur.delete(cls);
+          this._attrs.set('class', [...cur].join(' '));
+          return add;
+        },
+        add: (...clss) => clss.forEach((c) => this.classList.toggle(c, true)),
+        remove: (...clss) => clss.forEach((c) => this.classList.toggle(c, false)),
+        contains: (cls) => String(this._attrs.get('class') || '').split(/\s+/).includes(cls),
+      };
+    }
+
+    get id() { return this._attrs.get('id') || ''; }
+    set id(v) { this._attrs.set('id', String(v)); }
+
+    setAttribute(k, v) {
+      const val = String(v);
+      this._attrs.set(k, val);
+      if (k === 'hidden') this.hidden = true;
+      if (k === 'open') this.open = true;
+      if (k.startsWith('data-')) {
+        const camel = k.slice(5).replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+        this.dataset[camel] = val;
+      }
+    }
+
+    getAttribute(k) {
+      return this._attrs.has(k) ? this._attrs.get(k) : null;
+    }
+
+    appendChild(child) {
+      child._parent = this;
+      this._children.push(child);
+      return child;
+    }
+
+    get innerHTML() { return this._innerHTML; }
+    set innerHTML(val) {
+      this._innerHTML = String(val ?? '');
+      this._children = [];
+      // Lightweight tag scan so querySelector / querySelectorAll find rendered attributes/ids.
+      const tagRe = /<([A-Za-z][A-Za-z0-9-]*)(\s+[^>]*)?>/g;
+      let m;
+      while ((m = tagRe.exec(this._innerHTML)) !== null) {
+        const tag = m[1];
+        if (tag.startsWith('/')) continue;
+        const parsed = parseTagAttrs(m[2] || '');
+        const child = new MockElement(tag);
+        for (const [k, v] of parsed.entries()) child.setAttribute(k, v);
+        child._parent = this;
+        this._children.push(child);
+      }
+    }
+
+    get textContent() {
+      if (this._innerHTML) return this._innerHTML.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+      return this._textContent;
+    }
+    set textContent(v) {
+      this._textContent = String(v ?? '');
+      this._innerHTML = '';
+    }
+
+    addEventListener(type, fn) {
+      if (!this._listeners.has(type)) this._listeners.set(type, []);
+      this._listeners.get(type).push(fn);
+    }
+
+    focus() {}
+
+    matches(selector) {
+      return selector.split(',').some((part) => {
+        const s = part.trim();
+        if (!s) return false;
+        const idM = s.match(/#([A-Za-z0-9_-]+)/);
+        if (idM && this.id !== idM[1]) return false;
+        const clsMatches = [...s.matchAll(/\.([A-Za-z0-9_-]+)/g)];
+        for (const cm of clsMatches) {
+          if (!this.classList.contains(cm[1])) return false;
+        }
+        const attrMatches = [...s.matchAll(/\[([^\]=]+)(?:=(?:"([^"]*)"|'([^']*)'|([^\]]*)))?\]/g)];
+        for (const am of attrMatches) {
+          const attrVal = this.getAttribute(am[1]);
+          if (attrVal === null) return false;
+          const expected = am[2] ?? am[3] ?? am[4];
+          if (expected !== undefined && attrVal !== expected) return false;
+        }
+        const tagM = s.match(/^([A-Za-z][A-Za-z0-9-]*)/);
+        if (tagM && this.tagName !== tagM[1].toUpperCase()) return false;
+        return Boolean(idM || clsMatches.length || attrMatches.length || tagM);
+      });
+    }
+
+    closest(selector) {
+      let cur = this;
+      while (cur) {
+        if (cur.matches(selector)) return cur;
+        cur = cur._parent;
+      }
+      return null;
+    }
+
+    querySelectorAll(selector) {
+      const out = [];
+      const walk = (node) => {
+        for (const ch of node._children) {
+          if (ch.matches(selector)) out.push(ch);
+          walk(ch);
+        }
+      };
+      walk(this);
+      return out;
+    }
+
+    querySelector(selector) {
+      return this.querySelectorAll(selector)[0] || null;
+    }
+
+    click() {
+      const ev = { target: this, currentTarget: this, preventDefault() {} };
+      let cur = this;
+      while (cur) {
+        for (const fn of cur._listeners.get('click') || []) fn(ev);
+        cur = cur._parent;
+      }
+      for (const fn of docListeners.get('click') || []) fn(ev);
+    }
+  }
+
+  const root = new MockElement('html');
+  const body = new MockElement('body');
+  root.appendChild(body);
+  const tabsNav = new MockElement('nav', { class: 'tabs', role: 'tablist' });
+  const tabOverview = new MockElement('button', { class: 'tab', id: 'tab-overview', 'data-tab': 'overview', 'data-i18n': 'tab.overview' });
+  tabOverview.textContent = 'Overview';
+  const tabQuota = new MockElement('button', { class: 'tab', id: 'tab-quota', 'data-tab': 'quota', 'data-i18n': 'tab.quota' });
+  tabQuota.textContent = 'Quota';
+  const tabHistory = new MockElement('button', { class: 'tab', id: 'tab-history', 'data-tab': 'history', 'data-i18n': 'tab.history' });
+  tabHistory.textContent = 'History';
+  tabsNav.appendChild(tabOverview);
+  tabsNav.appendChild(tabQuota);
+  tabsNav.appendChild(tabHistory);
+
+  const refreshBtn = new MockElement('button', { class: 'icon-btn', id: 'refresh' });
+  const langPill = new MockElement('div', { class: 'lang-pill', id: 'lang' });
+  const langEn = new MockElement('button', { 'data-lang': 'en', 'aria-pressed': 'true' });
+  const langZh = new MockElement('button', { 'data-lang': 'zh', 'aria-pressed': 'false' });
+  langPill.appendChild(langEn);
+  langPill.appendChild(langZh);
+
+  const paneOverview = new MockElement('main', { class: 'pane', id: 'overview' });
+  paneOverview.innerHTML = '<p class="empty" data-i18n="loading">Loading…</p>';
+  const paneQuota = new MockElement('main', { class: 'pane', id: 'quota', hidden: '' });
+  const paneHistory = new MockElement('main', { class: 'pane', id: 'history', hidden: '' });
+
+  body.appendChild(tabsNav);
+  body.appendChild(refreshBtn);
+  body.appendChild(langPill);
+  body.appendChild(paneOverview);
+  body.appendChild(paneQuota);
+  body.appendChild(paneHistory);
+
+  const documentMock = {
+    documentElement: { lang: 'en' },
+    body,
+    hidden: false,
+    currentScript: { src: 'http://127.0.0.1/app.js' },
+    createElement: (tag) => new MockElement(tag),
+    getElementById: (id) => root.querySelector(`#${id}`),
+    querySelector: (sel) => root.querySelector(sel),
+    querySelectorAll: (sel) => root.querySelectorAll(sel),
+    addEventListener: (type, fn) => {
+      if (!docListeners.has(type)) docListeners.set(type, []);
+      docListeners.get(type).push(fn);
+    },
+  };
+
+  const storageMap = new Map();
+  const localStorageMock = brokenStorage
+    ? {
+        getItem() { throw new DOMException('Access is denied for this document.', 'SecurityError'); },
+        setItem() { throw new DOMException('Access is denied for this document.', 'SecurityError'); },
+        removeItem() { throw new DOMException('Access is denied for this document.', 'SecurityError'); },
+      }
+    : {
+        getItem: (k) => (storageMap.has(k) ? storageMap.get(k) : null),
+        setItem: (k, v) => { storageMap.set(k, String(v)); },
+        removeItem: (k) => { storageMap.delete(k); },
+      };
+
+  const fetchMock = async (rawUrl) => {
+    const u = String(rawUrl);
+    fetchedUrls.push(u);
+    if (/\.(m?js)(\?|$)/i.test(u) || u.includes('/views/') || u.includes('/i18n') || u.includes('/format')) {
+      throw new Error(`Unexpected sub-module network fetch: ${u}`);
+    }
+    const pathname = u.split('?')[0];
+    const bodyObj = fetchFixtures[pathname] || {};
+    return {
+      ok: true,
+      status: 200,
+      async json() { return structuredClone(bodyObj); },
+    };
+  };
+
+  const sandbox = {
+    console,
+    navigator: { language: navigatorLanguage },
+    location: { search: '', href: 'http://127.0.0.1/' },
+    URL,
+    URLSearchParams,
+    DOMException,
+    document: documentMock,
+    localStorage: localStorageMock,
+    fetch: fetchMock,
+    scrollY: 0,
+    scrollTo: () => {},
+    addEventListener: (type, fn) => {
+      if (!winListeners.has(type)) winListeners.set(type, []);
+      winListeners.get(type).push(fn);
+    },
+    sidecar: {
+      conversationId: '11111111-1111-4111-8111-111111111111',
+      fetch: fetchMock,
+      getWorkspaceUris: async () => [],
+      onWorkspaceChange: () => {},
+    },
+    setInterval: (fn, ms) => {
+      const id = setInterval(fn, ms);
+      intervals.add(id);
+      return id;
+    },
+    clearInterval: (id) => {
+      intervals.delete(id);
+      clearInterval(id);
+    },
+    setTimeout: (fn, ms) => {
+      const id = setTimeout(fn, ms);
+      timeouts.add(id);
+      return id;
+    },
+    clearTimeout: (id) => {
+      timeouts.delete(id);
+      clearTimeout(id);
+    },
+  };
+  sandbox.window = sandbox;
+  sandbox.globalThis = sandbox;
+
+  const cleanup = () => {
+    for (const id of intervals) clearInterval(id);
+    for (const id of timeouts) clearTimeout(id);
+    intervals.clear();
+    timeouts.clear();
+  };
+
+  return {
+    sandbox,
+    documentMock,
+    fetchedUrls,
+    elements: { tabOverview, tabQuota, tabHistory, langEn, langZh, paneOverview, paneQuota, paneHistory },
+    cleanup,
+  };
+}
+
+test('bundled /app.js executes in mocked browser VM (en-US & opaque zh-CN) without sub-module fetches', async () => {
+  const bundled = bundleWebApp(WEB_DIR, 'app.js');
+  const fetchFixtures = {
+    '/api/report': {
+      model: 'Gemini 2.5 Pro',
+      used_tokens: 42000,
+      limit_tokens: 1000000,
+      used_pct: 4.2,
+      free_tokens: 958000,
+      heading: 'Token usage by category',
+      grid_segments: [5000, 12000, 18000, 5000, 2000],
+      categories: [{ key: 'user', name: 'User messages', tokens: 12000, pct: 1.2 }],
+      speed: {
+        calls: 2,
+        avg_streaming_tps: 78.4,
+        avg_e2e_tps: 55.2,
+        avg_ttft_sec: 0.65,
+        latest: { streaming_tps: 82.1, e2e_tps: 61.0, ttft_sec: 0.52, cache_hit_pct: 68, output_tokens: 420 },
+        recent: [{ streaming_tps: 82.1, e2e_tps: 61.0, ttft_sec: 0.52, output_tokens: 420 }],
+        by_model: [],
+      },
+      session: { calls: 2, input: 18000, output: 4200, cache_read: 30000, total_tokens: 22200, est_cost_usd: 0.08, d7_tokens: 22200 },
+      updatedAt: '2026-11-22T04:00:00Z',
+    },
+    '/api/quota': {
+      plan: 'Pro',
+      fetched_at: '2026-11-22T04:00:00Z',
+      weekly: { gemini: { remaining_fraction: 0.85, reset_time: '2026-11-28T00:00:00Z' } },
+      pools: [
+        {
+          id: 'gemini',
+          category: 'gemini',
+          limits: [{ kind: '5h', remaining_fraction: 0.9, reset_time: '2026-11-22T09:00:00Z' }],
+          models: [{ id: 'gemini-2.5-pro', display_name: 'Gemini 2.5 Pro' }],
+        },
+      ],
+    },
+    '/api/history': {
+      totals: {
+        today: { input: 10000, output: 3000, cache_read: 20000, calls: 5, conversations: 1, est_cost_usd: 0.09 },
+        d7: { input: 80000, output: 20000, cache_read: 150000, calls: 24, conversations: 4, est_cost_usd: 0.95 },
+        d30: { input: 320000, output: 95000, cache_read: 640000, calls: 96, conversations: 14, est_cost_usd: 4.25 },
+        all: { input: 500000, output: 140000, cache_read: 900000, calls: 150, conversations: 21, est_cost_usd: 7.4 },
+      },
+      by_model: [
+        { model: 'gemini-2.5-pro', display_name: 'Gemini 2.5 Pro', pool: 'gemini', input: 200000, output: 60000, cache_read: 400000, d7_tokens: 60000, calls: 60, est_cost_usd: 2.5 },
+      ],
+      by_conversation: [],
+      daily: [{ date: '2026-11-22', tokens: 33000, calls: 5 }],
+      hourly_today: [{ hour: 11, tokens: 33000, calls: 5 }],
+      d7_by_pool: { gemini: 60000, claude_gpt: 0, other: 0 },
+      pricing_source: 'builtin',
+      sources: { desktop: 14, cli: 0 },
+      errors: 0,
+      scanned_at: '2026-11-22T04:00:00Z',
+    },
+    '/api/pricing': { source: 'builtin', count: 10 },
+  };
+
+  const flush = () => new Promise((r) => setTimeout(r, 40));
+
+  // Scenario A: en-US with normal localStorage
+  const vmEn = createMockDomSandbox({ navigatorLanguage: 'en-US', brokenStorage: false, fetchFixtures });
+  try {
+    vm.runInNewContext(bundled, vmEn.sandbox, { filename: 'app.bundle.js' });
+    await flush();
+
+    assert.equal(vmEn.documentMock.documentElement.lang, 'en');
+    assert.equal(vmEn.elements.paneOverview.hidden, false);
+    assert.equal(vmEn.elements.paneQuota.hidden, true);
+    assert.equal(vmEn.elements.paneHistory.hidden, true);
+    assert.equal(vmEn.elements.tabOverview.getAttribute('aria-selected'), 'true');
+    assert.ok(vmEn.elements.paneOverview.innerHTML.includes('Gemini 2.5 Pro'));
+    assert.ok(vmEn.elements.paneOverview.innerHTML.includes('42.0k'));
+    assert.ok(!vmEn.elements.paneOverview.innerHTML.includes('Loading…'));
+
+    // Switch to Quota tab
+    vmEn.elements.tabQuota.click();
+    await flush();
+    assert.equal(vmEn.elements.paneQuota.hidden, false);
+    assert.equal(vmEn.elements.paneOverview.hidden, true);
+    assert.ok(vmEn.elements.paneQuota.innerHTML.includes('Gemini 2.5 Pro'));
+    assert.ok(vmEn.elements.paneQuota.innerHTML.includes('90%'));
+
+    // Switch to History tab
+    vmEn.elements.tabHistory.click();
+    await flush();
+    assert.equal(vmEn.elements.paneHistory.hidden, false);
+    assert.ok(vmEn.elements.paneHistory.innerHTML.includes('By model'));
+
+    // Toggle EN -> 中 -> EN
+    vmEn.elements.langZh.click();
+    await flush();
+    assert.equal(vmEn.documentMock.documentElement.lang, 'zh-CN');
+    assert.equal(vmEn.elements.tabOverview.textContent, '概览');
+    assert.equal(vmEn.elements.langZh.getAttribute('aria-pressed'), 'true');
+    assert.ok(vmEn.elements.paneHistory.innerHTML.includes('按模型'));
+
+    vmEn.elements.langEn.click();
+    await flush();
+    assert.equal(vmEn.documentMock.documentElement.lang, 'en');
+    assert.equal(vmEn.elements.tabOverview.textContent, 'Overview');
+
+    // Zero network requests to sub-modules
+    assert.equal(
+      vmEn.fetchedUrls.some((u) => /\.(m?js)(\?|$)/i.test(u) || u.includes('/views/') || u.includes('/i18n') || u.includes('/format')),
+      false,
+    );
+  } finally {
+    vmEn.cleanup();
+  }
+
+  // Scenario B: opaque-origin zh-CN where localStorage throws SecurityError
+  const vmZh = createMockDomSandbox({ navigatorLanguage: 'zh-CN', brokenStorage: true, fetchFixtures });
+  try {
+    vm.runInNewContext(bundled, vmZh.sandbox, { filename: 'app.bundle.js' });
+    await flush();
+
+    assert.equal(vmZh.documentMock.documentElement.lang, 'zh-CN');
+    assert.equal(vmZh.elements.tabOverview.textContent, '概览');
+    assert.ok(vmZh.elements.paneOverview.innerHTML.includes('Gemini 2.5 Pro'));
+    assert.ok(!vmZh.elements.paneOverview.innerHTML.includes('data-boot-error'));
+    assert.equal(
+      vmZh.fetchedUrls.some((u) => /\.(m?js)(\?|$)/i.test(u) || u.includes('/views/') || u.includes('/i18n') || u.includes('/format')),
+      false,
+    );
+  } finally {
+    vmZh.cleanup();
+  }
+});
+
+// --- M2B Test Group 4: computeWebJsStamp + renderIndexHtml cache-busting ----
+
+test('computeWebJsStamp and renderIndexHtml bust app.js?v= on sub-module edits and strip type=module', () => {
+  const tmpWeb = mkdtempSync(join(tmpdir(), 'agy-web-stamp-'));
+  try {
+    cpSync(WEB_DIR, tmpWeb, { recursive: true });
+    // Even if index.html has type="module", renderIndexHtml strips it on app.js.
+    const indexPath = join(tmpWeb, 'index.html');
+    writeFileSync(
+      indexPath,
+      readFileSync(indexPath, 'utf8').replace('<script src="app.js"></script>', '<script type="module" src="app.js"></script>'),
+      'utf8',
+    );
+
+    const s1 = computeWebJsStamp(tmpWeb);
+    assert.notEqual(s1, '-');
+    const html1 = renderIndexHtml(tmpWeb);
+    assert.ok(html1.includes(`src="app.js?v=${encodeURIComponent(s1)}"`));
+    assert.ok(!/<script[^>]*type=["']module["'][^>]*app\.js/i.test(html1));
+
+    const overviewPath = join(tmpWeb, 'views', 'overview.js');
+    writeFileSync(overviewPath, `${readFileSync(overviewPath, 'utf8')}\n// stamp-bump-1\n`, 'utf8');
+    utimesSync(overviewPath, new Date(Date.now() + 2000), new Date(Date.now() + 2000));
+    const s2 = computeWebJsStamp(tmpWeb);
+    assert.notEqual(s2, s1);
+    const html2 = renderIndexHtml(tmpWeb);
+    assert.ok(html2.includes(`src="app.js?v=${encodeURIComponent(s2)}"`));
+
+    const i18nPath = join(tmpWeb, 'i18n.js');
+    writeFileSync(i18nPath, `${readFileSync(i18nPath, 'utf8')}\n// stamp-bump-2\n`, 'utf8');
+    utimesSync(i18nPath, new Date(Date.now() + 4000), new Date(Date.now() + 4000));
+    const s3 = computeWebJsStamp(tmpWeb);
+    assert.notEqual(s3, s2);
+    const html3 = renderIndexHtml(tmpWeb);
+    assert.ok(html3.includes(`src="app.js?v=${encodeURIComponent(s3)}"`));
+
+    // getBundledAppJs returns valid classic JS and invalidates cache when stamp changes
+    const b2 = getBundledAppJs(tmpWeb);
+    assert.doesNotThrow(() => new vm.Script(b2));
+    assert.ok(b2.includes('// stamp-bump-2'));
+  } finally {
+    rmSync(tmpWeb, { recursive: true, force: true });
+  }
+});
+
+// --- M2B Test Group 5: Live HTTP Server Integration (with IPC fallback) ------
+
+test('main.mjs serves classic /app.js bundle, stamped /, CORS headers, and OPTIONS', async () => {
+  const tmpDir = mkdtempSync(join(tmpdir(), 'agy-main-srv-'));
+  const geminiDir = join(tmpDir, 'gemini');
+  const dataDir = join(tmpDir, 'data');
+  mkdirSync(geminiDir, { recursive: true });
+  mkdirSync(dataDir, { recursive: true });
+
+  const mockSdkPath = join(tmpDir, 'mock-sdk.mjs');
+  const loaderPath = join(tmpDir, 'loader.mjs');
+
+  writeFileSync(mockSdkPath, [
+    "import http from 'node:http';",
+    'export class Response {',
+    '  constructor(body, { status = 200, contentType = "text/plain", headers = {} } = {}) {',
+    '    this.body = body; this.status = status; this.contentType = contentType; this.headers = headers;',
+    '  }',
+    '}',
+    'export class SidecarApp {',
+    '  constructor() { this._pages = new Map(); this._apis = new Map(); }',
+    '  page(path, fn) { this._pages.set(path, fn); }',
+    '  api(path, fn) { this._apis.set(path, fn); }',
+    '  async _dispatch(method, rawUrl) {',
+    '    const u = new URL(rawUrl, "http://127.0.0.1");',
+    '    const page = this._pages.get(u.pathname);',
+    '    if (page) {',
+    '      const res = await page({ method, url: u.toString(), pathname: u.pathname });',
+    '      const headers = {};',
+    '      for (const [k, v] of Object.entries(res.headers || {})) headers[k.toLowerCase()] = String(v);',
+    '      if (res.contentType) headers["content-type"] = res.contentType;',
+    '      return { status: res.status || 200, headers, body: String(res.body ?? "") };',
+    '    }',
+    '    return { status: 404, headers: { "content-type": "text/plain" }, body: "Not found" };',
+    '  }',
+    '  run() {',
+    '    const server = http.createServer(async (req, res) => {',
+    '      const r = await this._dispatch(req.method || "GET", req.url || "/");',
+    '      res.writeHead(r.status, r.headers);',
+    '      res.end(r.body);',
+    '    });',
+    '    server.listen(0, "127.0.0.1", () => {',
+    '      const addr = server.address();',
+    '      process.send?.({ type: "ready", port: addr.port });',
+    '    });',
+    '    process.on("message", async (msg) => {',
+    '      if (msg?.type === "http-request") {',
+    '        const r = await this._dispatch(msg.method || "GET", msg.url || "/");',
+    '        process.send?.({ type: "http-response", id: msg.id, ...r });',
+    '      }',
+    '    });',
+    '  }',
+    '}',
+  ].join('\n'), 'utf8');
+
+  writeFileSync(loaderPath, [
+    "import { register } from 'node:module';",
+    `const sdkUrl = ${JSON.stringify(pathToFileURL(mockSdkPath).href)};`,
+    'const hook = [',
+    '  "export function resolve(specifier, context, nextResolve) {",',
+    '  "  if (specifier === \\"sidecar_sdk\\") return { shortCircuit: true, url: " + JSON.stringify(sdkUrl) + " };",',
+    '  "  return nextResolve(specifier, context);",',
+    '  "}",',
+    '].join("\\n");',
+    "register('data:text/javascript,' + encodeURIComponent(hook), import.meta.url);",
+  ].join('\n'), 'utf8');
+
+  const child = spawn(
+    process.execPath,
+    ['--import', pathToFileURL(loaderPath).href, join(ROOT, 'sidecars', 'agy-lens', 'main.mjs')],
+    {
+      stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+      env: {
+        ...process.env,
+        ELECTRON_RUN_AS_NODE: '1',
+        CONTEXT_PANEL_NO_SERVER: '0',
+        ANTIGRAVITY_GEMINI_DIR: geminiDir,
+        ANTIGRAVITY_EXECUTABLE_DATA_DIR: dataDir,
+      },
+    },
+  );
+
+  let stderr = '';
+  child.stderr.on('data', (d) => { stderr += String(d); });
+
+  const pendingIpc = new Map();
+  let nextIpcId = 1;
+  let port = null;
+  let useIpc = false;
+
+  try {
+    port = await new Promise((resolveReady, rejectReady) => {
+      const timer = setTimeout(() => rejectReady(new Error(`Server start timeout. stderr=${stderr}`)), 8000);
+      child.on('exit', (code) => {
+        clearTimeout(timer);
+        rejectReady(new Error(`Server exited early (${code}). stderr=${stderr}`));
+      });
+      child.on('message', (msg) => {
+        if (msg?.type === 'ready') {
+          clearTimeout(timer);
+          resolveReady(msg.port);
+        } else if (msg?.type === 'http-response') {
+          const p = pendingIpc.get(msg.id);
+          if (p) {
+            pendingIpc.delete(msg.id);
+            p.resolve(msg);
+          }
+        }
+      });
+    });
+
+    const request = async (method, path) => {
+      if (!useIpc) {
+        try {
+          const res = await fetch(`http://127.0.0.1:${port}${path}`, { method });
+          const headers = {};
+          res.headers.forEach((v, k) => { headers[k.toLowerCase()] = v; });
+          return { status: res.status, headers, body: await res.text() };
+        } catch (err) {
+          if (err?.cause?.code === 'EACCES') {
+            useIpc = true;
+          } else {
+            throw err;
+          }
+        }
+      }
+      const id = nextIpcId++;
+      return new Promise((res, rej) => {
+        const t = setTimeout(() => rej(new Error(`IPC timeout for ${method} ${path}`)), 5000);
+        pendingIpc.set(id, {
+          resolve: (v) => { clearTimeout(t); res(v); },
+          reject: (e) => { clearTimeout(t); rej(e); },
+        });
+        child.send({ type: 'http-request', id, method, url: path });
+      });
+    };
+
+    const expectedAppStamp = encodeURIComponent(computeWebJsStamp(WEB_DIR));
+
+    const rootRes = await request('GET', '/');
+    assert.equal(rootRes.status, 200);
+    assert.match(rootRes.headers['content-type'] || '', /text\/html/i);
+    assert.equal(rootRes.headers['access-control-allow-origin'], '*');
+    assert.equal(rootRes.headers['cache-control'], NO_CACHE_HEADERS['Cache-Control']);
+    assert.equal(rootRes.headers.pragma, NO_CACHE_HEADERS.Pragma);
+    assert.ok(rootRes.body.includes(`app.js?v=${expectedAppStamp}`));
+    assert.ok(!/<script[^>]*type=["']module["'][^>]*app\.js/i.test(rootRes.body));
+
+    const appRes = await request('GET', `/app.js?v=${expectedAppStamp}`);
+    assert.equal(appRes.status, 200);
+    assert.match(appRes.headers['content-type'] || '', /javascript/i);
+    assert.equal(appRes.headers['access-control-allow-origin'], '*');
+    assert.equal(appRes.headers['cache-control'], NO_CACHE_HEADERS['Cache-Control']);
+    assert.doesNotThrow(() => new vm.Script(appRes.body, { filename: 'served-app.js' }));
+    assert.deepEqual(findTopLevelEsmTokens(appRes.body), []);
+
+    const cssRes = await request('GET', '/styles.css');
+    assert.equal(cssRes.status, 200);
+    assert.match(cssRes.headers['content-type'] || '', /text\/css/i);
+    assert.equal(cssRes.headers['access-control-allow-origin'], '*');
+    assert.equal(cssRes.headers['cache-control'], NO_CACHE_HEADERS['Cache-Control']);
+
+    const optRes = await request('OPTIONS', '/app.js');
+    assert.ok(optRes.status === 200 || optRes.status === 204, `Unexpected OPTIONS status: ${optRes.status}`);
+    assert.equal(optRes.headers['access-control-allow-origin'], '*');
+    assert.equal(optRes.headers['cache-control'], NO_CACHE_HEADERS['Cache-Control']);
+    assert.equal(STATIC_HEADERS['Access-Control-Allow-Origin'], '*');
+  } finally {
+    if (child.exitCode === null) {
+      const exited = new Promise((res) => child.once('exit', res));
+      child.kill();
+      await Promise.race([exited, new Promise((r) => setTimeout(r, 1000))]);
+    }
+    rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('parseLiteLLMPricing keeps the above-200k long-context tier', () => {
+  const out = parseLiteLLMPricing({
+    'gemini/gemini-3.1-pro-preview': {
+      litellm_provider: 'gemini',
+      mode: 'chat',
+      input_cost_per_token: 0.000002,
+      output_cost_per_token: 0.000012,
+      cache_read_input_token_cost: 2e-7,
+      input_cost_per_token_above_200k_tokens: 0.000004,
+      output_cost_per_token_above_200k_tokens: 0.000018,
+      cache_read_input_token_cost_above_200k_tokens: 4e-7,
+    },
+    'gemini/gemini-4-hydrogen': {
+      litellm_provider: 'gemini',
+      mode: 'chat',
+      input_cost_per_token: 0.0000015,
+      output_cost_per_token: 0.0000075,
+      cache_read_input_token_cost: 7.5e-8,
+    },
+  });
+  assert.deepEqual(out['gemini/gemini-3.1-pro-preview'], {
+    input: 2, output: 12, cache_read: 0.2,
+    above_200k: { threshold: 200000, input: 4, output: 18, cache_read: 0.4 },
+  });
+  assert.deepEqual(out['gemini/gemini-4-hydrogen'], { input: 1.5, output: 7.5, cache_read: 0.075 });
 });
