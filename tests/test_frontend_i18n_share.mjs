@@ -480,10 +480,10 @@ test('buildShareCardSvg generates valid SVG across periods, langs, themes, empty
 
 test('buildShareCardSvg uses per-period model slices and draws a 100-dot model grid', () => {
   const byModel = [
-    { model: 'a', display_name: 'Alpha', input: 900000, output: 100000, cache_read: 0, calls: 90,
-      periods: { d7: { input: 9000, output: 1000, cache_read: 0, calls: 9 }, today: { input: 0, output: 0, cache_read: 0, calls: 0 } } },
-    { model: 'b', display_name: 'Beta', input: 10000, output: 0, cache_read: 0, calls: 5,
-      periods: { d7: { input: 30000, output: 0, cache_read: 0, calls: 5 }, today: { input: 0, output: 0, cache_read: 0, calls: 0 } } },
+    { model: 'a', display_name: 'Alpha', input: 900000, output: 100000, cache_read: 0, calls: 90, est_cost_usd: 9.9,
+      periods: { d7: { input: 9000, output: 1000, cache_read: 0, calls: 9, est_cost_usd: 0.12 }, today: { input: 0, output: 0, cache_read: 0, calls: 0, est_cost_usd: null } } },
+    { model: 'b', display_name: 'Beta', input: 10000, output: 0, cache_read: 0, calls: 5, est_cost_usd: 0.05,
+      periods: { d7: { input: 30000, output: 0, cache_read: 0, calls: 5, est_cost_usd: 0.35 }, today: { input: 0, output: 0, cache_read: 0, calls: 0, est_cost_usd: null } } },
   ];
   const totals = { d7: { input: 39000, output: 1000, cache_read: 0, calls: 14, conversations: 2 } };
   const svg = buildShareCardSvg({ period: 'd7', totals, byModel, daily: [], lang: 'en', theme: 'dark' });
@@ -493,6 +493,15 @@ test('buildShareCardSvg uses per-period model slices and draws a 100-dot model g
   assert.equal((svg.match(/<circle [^>]*r="8.5"/g) || []).length, 100);
   const todaySvg = buildShareCardSvg({ period: 'today', totals, byModel, daily: [], lang: 'en', theme: 'dark' });
   assert.ok(todaySvg.includes('No model usage yet'), 'models with no usage in the period are dropped');
+
+  // sliceModelsForPeriod filters unused models, projects period est_cost_usd, and falls back gracefully on legacy rows.
+  const slicedD7 = formatMod.sliceModelsForPeriod(byModel, 'd7');
+  assert.equal(slicedD7.length, 2);
+  assert.equal(slicedD7[0].est_cost_usd, 0.12);
+  assert.equal(slicedD7[1].est_cost_usd, 0.35);
+  assert.equal(formatMod.sliceModelsForPeriod(byModel, 'today').length, 0);
+  const legacy = [{ model: 'leg', input: 10, output: 5, cache_read: 0, calls: 1, est_cost_usd: 0.02 }];
+  assert.equal(formatMod.sliceModelsForPeriod(legacy, 'today')[0].est_cost_usd, 0.02);
 });
 
 test('buildShareCardSvg enforces strict allowlist, path/email scrubbing, and XML escaping', () => {
@@ -972,7 +981,10 @@ function createMockResponseHandler(bundledAppJs) {
       {
         id: 'gemini',
         category: 'gemini',
-        limits: [{ kind: '5h', remaining_fraction: 0.9, reset_time: '2026-11-22T09:00:00Z' }],
+        limits: [
+          { kind: 'weekly', remaining_fraction: 0.85, reset_time: '2026-11-28T00:00:00.000Z' },
+          { kind: '5h', remaining_fraction: 0.9, reset_time: '2026-11-22T09:00:00Z' },
+        ],
         models: [{ id: 'gemini-2.5-pro', display_name: 'Gemini 2.5 Pro', levels: ['Thinking'] }],
       },
     ],
@@ -1351,13 +1363,14 @@ test('Headless Chrome CDP: classic /app.js bundle, auto-detected locales, opaque
         assert.ok(!p.startsWith('/views/') && p !== '/i18n.js' && p !== '/format.js', `Unexpected sub-module request: ${p}`);
       }
 
-      // Click Quota tab and wait for render
+      // Click Quota tab and wait for render (including weekly dollar valuation & cycle history from /api/history)
       await evalExpr('document.getElementById("tab-quota").click()');
       const quotaOk = await evalExpr(`new Promise((resolve) => {
         const deadline = Date.now() + 8000;
         const tick = () => {
-          const text = document.getElementById('quota')?.textContent || '';
-          if (text.includes('Gemini 2.5 Pro') && text.includes('90%')) return resolve(true);
+          const el = document.getElementById('quota');
+          const text = el?.textContent || '';
+          if (text.includes('Gemini 2.5 Pro') && text.includes('90%') && el.querySelector('.wbudget-val') && el.querySelector('.wcycles')) return resolve(true);
           if (Date.now() > deadline) return resolve(false);
           setTimeout(tick, 40);
         };
@@ -1365,20 +1378,28 @@ test('Headless Chrome CDP: classic /app.js bundle, auto-detected locales, opaque
       })`);
       assert.ok(quotaOk, `Quota tab failed to render for ${navLang}`);
 
-      // Click History tab and wait for render
+      // Click History tab and wait for render (no duplicate weekly bars/cycle history in History Totals)
       await evalExpr('document.getElementById("tab-history").click()');
       const historyOk = await evalExpr(`new Promise((resolve) => {
         const deadline = Date.now() + 8000;
         const tick = () => {
           const el = document.getElementById('history');
           const text = el?.textContent || '';
-          if (text.includes(${JSON.stringify(expectedHistoryTitle)}) && el.querySelector('[data-share-card]') && el.querySelector('.wbudget-val') && el.querySelector('.wcycles')) return resolve(true);
-          if (Date.now() > deadline) return resolve(false);
+          if (text.includes(${JSON.stringify(expectedHistoryTitle)}) && el.querySelector('[data-share-card]') && el.querySelector('#history-models')) {
+            return resolve({
+              ok: true,
+              hasDupBar: Boolean(el.querySelector('.wbar')),
+              hasDupCycles: Boolean(el.querySelector('.wcycles')),
+            });
+          }
+          if (Date.now() > deadline) return resolve({ ok: false });
           setTimeout(tick, 40);
         };
         tick();
       })`);
-      assert.ok(historyOk, `History tab failed to render for ${navLang}`);
+      assert.ok(historyOk && historyOk.ok, `History tab failed to render for ${navLang}`);
+      assert.equal(historyOk.hasDupBar, false, 'History Totals must not duplicate Quota bars');
+      assert.equal(historyOk.hasDupCycles, false, 'History Totals must not duplicate Quota cycle history');
 
       // Open Share Card modal
       await evalExpr('document.querySelector("[data-share-card]").click()');

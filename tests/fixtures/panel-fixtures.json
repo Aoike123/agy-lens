@@ -329,7 +329,7 @@
    "calls": 12,
    "total_tokens": 147946,
    "cache_hit_pct": 91.9,
-   "est_cost_usd": 3.8925,
+   "est_cost_usd": 1.3256,
    "cost_partial": false,
    "cost_estimated": false,
    "pricing_source": "builtin",
@@ -340,8 +340,13 @@
     "claude_gpt": 107354,
     "other": 0
    },
-   "first_at": "2026-11-22T12:56:35+08:00",
-   "last_at": "2026-11-22T14:13:35+08:00",
+   "cost_by_pool": {
+    "gemini": 0.04218,
+    "claude_gpt": 1.283443,
+    "other": 0
+   },
+   "first_at": "2026-11-22T17:26:21+08:00",
+   "last_at": "2026-11-22T18:43:21+08:00",
    "by_model": [
     {
      "model": "claude-opus-4-6",
@@ -350,7 +355,7 @@
      "output": 7010,
      "cache_read": 1212946,
      "calls": 9,
-     "est_cost_usd": 3.8503,
+     "est_cost_usd": 1.2834,
      "cost_estimated": false
     },
     {
@@ -365,7 +370,7 @@
     }
    ]
   },
-  "updatedAt": "2026-11-22T06:56:35.247Z"
+  "updatedAt": "2026-11-22T11:26:21.836Z"
  },
  "quota": {
   "pools": [
@@ -376,7 +381,7 @@
     "label": "Gemini models",
     "label_zh": "Gemini 模型",
     "remaining_fraction": 0.15,
-    "reset_time": "2026-11-22T08:14:35.247Z",
+    "reset_time": "2026-11-22T12:44:21.836Z",
     "limits": [
      {
       "kind": "weekly",
@@ -384,7 +389,7 @@
       "label": "Weekly limit",
       "label_zh": "每周限额",
       "remaining_fraction": 0.8,
-      "reset_time": "2026-11-27T10:56:35.247Z"
+      "reset_time": "2026-11-27T15:26:21.836Z"
      },
      {
       "kind": "5h",
@@ -392,7 +397,7 @@
       "label": "5-hour limit",
       "label_zh": "5 小时限额",
       "remaining_fraction": 0.15,
-      "reset_time": "2026-11-22T08:14:35.247Z"
+      "reset_time": "2026-11-22T12:44:21.836Z"
      }
     ],
     "models": [
@@ -433,7 +438,7 @@
     "label": "Claude / GPT-OSS models",
     "label_zh": "Claude / GPT-OSS 模型",
     "remaining_fraction": 0.72,
-    "reset_time": "2026-11-22T10:38:35.247Z",
+    "reset_time": "2026-11-22T15:08:21.836Z",
     "limits": [
      {
       "kind": "weekly",
@@ -441,7 +446,7 @@
       "label": "Weekly limit",
       "label_zh": "每周限额",
       "remaining_fraction": 0.41,
-      "reset_time": "2026-11-26T18:56:35.247Z"
+      "reset_time": "2026-11-26T23:26:21.836Z"
      },
      {
       "kind": "5h",
@@ -449,7 +454,7 @@
       "label": "5-hour limit",
       "label_zh": "5 小时限额",
       "remaining_fraction": 0.72,
-      "reset_time": "2026-11-22T10:38:35.247Z"
+      "reset_time": "2026-11-22T15:08:21.836Z"
      }
     ],
     "models": [
@@ -516,11 +521,11 @@
   "weekly": {
    "claude_gpt": {
     "remaining_fraction": 0.41,
-    "reset_time": "2026-11-26T18:56:35.247Z"
+    "reset_time": "2026-11-26T23:26:21.836Z"
    },
    "gemini": {
     "remaining_fraction": 0.8,
-    "reset_time": "2026-11-27T10:56:35.247Z"
+    "reset_time": "2026-11-27T15:26:21.836Z"
    }
   },
   "plan": "Pro",
@@ -535,7 +540,7 @@
     "thinking": 9074,
     "calls": 57,
     "conversations": 5,
-    "est_cost_usd": 5.6134,
+    "est_cost_usd": 3.0465,
     "cost_estimated": false
    },
    "d7": {
@@ -545,7 +550,7 @@
     "thinking": 45312,
     "calls": 166,
     "conversations": 11,
-    "est_cost_usd": 12.6945,
+    "est_cost_usd": 6.7157,
     "cost_estimated": false
    },
    "d30": {
@@ -555,7 +560,7 @@
     "thinking": 358114,
     "calls": 952,
     "conversations": 52,
-    "est_cost_usd": 98.6446,
+    "est_cost_usd": 46.8511,
     "cost_estimated": false
    },
    "all": {
@@ -565,7 +570,7 @@
     "thinking": 419329,
     "calls": 1119,
     "conversations": 62,
-    "est_cost_usd": 107.4129,
+    "est_cost_usd": 52.203,
     "cost_estimated": false
    }
   },
@@ -587,25 +592,41 @@
       "input": 54000,
       "output": 55800,
       "cache_read": 756000,
-      "calls": 18
+      "thinking": 0,
+      "calls": 18,
+      "est_cost_usd": 0.9288,
+      "cost_estimated": false,
+      "cost_partial": false
      },
      "d7": {
       "input": 139623,
       "output": 125185,
       "cache_read": 1740829,
-      "calls": 46
+      "thinking": 15061,
+      "calls": 46,
+      "est_cost_usd": 2.1296,
+      "cost_estimated": false,
+      "cost_partial": false
      },
      "d30": {
       "input": 1009513,
       "output": 827876,
       "cache_read": 11745997,
-      "calls": 332
+      "thinking": 157593,
+      "calls": 332,
+      "est_cost_usd": 14.3027,
+      "cost_estimated": false,
+      "cost_partial": false
      },
      "all": {
       "input": 1249769,
       "output": 1024507,
       "cache_read": 14509352,
-      "calls": 411
+      "thinking": 195142,
+      "calls": 411,
+      "est_cost_usd": 17.6955,
+      "cost_estimated": false,
+      "cost_partial": false
      }
     }
    },
@@ -619,32 +640,48 @@
     "thinking": 121669,
     "d7_tokens": 207800,
     "calls": 315,
-    "est_cost_usd": 82.8148,
+    "est_cost_usd": 27.6049,
     "cost_estimated": false,
     "periods": {
      "today": {
       "input": 100344,
       "output": 7010,
       "cache_read": 1212946,
-      "calls": 9
+      "thinking": 2659,
+      "calls": 9,
+      "est_cost_usd": 1.2834,
+      "cost_estimated": false,
+      "cost_partial": false
      },
      "d7": {
       "input": 156849,
       "output": 50951,
       "cache_read": 1862843,
-      "calls": 27
+      "thinking": 8886,
+      "calls": 27,
+      "est_cost_usd": 2.9894,
+      "cost_estimated": false,
+      "cost_partial": false
      },
      "d30": {
       "input": 911847,
       "output": 642568,
       "cache_read": 10546663,
-      "calls": 295
+      "thinking": 111586,
+      "calls": 295,
+      "est_cost_usd": 25.8968,
+      "cost_estimated": false,
+      "cost_partial": false
      },
      "all": {
       "input": 968702,
       "output": 686446,
       "cache_read": 11200573,
-      "calls": 315
+      "thinking": 121669,
+      "calls": 315,
+      "est_cost_usd": 27.6049,
+      "cost_estimated": false,
+      "cost_partial": false
      }
     }
    },
@@ -665,25 +702,41 @@
       "input": 34941,
       "output": 33041,
       "cache_read": 401914,
-      "calls": 18
+      "thinking": 5968,
+      "calls": 18,
+      "est_cost_usd": 0.721,
+      "cost_estimated": false,
+      "cost_partial": false
      },
      "d7": {
       "input": 67603,
       "output": 63573,
       "cache_read": 777598,
-      "calls": 33
+      "thinking": 10396,
+      "calls": 33,
+      "est_cost_usd": 1.3897,
+      "cost_estimated": false,
+      "cost_partial": false
      },
      "d30": {
       "input": 308166,
       "output": 256817,
       "cache_read": 3544596,
-      "calls": 141
+      "thinking": 49076,
+      "calls": 141,
+      "est_cost_usd": 5.8401,
+      "cost_estimated": false,
+      "cost_partial": false
      },
      "all": {
       "input": 308166,
       "output": 256817,
       "cache_read": 3544596,
-      "calls": 141
+      "thinking": 49076,
+      "calls": 141,
+      "est_cost_usd": 5.8401,
+      "cost_estimated": false,
+      "cost_partial": false
      }
     }
    },
@@ -704,25 +757,41 @@
       "input": 66412,
       "output": 16480,
       "cache_read": 612689,
-      "calls": 12
+      "thinking": 447,
+      "calls": 12,
+      "est_cost_usd": 0.1133,
+      "cost_estimated": false,
+      "cost_partial": false
      },
      "d7": {
       "input": 66412,
       "output": 16480,
       "cache_read": 612689,
-      "calls": 12
+      "thinking": 447,
+      "calls": 12,
+      "est_cost_usd": 0.1133,
+      "cost_estimated": false,
+      "cost_partial": false
      },
      "d30": {
       "input": 242257,
       "output": 133225,
       "cache_read": 2635328,
-      "calls": 100
+      "thinking": 22834,
+      "calls": 100,
+      "est_cost_usd": 0.6526,
+      "cost_estimated": false,
+      "cost_partial": false
      },
      "all": {
       "input": 293776,
       "output": 171045,
       "cache_read": 3227920,
-      "calls": 126
+      "thinking": 28846,
+      "calls": 126,
+      "est_cost_usd": 0.8214,
+      "cost_estimated": false,
+      "cost_partial": false
      }
     }
    },
@@ -743,25 +812,41 @@
       "input": 0,
       "output": 0,
       "cache_read": 0,
-      "calls": 0
+      "thinking": 0,
+      "calls": 0,
+      "est_cost_usd": null,
+      "cost_estimated": false,
+      "cost_partial": false
      },
      "d7": {
       "input": 63092,
       "output": 49528,
       "cache_read": 725816,
-      "calls": 48
+      "thinking": 10522,
+      "calls": 48,
+      "est_cost_usd": 0.0936,
+      "cost_estimated": false,
+      "cost_partial": false
      },
      "d30": {
       "input": 105916,
       "output": 86039,
       "cache_read": 1218518,
-      "calls": 84
+      "thinking": 17025,
+      "calls": 84,
+      "est_cost_usd": 0.1589,
+      "cost_estimated": false,
+      "cost_partial": false
      },
      "all": {
       "input": 162230,
       "output": 127824,
       "cache_read": 1866323,
-      "calls": 126
+      "thinking": 24596,
+      "calls": 126,
+      "est_cost_usd": 0.241,
+      "cost_estimated": false,
+      "cost_partial": false
      }
     }
    }
@@ -774,8 +859,8 @@
     "model": "claude-opus-4-6",
     "display_name": "Claude Opus 4.6 (Thinking)",
     "pool": "claude_gpt",
-    "first_at": "2026-11-22T12:56:35+08:00",
-    "last_at": "2026-11-22T14:13:35+08:00",
+    "first_at": "2026-11-22T17:26:21+08:00",
+    "last_at": "2026-11-22T18:43:21+08:00",
     "input": 139756,
     "output": 8190,
     "cache_read": 1591635,
@@ -786,11 +871,17 @@
      "claude_gpt": 107354,
      "other": 0
     },
+    "cost_by_pool": {
+     "gemini": 0.04218,
+     "claude_gpt": 1.283443,
+     "other": 0
+    },
     "calls": 12,
-    "est_cost_usd": 3.8925,
+    "est_cost_usd": 1.3256,
     "cost_partial": false,
     "cost_estimated": false,
     "is_subagent": false,
+    "archived": false,
     "by_model": [
      {
       "model": "claude-opus-4-6",
@@ -800,7 +891,7 @@
       "cache_read": 1212946,
       "thinking": 2659,
       "calls": 9,
-      "est_cost_usd": 3.8503,
+      "est_cost_usd": 1.2834,
       "cost_estimated": false
      },
      {
@@ -814,7 +905,35 @@
       "est_cost_usd": 0.0422,
       "cost_estimated": false
      }
-    ]
+    ],
+    "parent_id": null,
+    "root_id": "5a1e0000-0000-4000-8000-000000002329",
+    "depth": 0,
+    "children": [],
+    "total": {
+     "input": 139756,
+     "output": 8190,
+     "cache_read": 1591635,
+     "thinking": 3106,
+     "calls": 12,
+     "d7_tokens": 147946,
+     "est_cost_usd": 1.3256,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "d7_by_pool": {
+      "gemini": 40592,
+      "claude_gpt": 107354,
+      "other": 0
+     },
+     "cost_by_pool": {
+      "gemini": 0.04218,
+      "claude_gpt": 1.283443,
+      "other": 0
+     },
+     "subagents": 0,
+     "last_at": "2026-11-22T18:43:21+08:00"
+    },
+    "agent": null
    },
    {
     "id": "5a1e0000-0000-4000-8000-00000000238c",
@@ -823,8 +942,8 @@
     "model": "gemini-3-pro",
     "display_name": "Gemini 3 Pro (High)",
     "pool": "gemini",
-    "first_at": "2026-11-22T09:56:35+08:00",
-    "last_at": "2026-11-22T10:06:35+08:00",
+    "first_at": "2026-11-22T14:26:21+08:00",
+    "last_at": "2026-11-22T14:36:21+08:00",
     "input": 18000,
     "output": 18600,
     "cache_read": 252000,
@@ -835,11 +954,17 @@
      "claude_gpt": 0,
      "other": 0
     },
+    "cost_by_pool": {
+     "gemini": 0.3096,
+     "claude_gpt": 0,
+     "other": 0
+    },
     "calls": 6,
     "est_cost_usd": 0.3096,
     "cost_partial": false,
     "cost_estimated": false,
     "is_subagent": false,
+    "archived": false,
     "by_model": [
      {
       "model": "gemini-3-pro",
@@ -852,7 +977,35 @@
       "est_cost_usd": 0.3096,
       "cost_estimated": false
      }
-    ]
+    ],
+    "parent_id": null,
+    "root_id": "5a1e0000-0000-4000-8000-00000000238c",
+    "depth": 0,
+    "children": [],
+    "total": {
+     "input": 18000,
+     "output": 18600,
+     "cache_read": 252000,
+     "thinking": 0,
+     "calls": 6,
+     "d7_tokens": 36600,
+     "est_cost_usd": 0.3096,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "d7_by_pool": {
+      "gemini": 36600,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "cost_by_pool": {
+      "gemini": 0.3096,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "subagents": 0,
+     "last_at": "2026-11-22T14:36:21+08:00"
+    },
+    "agent": null
    },
    {
     "id": "5a1e0000-0000-4000-8000-00000000003a",
@@ -861,8 +1014,8 @@
     "model": "claude-sonnet-4-6",
     "display_name": "Claude Sonnet 4.6 (Thinking)",
     "pool": "claude_gpt",
-    "first_at": "2026-11-22T08:42:36+08:00",
-    "last_at": "2026-11-22T09:25:24+08:00",
+    "first_at": "2026-11-22T13:12:22+08:00",
+    "last_at": "2026-11-22T13:55:10+08:00",
     "input": 34941,
     "output": 33041,
     "cache_read": 401914,
@@ -873,11 +1026,17 @@
      "claude_gpt": 67982,
      "other": 0
     },
+    "cost_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0.721012,
+     "other": 0
+    },
     "calls": 18,
     "est_cost_usd": 0.721,
     "cost_partial": false,
     "cost_estimated": false,
     "is_subagent": false,
+    "archived": false,
     "by_model": [
      {
       "model": "claude-sonnet-4-6",
@@ -890,7 +1049,35 @@
       "est_cost_usd": 0.721,
       "cost_estimated": false
      }
-    ]
+    ],
+    "parent_id": null,
+    "root_id": "5a1e0000-0000-4000-8000-00000000003a",
+    "depth": 0,
+    "children": [],
+    "total": {
+     "input": 34941,
+     "output": 33041,
+     "cache_read": 401914,
+     "thinking": 5968,
+     "calls": 18,
+     "d7_tokens": 67982,
+     "est_cost_usd": 0.721,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "d7_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 67982,
+      "other": 0
+     },
+     "cost_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0.721012,
+      "other": 0
+     },
+     "subagents": 0,
+     "last_at": "2026-11-22T13:55:10+08:00"
+    },
+    "agent": null
    },
    {
     "id": "5a1e0000-0000-4000-8000-00000000238d",
@@ -899,8 +1086,8 @@
     "model": "gemini-3-flash",
     "display_name": "Gemini 3 Flash",
     "pool": "gemini",
-    "first_at": "2026-11-22T07:56:35+08:00",
-    "last_at": "2026-11-22T08:12:35+08:00",
+    "first_at": "2026-11-22T12:26:21+08:00",
+    "last_at": "2026-11-22T12:42:21+08:00",
     "input": 27000,
     "output": 15300,
     "cache_read": 234000,
@@ -911,11 +1098,17 @@
      "claude_gpt": 0,
      "other": 0
     },
+    "cost_by_pool": {
+     "gemini": 0.0711,
+     "claude_gpt": 0,
+     "other": 0
+    },
     "calls": 9,
     "est_cost_usd": 0.0711,
     "cost_partial": false,
     "cost_estimated": false,
     "is_subagent": false,
+    "archived": false,
     "by_model": [
      {
       "model": "gemini-3-flash",
@@ -928,7 +1121,35 @@
       "est_cost_usd": 0.0711,
       "cost_estimated": false
      }
-    ]
+    ],
+    "parent_id": null,
+    "root_id": "5a1e0000-0000-4000-8000-00000000238d",
+    "depth": 0,
+    "children": [],
+    "total": {
+     "input": 27000,
+     "output": 15300,
+     "cache_read": 234000,
+     "thinking": 0,
+     "calls": 9,
+     "d7_tokens": 42300,
+     "est_cost_usd": 0.0711,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "d7_by_pool": {
+      "gemini": 42300,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "cost_by_pool": {
+      "gemini": 0.0711,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "subagents": 0,
+     "last_at": "2026-11-22T12:42:21+08:00"
+    },
+    "agent": null
    },
    {
     "id": "5a1e0000-0000-4000-8000-00000000238e",
@@ -937,8 +1158,8 @@
     "model": "gemini-3-pro",
     "display_name": "Gemini 3 Pro (High)",
     "pool": "gemini",
-    "first_at": "2026-11-22T05:56:35+08:00",
-    "last_at": "2026-11-22T06:18:35+08:00",
+    "first_at": "2026-11-22T10:26:21+08:00",
+    "last_at": "2026-11-22T10:48:21+08:00",
     "input": 36000,
     "output": 37200,
     "cache_read": 504000,
@@ -949,11 +1170,17 @@
      "claude_gpt": 0,
      "other": 0
     },
+    "cost_by_pool": {
+     "gemini": 0.6192,
+     "claude_gpt": 0,
+     "other": 0
+    },
     "calls": 12,
     "est_cost_usd": 0.6192,
     "cost_partial": false,
     "cost_estimated": false,
     "is_subagent": false,
+    "archived": false,
     "by_model": [
      {
       "model": "gemini-3-pro",
@@ -966,7 +1193,35 @@
       "est_cost_usd": 0.6192,
       "cost_estimated": false
      }
-    ]
+    ],
+    "parent_id": null,
+    "root_id": "5a1e0000-0000-4000-8000-00000000238e",
+    "depth": 0,
+    "children": [],
+    "total": {
+     "input": 36000,
+     "output": 37200,
+     "cache_read": 504000,
+     "thinking": 0,
+     "calls": 12,
+     "d7_tokens": 73200,
+     "est_cost_usd": 0.6192,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "d7_by_pool": {
+      "gemini": 73200,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "cost_by_pool": {
+      "gemini": 0.6192,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "subagents": 0,
+     "last_at": "2026-11-22T10:48:21+08:00"
+    },
+    "agent": null
    },
    {
     "id": "5a1e0000-0000-4000-8000-000000000039",
@@ -975,8 +1230,8 @@
     "model": "gpt-oss-120b",
     "display_name": "GPT-OSS 120B (Medium)",
     "pool": "claude_gpt",
-    "first_at": "2026-11-21T08:34:44+08:00",
-    "last_at": "2026-11-21T09:43:27+08:00",
+    "first_at": "2026-11-21T13:04:30+08:00",
+    "last_at": "2026-11-21T14:13:13+08:00",
     "input": 27677,
     "output": 21903,
     "cache_read": 318383,
@@ -987,11 +1242,17 @@
      "claude_gpt": 49580,
      "other": 0
     },
+    "cost_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0.041172,
+     "other": 0
+    },
     "calls": 22,
     "est_cost_usd": 0.0412,
     "cost_partial": false,
     "cost_estimated": false,
     "is_subagent": false,
+    "archived": false,
     "by_model": [
      {
       "model": "gpt-oss-120b",
@@ -1004,7 +1265,35 @@
       "est_cost_usd": 0.0412,
       "cost_estimated": false
      }
-    ]
+    ],
+    "parent_id": null,
+    "root_id": "5a1e0000-0000-4000-8000-000000000039",
+    "depth": 0,
+    "children": [],
+    "total": {
+     "input": 27677,
+     "output": 21903,
+     "cache_read": 318383,
+     "thinking": 5101,
+     "calls": 22,
+     "d7_tokens": 49580,
+     "est_cost_usd": 0.0412,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "d7_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 49580,
+      "other": 0
+     },
+     "cost_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0.041172,
+      "other": 0
+     },
+     "subagents": 0,
+     "last_at": "2026-11-21T14:13:13+08:00"
+    },
+    "agent": null
    },
    {
     "id": "5a1e0000-0000-4000-8000-000000000037",
@@ -1013,8 +1302,8 @@
     "model": "claude-opus-4-6",
     "display_name": "Claude Opus 4.6 (Thinking)",
     "pool": "claude_gpt",
-    "first_at": "2026-11-21T01:45:54+08:00",
-    "last_at": "2026-11-21T01:53:36+08:00",
+    "first_at": "2026-11-21T06:15:40+08:00",
+    "last_at": "2026-11-21T06:23:22+08:00",
     "input": 14910,
     "output": 11173,
     "cache_read": 171490,
@@ -1025,11 +1314,17 @@
      "claude_gpt": 26083,
      "other": 0
     },
+    "cost_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0.43962,
+     "other": 0
+    },
     "calls": 5,
-    "est_cost_usd": 1.3189,
+    "est_cost_usd": 0.4396,
     "cost_partial": false,
     "cost_estimated": false,
     "is_subagent": false,
+    "archived": false,
     "by_model": [
      {
       "model": "claude-opus-4-6",
@@ -1039,10 +1334,38 @@
       "cache_read": 171490,
       "thinking": 1964,
       "calls": 5,
-      "est_cost_usd": 1.3189,
+      "est_cost_usd": 0.4396,
       "cost_estimated": false
      }
-    ]
+    ],
+    "parent_id": null,
+    "root_id": "5a1e0000-0000-4000-8000-000000000037",
+    "depth": 0,
+    "children": [],
+    "total": {
+     "input": 14910,
+     "output": 11173,
+     "cache_read": 171490,
+     "thinking": 1964,
+     "calls": 5,
+     "d7_tokens": 26083,
+     "est_cost_usd": 0.4396,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "d7_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 26083,
+      "other": 0
+     },
+     "cost_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0.43962,
+      "other": 0
+     },
+     "subagents": 0,
+     "last_at": "2026-11-21T06:23:22+08:00"
+    },
+    "agent": null
    },
    {
     "id": "5a1e0000-0000-4000-8000-000000000038",
@@ -1051,8 +1374,8 @@
     "model": "gpt-oss-120b",
     "display_name": "GPT-OSS 120B (Medium)",
     "pool": "claude_gpt",
-    "first_at": "2026-11-21T00:06:06+08:00",
-    "last_at": "2026-11-21T01:14:51+08:00",
+    "first_at": "2026-11-21T04:35:52+08:00",
+    "last_at": "2026-11-21T05:44:37+08:00",
     "input": 35415,
     "output": 27625,
     "cache_read": 407433,
@@ -1063,11 +1386,17 @@
      "claude_gpt": 63040,
      "other": 0
     },
+    "cost_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0.052445,
+     "other": 0
+    },
     "calls": 26,
     "est_cost_usd": 0.0524,
     "cost_partial": false,
     "cost_estimated": false,
     "is_subagent": false,
+    "archived": false,
     "by_model": [
      {
       "model": "gpt-oss-120b",
@@ -1080,7 +1409,35 @@
       "est_cost_usd": 0.0524,
       "cost_estimated": false
      }
-    ]
+    ],
+    "parent_id": null,
+    "root_id": "5a1e0000-0000-4000-8000-000000000038",
+    "depth": 0,
+    "children": [],
+    "total": {
+     "input": 35415,
+     "output": 27625,
+     "cache_read": 407433,
+     "thinking": 5421,
+     "calls": 26,
+     "d7_tokens": 63040,
+     "est_cost_usd": 0.0524,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "d7_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 63040,
+      "other": 0
+     },
+     "cost_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0.052445,
+      "other": 0
+     },
+     "subagents": 0,
+     "last_at": "2026-11-21T05:44:37+08:00"
+    },
+    "agent": null
    },
    {
     "id": "5a1e0000-0000-4000-8000-000000000036",
@@ -1089,8 +1446,8 @@
     "model": "claude-sonnet-4-6",
     "display_name": "Claude Sonnet 4.6 (Thinking)",
     "pool": "claude_gpt",
-    "first_at": "2026-11-19T01:04:12+08:00",
-    "last_at": "2026-11-19T01:39:00+08:00",
+    "first_at": "2026-11-19T05:33:58+08:00",
+    "last_at": "2026-11-19T06:08:46+08:00",
     "input": 32662,
     "output": 30532,
     "cache_read": 375684,
@@ -1101,11 +1458,17 @@
      "claude_gpt": 63194,
      "other": 0
     },
+    "cost_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0.668671,
+     "other": 0
+    },
     "calls": 15,
     "est_cost_usd": 0.6687,
     "cost_partial": false,
     "cost_estimated": false,
     "is_subagent": false,
+    "archived": false,
     "by_model": [
      {
       "model": "claude-sonnet-4-6",
@@ -1118,7 +1481,35 @@
       "est_cost_usd": 0.6687,
       "cost_estimated": false
      }
-    ]
+    ],
+    "parent_id": null,
+    "root_id": "5a1e0000-0000-4000-8000-000000000036",
+    "depth": 0,
+    "children": [],
+    "total": {
+     "input": 32662,
+     "output": 30532,
+     "cache_read": 375684,
+     "thinking": 4428,
+     "calls": 15,
+     "d7_tokens": 63194,
+     "est_cost_usd": 0.6687,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "d7_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 63194,
+      "other": 0
+     },
+     "cost_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0.668671,
+      "other": 0
+     },
+     "subagents": 0,
+     "last_at": "2026-11-19T06:08:46+08:00"
+    },
+    "agent": null
    },
    {
     "id": "5a1e0000-0000-4000-8000-000000000035",
@@ -1127,8 +1518,8 @@
     "model": "gemini-3-pro",
     "display_name": "Gemini 3 Pro (High)",
     "pool": "gemini",
-    "first_at": "2026-11-18T04:29:44+08:00",
-    "last_at": "2026-11-18T06:01:21+08:00",
+    "first_at": "2026-11-18T08:59:30+08:00",
+    "last_at": "2026-11-18T10:31:07+08:00",
     "input": 85623,
     "output": 69385,
     "cache_read": 984829,
@@ -1139,11 +1530,17 @@
      "claude_gpt": 0,
      "other": 0
     },
+    "cost_by_pool": {
+     "gemini": 1.200832,
+     "claude_gpt": 0,
+     "other": 0
+    },
     "calls": 28,
     "est_cost_usd": 1.2008,
     "cost_partial": false,
     "cost_estimated": false,
     "is_subagent": false,
+    "archived": false,
     "by_model": [
      {
       "model": "gemini-3-pro",
@@ -1156,7 +1553,35 @@
       "est_cost_usd": 1.2008,
       "cost_estimated": false
      }
-    ]
+    ],
+    "parent_id": null,
+    "root_id": "5a1e0000-0000-4000-8000-000000000035",
+    "depth": 0,
+    "children": [],
+    "total": {
+     "input": 85623,
+     "output": 69385,
+     "cache_read": 984829,
+     "thinking": 15061,
+     "calls": 28,
+     "d7_tokens": 155008,
+     "est_cost_usd": 1.2008,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "d7_by_pool": {
+      "gemini": 155008,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "cost_by_pool": {
+      "gemini": 1.200832,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "subagents": 0,
+     "last_at": "2026-11-18T10:31:07+08:00"
+    },
+    "agent": null
    },
    {
     "id": "5a1e0000-0000-4000-8000-000000000034",
@@ -1165,8 +1590,8 @@
     "model": "claude-opus-4-6",
     "display_name": "Claude Opus 4.6 (Thinking)",
     "pool": "claude_gpt",
-    "first_at": "2026-11-17T06:28:30+08:00",
-    "last_at": "2026-11-17T07:07:06+08:00",
+    "first_at": "2026-11-17T10:58:16+08:00",
+    "last_at": "2026-11-17T11:36:52+08:00",
     "input": 41595,
     "output": 32768,
     "cache_read": 478407,
@@ -1177,11 +1602,17 @@
      "claude_gpt": 74363,
      "other": 0
     },
+    "cost_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 1.266378,
+     "other": 0
+    },
     "calls": 13,
-    "est_cost_usd": 3.7991,
+    "est_cost_usd": 1.2664,
     "cost_partial": false,
     "cost_estimated": false,
     "is_subagent": false,
+    "archived": false,
     "by_model": [
      {
       "model": "claude-opus-4-6",
@@ -1191,10 +1622,38 @@
       "cache_read": 478407,
       "thinking": 4263,
       "calls": 13,
-      "est_cost_usd": 3.7991,
+      "est_cost_usd": 1.2664,
       "cost_estimated": false
      }
-    ]
+    ],
+    "parent_id": null,
+    "root_id": "5a1e0000-0000-4000-8000-000000000034",
+    "depth": 0,
+    "children": [],
+    "total": {
+     "input": 41595,
+     "output": 32768,
+     "cache_read": 478407,
+     "thinking": 4263,
+     "calls": 13,
+     "d7_tokens": 74363,
+     "est_cost_usd": 1.2664,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "d7_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 74363,
+      "other": 0
+     },
+     "cost_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 1.266378,
+      "other": 0
+     },
+     "subagents": 0,
+     "last_at": "2026-11-17T11:36:52+08:00"
+    },
+    "agent": null
    },
    {
     "id": "5a1e0000-0000-4000-8000-000000000033",
@@ -1203,8 +1662,8 @@
     "model": "gemini-3-pro",
     "display_name": "Gemini 3 Pro (High)",
     "pool": "gemini",
-    "first_at": "2026-11-14T08:17:18+08:00",
-    "last_at": "2026-11-14T09:49:42+08:00",
+    "first_at": "2026-11-14T12:47:04+08:00",
+    "last_at": "2026-11-14T14:19:28+08:00",
     "input": 81538,
     "output": 65386,
     "cache_read": 937818,
@@ -1215,11 +1674,17 @@
      "claude_gpt": 0,
      "other": 0
     },
+    "cost_by_pool": {
+     "gemini": 1.135272,
+     "claude_gpt": 0,
+     "other": 0
+    },
     "calls": 25,
     "est_cost_usd": 1.1353,
     "cost_partial": false,
     "cost_estimated": false,
     "is_subagent": false,
+    "archived": false,
     "by_model": [
      {
       "model": "gemini-3-pro",
@@ -1232,7 +1697,35 @@
       "est_cost_usd": 1.1353,
       "cost_estimated": false
      }
-    ]
+    ],
+    "parent_id": null,
+    "root_id": "5a1e0000-0000-4000-8000-000000000033",
+    "depth": 0,
+    "children": [],
+    "total": {
+     "input": 81538,
+     "output": 65386,
+     "cache_read": 937818,
+     "thinking": 11647,
+     "calls": 25,
+     "d7_tokens": 0,
+     "est_cost_usd": 1.1353,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "d7_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "cost_by_pool": {
+      "gemini": 1.135272,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "subagents": 0,
+     "last_at": "2026-11-14T14:19:28+08:00"
+    },
+    "agent": null
    },
    {
     "id": "5a1e0000-0000-4000-8000-000000000030",
@@ -1241,8 +1734,8 @@
     "model": "claude-opus-4-6",
     "display_name": "Claude Opus 4.6 (Thinking)",
     "pool": "claude_gpt",
-    "first_at": "2026-11-14T08:32:24+08:00",
-    "last_at": "2026-11-14T09:27:00+08:00",
+    "first_at": "2026-11-14T13:02:10+08:00",
+    "last_at": "2026-11-14T13:56:46+08:00",
     "input": 69830,
     "output": 55882,
     "cache_read": 803130,
@@ -1253,11 +1746,17 @@
      "claude_gpt": 0,
      "other": 0
     },
+    "cost_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 2.147765,
+     "other": 0
+    },
     "calls": 23,
-    "est_cost_usd": 6.4433,
+    "est_cost_usd": 2.1478,
     "cost_partial": false,
     "cost_estimated": false,
     "is_subagent": false,
+    "archived": false,
     "by_model": [
      {
       "model": "claude-opus-4-6",
@@ -1267,10 +1766,38 @@
       "cache_read": 803130,
       "thinking": 7038,
       "calls": 23,
-      "est_cost_usd": 6.4433,
+      "est_cost_usd": 2.1478,
       "cost_estimated": false
      }
-    ]
+    ],
+    "parent_id": null,
+    "root_id": "5a1e0000-0000-4000-8000-000000000030",
+    "depth": 0,
+    "children": [],
+    "total": {
+     "input": 69830,
+     "output": 55882,
+     "cache_read": 803130,
+     "thinking": 7038,
+     "calls": 23,
+     "d7_tokens": 0,
+     "est_cost_usd": 2.1478,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "d7_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "cost_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 2.147765,
+      "other": 0
+     },
+     "subagents": 0,
+     "last_at": "2026-11-14T13:56:46+08:00"
+    },
+    "agent": null
    },
    {
     "id": "5a1e0000-0000-4000-8000-000000000031",
@@ -1279,8 +1806,8 @@
     "model": "gemini-3-pro",
     "display_name": "Gemini 3 Pro (High)",
     "pool": "gemini",
-    "first_at": "2026-11-14T04:23:52+08:00",
-    "last_at": "2026-11-14T04:35:16+08:00",
+    "first_at": "2026-11-14T08:53:38+08:00",
+    "last_at": "2026-11-14T09:05:02+08:00",
     "input": 15507,
     "output": 10229,
     "cache_read": 178351,
@@ -1291,11 +1818,17 @@
      "claude_gpt": 0,
      "other": 0
     },
+    "cost_by_pool": {
+     "gemini": 0.189432,
+     "claude_gpt": 0,
+     "other": 0
+    },
     "calls": 5,
     "est_cost_usd": 0.1894,
     "cost_partial": false,
     "cost_estimated": false,
     "is_subagent": false,
+    "archived": false,
     "by_model": [
      {
       "model": "gemini-3-pro",
@@ -1308,7 +1841,35 @@
       "est_cost_usd": 0.1894,
       "cost_estimated": false
      }
-    ]
+    ],
+    "parent_id": null,
+    "root_id": "5a1e0000-0000-4000-8000-000000000031",
+    "depth": 0,
+    "children": [],
+    "total": {
+     "input": 15507,
+     "output": 10229,
+     "cache_read": 178351,
+     "thinking": 2891,
+     "calls": 5,
+     "d7_tokens": 0,
+     "est_cost_usd": 0.1894,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "d7_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "cost_by_pool": {
+      "gemini": 0.189432,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "subagents": 0,
+     "last_at": "2026-11-14T09:05:02+08:00"
+    },
+    "agent": null
    },
    {
     "id": "5a1e0000-0000-4000-8000-000000000032",
@@ -1317,8 +1878,8 @@
     "model": "claude-sonnet-4-6",
     "display_name": "Claude Sonnet 4.6 (Thinking)",
     "pool": "claude_gpt",
-    "first_at": "2026-11-14T02:45:26+08:00",
-    "last_at": "2026-11-14T03:22:46+08:00",
+    "first_at": "2026-11-14T07:15:12+08:00",
+    "last_at": "2026-11-14T07:52:32+08:00",
     "input": 26177,
     "output": 16020,
     "cache_read": 301081,
@@ -1329,11 +1890,17 @@
      "claude_gpt": 0,
      "other": 0
     },
+    "cost_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0.409155,
+     "other": 0
+    },
     "calls": 11,
     "est_cost_usd": 0.4092,
     "cost_partial": false,
     "cost_estimated": false,
     "is_subagent": false,
+    "archived": false,
     "by_model": [
      {
       "model": "claude-sonnet-4-6",
@@ -1346,7 +1913,35 @@
       "est_cost_usd": 0.4092,
       "cost_estimated": false
      }
-    ]
+    ],
+    "parent_id": null,
+    "root_id": "5a1e0000-0000-4000-8000-000000000032",
+    "depth": 0,
+    "children": [],
+    "total": {
+     "input": 26177,
+     "output": 16020,
+     "cache_read": 301081,
+     "thinking": 2906,
+     "calls": 11,
+     "d7_tokens": 0,
+     "est_cost_usd": 0.4092,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "d7_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "cost_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0.409155,
+      "other": 0
+     },
+     "subagents": 0,
+     "last_at": "2026-11-14T07:52:32+08:00"
+    },
+    "agent": null
    },
    {
     "id": "5a1e0000-0000-4000-8000-00000000002e",
@@ -1355,8 +1950,8 @@
     "model": "claude-sonnet-4-6",
     "display_name": "Claude Sonnet 4.6 (Thinking)",
     "pool": "claude_gpt",
-    "first_at": "2026-11-13T05:00:58+08:00",
-    "last_at": "2026-11-13T06:40:25+08:00",
+    "first_at": "2026-11-13T09:30:44+08:00",
+    "last_at": "2026-11-13T11:10:11+08:00",
     "input": 66058,
     "output": 53823,
     "cache_read": 759822,
@@ -1367,11 +1962,17 @@
      "claude_gpt": 0,
      "other": 0
     },
+    "cost_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 1.233466,
+     "other": 0
+    },
     "calls": 30,
     "est_cost_usd": 1.2335,
     "cost_partial": false,
     "cost_estimated": false,
     "is_subagent": false,
+    "archived": false,
     "by_model": [
      {
       "model": "claude-sonnet-4-6",
@@ -1384,7 +1985,35 @@
       "est_cost_usd": 1.2335,
       "cost_estimated": false
      }
-    ]
+    ],
+    "parent_id": null,
+    "root_id": "5a1e0000-0000-4000-8000-00000000002e",
+    "depth": 0,
+    "children": [],
+    "total": {
+     "input": 66058,
+     "output": 53823,
+     "cache_read": 759822,
+     "thinking": 10546,
+     "calls": 30,
+     "d7_tokens": 0,
+     "est_cost_usd": 1.2335,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "d7_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "cost_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 1.233466,
+      "other": 0
+     },
+     "subagents": 0,
+     "last_at": "2026-11-13T11:10:11+08:00"
+    },
+    "agent": null
    },
    {
     "id": "5a1e0000-0000-4000-8000-00000000002f",
@@ -1393,8 +2022,8 @@
     "model": "gemini-3-flash",
     "display_name": "Gemini 3 Flash",
     "pool": "gemini",
-    "first_at": "2026-11-13T05:34:04+08:00",
-    "last_at": "2026-11-13T06:33:32+08:00",
+    "first_at": "2026-11-13T10:03:50+08:00",
+    "last_at": "2026-11-13T11:03:18+08:00",
     "input": 31795,
     "output": 24553,
     "cache_read": 365727,
@@ -1405,11 +2034,17 @@
      "claude_gpt": 0,
      "other": 0
     },
+    "cost_by_pool": {
+     "gemini": 0.107843,
+     "claude_gpt": 0,
+     "other": 0
+    },
     "calls": 17,
     "est_cost_usd": 0.1078,
     "cost_partial": false,
     "cost_estimated": false,
     "is_subagent": false,
+    "archived": false,
     "by_model": [
      {
       "model": "gemini-3-flash",
@@ -1422,7 +2057,35 @@
       "est_cost_usd": 0.1078,
       "cost_estimated": false
      }
-    ]
+    ],
+    "parent_id": null,
+    "root_id": "5a1e0000-0000-4000-8000-00000000002f",
+    "depth": 0,
+    "children": [],
+    "total": {
+     "input": 31795,
+     "output": 24553,
+     "cache_read": 365727,
+     "thinking": 4540,
+     "calls": 17,
+     "d7_tokens": 0,
+     "est_cost_usd": 0.1078,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "d7_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "cost_by_pool": {
+      "gemini": 0.107843,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "subagents": 0,
+     "last_at": "2026-11-13T11:03:18+08:00"
+    },
+    "agent": null
    },
    {
     "id": "5a1e0000-0000-4000-8000-00000000002d",
@@ -1431,8 +2094,8 @@
     "model": "claude-opus-4-6",
     "display_name": "Claude Opus 4.6 (Thinking)",
     "pool": "claude_gpt",
-    "first_at": "2026-11-13T01:54:23+08:00",
-    "last_at": "2026-11-13T03:11:59+08:00",
+    "first_at": "2026-11-13T06:24:09+08:00",
+    "last_at": "2026-11-13T07:41:45+08:00",
     "input": 92768,
     "output": 67737,
     "cache_read": 1067018,
@@ -1443,11 +2106,17 @@
      "claude_gpt": 0,
      "other": 0
     },
+    "cost_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 2.690774,
+     "other": 0
+    },
     "calls": 31,
-    "est_cost_usd": 8.0723,
+    "est_cost_usd": 2.6908,
     "cost_partial": false,
     "cost_estimated": false,
     "is_subagent": false,
+    "archived": false,
     "by_model": [
      {
       "model": "claude-opus-4-6",
@@ -1457,10 +2126,38 @@
       "cache_read": 1067018,
       "thinking": 13320,
       "calls": 31,
-      "est_cost_usd": 8.0723,
+      "est_cost_usd": 2.6908,
       "cost_estimated": false
      }
-    ]
+    ],
+    "parent_id": null,
+    "root_id": "5a1e0000-0000-4000-8000-00000000002d",
+    "depth": 0,
+    "children": [],
+    "total": {
+     "input": 92768,
+     "output": 67737,
+     "cache_read": 1067018,
+     "thinking": 13320,
+     "calls": 31,
+     "d7_tokens": 0,
+     "est_cost_usd": 2.6908,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "d7_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "cost_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 2.690774,
+      "other": 0
+     },
+     "subagents": 0,
+     "last_at": "2026-11-13T07:41:45+08:00"
+    },
+    "agent": null
    },
    {
     "id": "5a1e0000-0000-4000-8000-00000000002c",
@@ -1469,8 +2166,8 @@
     "model": "claude-opus-4-6",
     "display_name": "Claude Opus 4.6 (Thinking)",
     "pool": "claude_gpt",
-    "first_at": "2026-11-12T01:42:45+08:00",
-    "last_at": "2026-11-12T02:27:21+08:00",
+    "first_at": "2026-11-12T06:12:31+08:00",
+    "last_at": "2026-11-12T06:57:07+08:00",
     "input": 37042,
     "output": 29589,
     "cache_read": 426028,
@@ -1481,11 +2178,17 @@
      "claude_gpt": 0,
      "other": 0
     },
+    "cost_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 1.137949,
+     "other": 0
+    },
     "calls": 13,
-    "est_cost_usd": 3.4138,
+    "est_cost_usd": 1.1379,
     "cost_partial": false,
     "cost_estimated": false,
     "is_subagent": false,
+    "archived": false,
     "by_model": [
      {
       "model": "claude-opus-4-6",
@@ -1495,10 +2198,38 @@
       "cache_read": 426028,
       "thinking": 4702,
       "calls": 13,
-      "est_cost_usd": 3.4138,
+      "est_cost_usd": 1.1379,
       "cost_estimated": false
      }
-    ]
+    ],
+    "parent_id": null,
+    "root_id": "5a1e0000-0000-4000-8000-00000000002c",
+    "depth": 0,
+    "children": [],
+    "total": {
+     "input": 37042,
+     "output": 29589,
+     "cache_read": 426028,
+     "thinking": 4702,
+     "calls": 13,
+     "d7_tokens": 0,
+     "est_cost_usd": 1.1379,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "d7_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "cost_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 1.137949,
+      "other": 0
+     },
+     "subagents": 0,
+     "last_at": "2026-11-12T06:57:07+08:00"
+    },
+    "agent": null
    },
    {
     "id": "5a1e0000-0000-4000-8000-00000000002b",
@@ -1507,8 +2238,8 @@
     "model": "claude-opus-4-6",
     "display_name": "Claude Opus 4.6 (Thinking)",
     "pool": "claude_gpt",
-    "first_at": "2026-11-11T05:12:15+08:00",
-    "last_at": "2026-11-11T06:14:39+08:00",
+    "first_at": "2026-11-11T09:42:01+08:00",
+    "last_at": "2026-11-11T10:44:25+08:00",
     "input": 71644,
     "output": 61125,
     "cache_read": 824036,
@@ -1519,11 +2250,17 @@
      "claude_gpt": 0,
      "other": 0
     },
+    "cost_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 2.298363,
+     "other": 0
+    },
     "calls": 26,
-    "est_cost_usd": 6.8951,
+    "est_cost_usd": 2.2984,
     "cost_partial": false,
     "cost_estimated": false,
     "is_subagent": false,
+    "archived": false,
     "by_model": [
      {
       "model": "claude-opus-4-6",
@@ -1533,10 +2270,38 @@
       "cache_read": 824036,
       "thinking": 12056,
       "calls": 26,
-      "est_cost_usd": 6.8951,
+      "est_cost_usd": 2.2984,
       "cost_estimated": false
      }
-    ]
+    ],
+    "parent_id": null,
+    "root_id": "5a1e0000-0000-4000-8000-00000000002b",
+    "depth": 0,
+    "children": [],
+    "total": {
+     "input": 71644,
+     "output": 61125,
+     "cache_read": 824036,
+     "thinking": 12056,
+     "calls": 26,
+     "d7_tokens": 0,
+     "est_cost_usd": 2.2984,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "d7_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "cost_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 2.298363,
+      "other": 0
+     },
+     "subagents": 0,
+     "last_at": "2026-11-11T10:44:25+08:00"
+    },
+    "agent": null
    },
    {
     "id": "5a1e0000-0000-4000-8000-000000000029",
@@ -1545,8 +2310,8 @@
     "model": "claude-opus-4-6",
     "display_name": "Claude Opus 4.6 (Thinking)",
     "pool": "claude_gpt",
-    "first_at": "2026-11-11T03:00:48+08:00",
-    "last_at": "2026-11-11T03:04:58+08:00",
+    "first_at": "2026-11-11T07:30:34+08:00",
+    "last_at": "2026-11-11T07:34:44+08:00",
     "input": 11910,
     "output": 9762,
     "cache_read": 136979,
@@ -1557,11 +2322,17 @@
      "claude_gpt": 0,
      "other": 0
     },
+    "cost_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0.372089,
+     "other": 0
+    },
     "calls": 4,
-    "est_cost_usd": 1.1163,
+    "est_cost_usd": 0.3721,
     "cost_partial": false,
     "cost_estimated": false,
     "is_subagent": false,
+    "archived": false,
     "by_model": [
      {
       "model": "claude-opus-4-6",
@@ -1571,10 +2342,38 @@
       "cache_read": 136979,
       "thinking": 496,
       "calls": 4,
-      "est_cost_usd": 1.1163,
+      "est_cost_usd": 0.3721,
       "cost_estimated": false
      }
-    ]
+    ],
+    "parent_id": null,
+    "root_id": "5a1e0000-0000-4000-8000-000000000029",
+    "depth": 0,
+    "children": [],
+    "total": {
+     "input": 11910,
+     "output": 9762,
+     "cache_read": 136979,
+     "thinking": 496,
+     "calls": 4,
+     "d7_tokens": 0,
+     "est_cost_usd": 0.3721,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "d7_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "cost_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0.372089,
+      "other": 0
+     },
+     "subagents": 0,
+     "last_at": "2026-11-11T07:34:44+08:00"
+    },
+    "agent": null
    },
    {
     "id": "5a1e0000-0000-4000-8000-000000000028",
@@ -1583,8 +2382,8 @@
     "model": "claude-opus-4-6",
     "display_name": "Claude Opus 4.6 (Thinking)",
     "pool": "claude_gpt",
-    "first_at": "2026-11-11T01:10:01+08:00",
-    "last_at": "2026-11-11T02:39:43+08:00",
+    "first_at": "2026-11-11T05:39:47+08:00",
+    "last_at": "2026-11-11T07:09:29+08:00",
     "input": 88579,
     "output": 62023,
     "cache_read": 1018841,
@@ -1595,11 +2394,17 @@
      "claude_gpt": 0,
      "other": 0
     },
+    "cost_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 2.50289,
+     "other": 0
+    },
     "calls": 30,
-    "est_cost_usd": 7.5087,
+    "est_cost_usd": 2.5029,
     "cost_partial": false,
     "cost_estimated": false,
     "is_subagent": false,
+    "archived": false,
     "by_model": [
      {
       "model": "claude-opus-4-6",
@@ -1609,10 +2414,38 @@
       "cache_read": 1018841,
       "thinking": 11499,
       "calls": 30,
-      "est_cost_usd": 7.5087,
+      "est_cost_usd": 2.5029,
       "cost_estimated": false
      }
-    ]
+    ],
+    "parent_id": null,
+    "root_id": "5a1e0000-0000-4000-8000-000000000028",
+    "depth": 0,
+    "children": [],
+    "total": {
+     "input": 88579,
+     "output": 62023,
+     "cache_read": 1018841,
+     "thinking": 11499,
+     "calls": 30,
+     "d7_tokens": 0,
+     "est_cost_usd": 2.5029,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "d7_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "cost_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 2.50289,
+      "other": 0
+     },
+     "subagents": 0,
+     "last_at": "2026-11-11T07:09:29+08:00"
+    },
+    "agent": null
    },
    {
     "id": "5a1e0000-0000-4000-8000-00000000002a",
@@ -1621,8 +2454,8 @@
     "model": "gemini-3-pro",
     "display_name": "Gemini 3 Pro (High)",
     "pool": "gemini",
-    "first_at": "2026-11-11T02:18:41+08:00",
-    "last_at": "2026-11-11T02:30:20+08:00",
+    "first_at": "2026-11-11T06:48:27+08:00",
+    "last_at": "2026-11-11T07:00:06+08:00",
     "input": 21882,
     "output": 17331,
     "cache_read": 251678,
@@ -1633,11 +2466,17 @@
      "claude_gpt": 0,
      "other": 0
     },
+    "cost_by_pool": {
+     "gemini": 0.302072,
+     "claude_gpt": 0,
+     "other": 0
+    },
     "calls": 7,
     "est_cost_usd": 0.3021,
     "cost_partial": false,
     "cost_estimated": false,
     "is_subagent": false,
+    "archived": false,
     "by_model": [
      {
       "model": "gemini-3-pro",
@@ -1650,7 +2489,35 @@
       "est_cost_usd": 0.3021,
       "cost_estimated": false
      }
-    ]
+    ],
+    "parent_id": null,
+    "root_id": "5a1e0000-0000-4000-8000-00000000002a",
+    "depth": 0,
+    "children": [],
+    "total": {
+     "input": 21882,
+     "output": 17331,
+     "cache_read": 251678,
+     "thinking": 3288,
+     "calls": 7,
+     "d7_tokens": 0,
+     "est_cost_usd": 0.3021,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "d7_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "cost_by_pool": {
+      "gemini": 0.302072,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "subagents": 0,
+     "last_at": "2026-11-11T07:00:06+08:00"
+    },
+    "agent": null
    },
    {
     "id": "5a1e0000-0000-4000-8000-000000000027",
@@ -1659,8 +2526,8 @@
     "model": "claude-opus-4-6",
     "display_name": "Claude Opus 4.6 (Thinking)",
     "pool": "claude_gpt",
-    "first_at": "2026-11-10T01:32:30+08:00",
-    "last_at": "2026-11-10T02:44:36+08:00",
+    "first_at": "2026-11-10T06:02:16+08:00",
+    "last_at": "2026-11-10T07:14:22+08:00",
     "input": 64857,
     "output": 59425,
     "cache_read": 746013,
@@ -1671,11 +2538,17 @@
      "claude_gpt": 0,
      "other": 0
     },
+    "cost_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 2.182916,
+     "other": 0
+    },
     "calls": 28,
-    "est_cost_usd": 6.5487,
+    "est_cost_usd": 2.1829,
     "cost_partial": false,
     "cost_estimated": false,
     "is_subagent": false,
+    "archived": false,
     "by_model": [
      {
       "model": "claude-opus-4-6",
@@ -1685,10 +2558,38 @@
       "cache_read": 746013,
       "thinking": 11673,
       "calls": 28,
-      "est_cost_usd": 6.5487,
+      "est_cost_usd": 2.1829,
       "cost_estimated": false
      }
-    ]
+    ],
+    "parent_id": null,
+    "root_id": "5a1e0000-0000-4000-8000-000000000027",
+    "depth": 0,
+    "children": [],
+    "total": {
+     "input": 64857,
+     "output": 59425,
+     "cache_read": 746013,
+     "thinking": 11673,
+     "calls": 28,
+     "d7_tokens": 0,
+     "est_cost_usd": 2.1829,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "d7_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "cost_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 2.182916,
+      "other": 0
+     },
+     "subagents": 0,
+     "last_at": "2026-11-10T07:14:22+08:00"
+    },
+    "agent": null
    },
    {
     "id": "5a1e0000-0000-4000-8000-000000000026",
@@ -1697,8 +2598,8 @@
     "model": "gemini-3-pro",
     "display_name": "Gemini 3 Pro (High)",
     "pool": "gemini",
-    "first_at": "2026-11-09T06:09:23+08:00",
-    "last_at": "2026-11-09T07:27:18+08:00",
+    "first_at": "2026-11-09T10:39:09+08:00",
+    "last_at": "2026-11-09T11:57:04+08:00",
     "input": 83993,
     "output": 68250,
     "cache_read": 966068,
@@ -1709,11 +2610,17 @@
      "claude_gpt": 0,
      "other": 0
     },
+    "cost_by_pool": {
+     "gemini": 1.1802,
+     "claude_gpt": 0,
+     "other": 0
+    },
     "calls": 27,
     "est_cost_usd": 1.1802,
     "cost_partial": false,
     "cost_estimated": false,
     "is_subagent": false,
+    "archived": false,
     "by_model": [
      {
       "model": "gemini-3-pro",
@@ -1726,7 +2633,35 @@
       "est_cost_usd": 1.1802,
       "cost_estimated": false
      }
-    ]
+    ],
+    "parent_id": null,
+    "root_id": "5a1e0000-0000-4000-8000-000000000026",
+    "depth": 0,
+    "children": [],
+    "total": {
+     "input": 83993,
+     "output": 68250,
+     "cache_read": 966068,
+     "thinking": 13569,
+     "calls": 27,
+     "d7_tokens": 0,
+     "est_cost_usd": 1.1802,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "d7_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "cost_by_pool": {
+      "gemini": 1.1802,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "subagents": 0,
+     "last_at": "2026-11-09T11:57:04+08:00"
+    },
+    "agent": null
    },
    {
     "id": "5a1e0000-0000-4000-8000-000000000025",
@@ -1735,8 +2670,8 @@
     "model": "gemini-3-pro",
     "display_name": "Gemini 3 Pro (High)",
     "pool": "gemini",
-    "first_at": "2026-11-08T05:30:29+08:00",
-    "last_at": "2026-11-08T07:03:39+08:00",
+    "first_at": "2026-11-08T10:00:15+08:00",
+    "last_at": "2026-11-08T11:33:25+08:00",
     "input": 97119,
     "output": 65870,
     "cache_read": 1117009,
@@ -1747,11 +2682,17 @@
      "claude_gpt": 0,
      "other": 0
     },
+    "cost_by_pool": {
+     "gemini": 1.20808,
+     "claude_gpt": 0,
+     "other": 0
+    },
     "calls": 30,
     "est_cost_usd": 1.2081,
     "cost_partial": false,
     "cost_estimated": false,
     "is_subagent": false,
+    "archived": false,
     "by_model": [
      {
       "model": "gemini-3-pro",
@@ -1764,7 +2705,35 @@
       "est_cost_usd": 1.2081,
       "cost_estimated": false
      }
-    ]
+    ],
+    "parent_id": null,
+    "root_id": "5a1e0000-0000-4000-8000-000000000025",
+    "depth": 0,
+    "children": [],
+    "total": {
+     "input": 97119,
+     "output": 65870,
+     "cache_read": 1117009,
+     "thinking": 14724,
+     "calls": 30,
+     "d7_tokens": 0,
+     "est_cost_usd": 1.2081,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "d7_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "cost_by_pool": {
+      "gemini": 1.20808,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "subagents": 0,
+     "last_at": "2026-11-08T11:33:25+08:00"
+    },
+    "agent": null
    },
    {
     "id": "5a1e0000-0000-4000-8000-000000000024",
@@ -1773,8 +2742,8 @@
     "model": "gemini-3-flash",
     "display_name": "Gemini 3 Flash",
     "pool": "gemini",
-    "first_at": "2026-11-05T05:49:20+08:00",
-    "last_at": "2026-11-05T06:56:32+08:00",
+    "first_at": "2026-11-05T10:19:06+08:00",
+    "last_at": "2026-11-05T11:26:18+08:00",
     "input": 46891,
     "output": 28679,
     "cache_read": 539363,
@@ -1785,11 +2754,17 @@
      "claude_gpt": 0,
      "other": 0
     },
+    "cost_by_pool": {
+     "gemini": 0.136451,
+     "claude_gpt": 0,
+     "other": 0
+    },
     "calls": 22,
     "est_cost_usd": 0.1365,
     "cost_partial": false,
     "cost_estimated": false,
     "is_subagent": false,
+    "archived": false,
     "by_model": [
      {
       "model": "gemini-3-flash",
@@ -1802,7 +2777,35 @@
       "est_cost_usd": 0.1365,
       "cost_estimated": false
      }
-    ]
+    ],
+    "parent_id": null,
+    "root_id": "5a1e0000-0000-4000-8000-000000000024",
+    "depth": 0,
+    "children": [],
+    "total": {
+     "input": 46891,
+     "output": 28679,
+     "cache_read": 539363,
+     "thinking": 5463,
+     "calls": 22,
+     "d7_tokens": 0,
+     "est_cost_usd": 0.1365,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "d7_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "cost_by_pool": {
+      "gemini": 0.136451,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "subagents": 0,
+     "last_at": "2026-11-05T11:26:18+08:00"
+    },
+    "agent": null
    },
    {
     "id": "5a1e0000-0000-4000-8000-000000000023",
@@ -1811,8 +2814,8 @@
     "model": "claude-sonnet-4-6",
     "display_name": "Claude Sonnet 4.6 (Thinking)",
     "pool": "claude_gpt",
-    "first_at": "2026-11-05T00:34:09+08:00",
-    "last_at": "2026-11-05T00:55:37+08:00",
+    "first_at": "2026-11-05T05:03:55+08:00",
+    "last_at": "2026-11-05T05:25:23+08:00",
     "input": 25745,
     "output": 25718,
     "cache_read": 296120,
@@ -1823,11 +2826,17 @@
      "claude_gpt": 0,
      "other": 0
     },
+    "cost_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0.551841,
+     "other": 0
+    },
     "calls": 13,
     "est_cost_usd": 0.5518,
     "cost_partial": false,
     "cost_estimated": false,
     "is_subagent": false,
+    "archived": false,
     "by_model": [
      {
       "model": "claude-sonnet-4-6",
@@ -1840,7 +2849,35 @@
       "est_cost_usd": 0.5518,
       "cost_estimated": false
      }
-    ]
+    ],
+    "parent_id": null,
+    "root_id": "5a1e0000-0000-4000-8000-000000000023",
+    "depth": 0,
+    "children": [],
+    "total": {
+     "input": 25745,
+     "output": 25718,
+     "cache_read": 296120,
+     "thinking": 5058,
+     "calls": 13,
+     "d7_tokens": 0,
+     "est_cost_usd": 0.5518,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "d7_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "cost_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0.551841,
+      "other": 0
+     },
+     "subagents": 0,
+     "last_at": "2026-11-05T05:25:23+08:00"
+    },
+    "agent": null
    },
    {
     "id": "5a1e0000-0000-4000-8000-000000000022",
@@ -1849,8 +2886,8 @@
     "model": "gemini-3-pro",
     "display_name": "Gemini 3 Pro (High)",
     "pool": "gemini",
-    "first_at": "2026-11-04T05:04:02+08:00",
-    "last_at": "2026-11-04T05:19:50+08:00",
+    "first_at": "2026-11-04T09:33:48+08:00",
+    "last_at": "2026-11-04T09:49:36+08:00",
     "input": 15453,
     "output": 11904,
     "cache_read": 177742,
@@ -1861,11 +2898,17 @@
      "claude_gpt": 0,
      "other": 0
     },
+    "cost_by_pool": {
+     "gemini": 0.209302,
+     "claude_gpt": 0,
+     "other": 0
+    },
     "calls": 5,
     "est_cost_usd": 0.2093,
     "cost_partial": false,
     "cost_estimated": false,
     "is_subagent": false,
+    "archived": false,
     "by_model": [
      {
       "model": "gemini-3-pro",
@@ -1878,7 +2921,35 @@
       "est_cost_usd": 0.2093,
       "cost_estimated": false
      }
-    ]
+    ],
+    "parent_id": null,
+    "root_id": "5a1e0000-0000-4000-8000-000000000022",
+    "depth": 0,
+    "children": [],
+    "total": {
+     "input": 15453,
+     "output": 11904,
+     "cache_read": 177742,
+     "thinking": 2810,
+     "calls": 5,
+     "d7_tokens": 0,
+     "est_cost_usd": 0.2093,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "d7_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "cost_by_pool": {
+      "gemini": 0.209302,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "subagents": 0,
+     "last_at": "2026-11-04T09:49:36+08:00"
+    },
+    "agent": null
    },
    {
     "id": "5a1e0000-0000-4000-8000-000000000021",
@@ -1887,8 +2958,8 @@
     "model": "claude-opus-4-6",
     "display_name": "Claude Opus 4.6 (Thinking)",
     "pool": "claude_gpt",
-    "first_at": "2026-11-04T03:46:15+08:00",
-    "last_at": "2026-11-04T04:33:17+08:00",
+    "first_at": "2026-11-04T08:16:01+08:00",
+    "last_at": "2026-11-04T09:03:03+08:00",
     "input": 55946,
     "output": 39471,
     "cache_read": 643480,
@@ -1899,11 +2970,17 @@
      "claude_gpt": 0,
      "other": 0
     },
+    "cost_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 1.588245,
+     "other": 0
+    },
     "calls": 19,
-    "est_cost_usd": 4.7647,
+    "est_cost_usd": 1.5882,
     "cost_partial": false,
     "cost_estimated": false,
     "is_subagent": false,
+    "archived": false,
     "by_model": [
      {
       "model": "claude-opus-4-6",
@@ -1913,10 +2990,38 @@
       "cache_read": 643480,
       "thinking": 7172,
       "calls": 19,
-      "est_cost_usd": 4.7647,
+      "est_cost_usd": 1.5882,
       "cost_estimated": false
      }
-    ]
+    ],
+    "parent_id": null,
+    "root_id": "5a1e0000-0000-4000-8000-000000000021",
+    "depth": 0,
+    "children": [],
+    "total": {
+     "input": 55946,
+     "output": 39471,
+     "cache_read": 643480,
+     "thinking": 7172,
+     "calls": 19,
+     "d7_tokens": 0,
+     "est_cost_usd": 1.5882,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "d7_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "cost_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 1.588245,
+      "other": 0
+     },
+     "subagents": 0,
+     "last_at": "2026-11-04T09:03:03+08:00"
+    },
+    "agent": null
    },
    {
     "id": "5a1e0000-0000-4000-8000-00000000001f",
@@ -1925,8 +3030,8 @@
     "model": "gemini-3-pro",
     "display_name": "Gemini 3 Pro (High)",
     "pool": "gemini",
-    "first_at": "2026-11-03T07:19:23+08:00",
-    "last_at": "2026-11-03T08:40:25+08:00",
+    "first_at": "2026-11-03T11:49:09+08:00",
+    "last_at": "2026-11-03T13:10:11+08:00",
     "input": 80454,
     "output": 64801,
     "cache_read": 925331,
@@ -1937,11 +3042,17 @@
      "claude_gpt": 0,
      "other": 0
     },
+    "cost_by_pool": {
+     "gemini": 1.123586,
+     "claude_gpt": 0,
+     "other": 0
+    },
     "calls": 25,
     "est_cost_usd": 1.1236,
     "cost_partial": false,
     "cost_estimated": false,
     "is_subagent": false,
+    "archived": false,
     "by_model": [
      {
       "model": "gemini-3-pro",
@@ -1954,7 +3065,35 @@
       "est_cost_usd": 1.1236,
       "cost_estimated": false
      }
-    ]
+    ],
+    "parent_id": null,
+    "root_id": "5a1e0000-0000-4000-8000-00000000001f",
+    "depth": 0,
+    "children": [],
+    "total": {
+     "input": 80454,
+     "output": 64801,
+     "cache_read": 925331,
+     "thinking": 11400,
+     "calls": 25,
+     "d7_tokens": 0,
+     "est_cost_usd": 1.1236,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "d7_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "cost_by_pool": {
+      "gemini": 1.123586,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "subagents": 0,
+     "last_at": "2026-11-03T13:10:11+08:00"
+    },
+    "agent": null
    },
    {
     "id": "5a1e0000-0000-4000-8000-000000000020",
@@ -1963,8 +3102,8 @@
     "model": "gpt-oss-120b",
     "display_name": "GPT-OSS 120B (Medium)",
     "pool": "claude_gpt",
-    "first_at": "2026-11-03T01:18:29+08:00",
-    "last_at": "2026-11-03T02:00:05+08:00",
+    "first_at": "2026-11-03T05:48:15+08:00",
+    "last_at": "2026-11-03T06:29:51+08:00",
     "input": 18707,
     "output": 14758,
     "cache_read": 215216,
@@ -1975,11 +3114,17 @@
      "claude_gpt": 0,
      "other": 0
     },
+    "cost_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0.027802,
+     "other": 0
+    },
     "calls": 14,
     "est_cost_usd": 0.0278,
     "cost_partial": false,
     "cost_estimated": false,
     "is_subagent": false,
+    "archived": false,
     "by_model": [
      {
       "model": "gpt-oss-120b",
@@ -1992,7 +3137,35 @@
       "est_cost_usd": 0.0278,
       "cost_estimated": false
      }
-    ]
+    ],
+    "parent_id": null,
+    "root_id": "5a1e0000-0000-4000-8000-000000000020",
+    "depth": 0,
+    "children": [],
+    "total": {
+     "input": 18707,
+     "output": 14758,
+     "cache_read": 215216,
+     "thinking": 2079,
+     "calls": 14,
+     "d7_tokens": 0,
+     "est_cost_usd": 0.0278,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "d7_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "cost_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0.027802,
+      "other": 0
+     },
+     "subagents": 0,
+     "last_at": "2026-11-03T06:29:51+08:00"
+    },
+    "agent": null
    },
    {
     "id": "5a1e0000-0000-4000-8000-00000000001e",
@@ -2001,8 +3174,8 @@
     "model": "gemini-3-flash",
     "display_name": "Gemini 3 Flash",
     "pool": "gemini",
-    "first_at": "2026-11-02T02:27:40+08:00",
-    "last_at": "2026-11-02T03:05:50+08:00",
+    "first_at": "2026-11-02T06:57:26+08:00",
+    "last_at": "2026-11-02T07:35:36+08:00",
     "input": 21484,
     "output": 15211,
     "cache_read": 247129,
@@ -2013,11 +3186,17 @@
      "claude_gpt": 0,
      "other": 0
     },
+    "cost_by_pool": {
+     "gemini": 0.068731,
+     "claude_gpt": 0,
+     "other": 0
+    },
     "calls": 11,
     "est_cost_usd": 0.0687,
     "cost_partial": false,
     "cost_estimated": false,
     "is_subagent": false,
+    "archived": false,
     "by_model": [
      {
       "model": "gemini-3-flash",
@@ -2030,7 +3209,35 @@
       "est_cost_usd": 0.0687,
       "cost_estimated": false
      }
-    ]
+    ],
+    "parent_id": null,
+    "root_id": "5a1e0000-0000-4000-8000-00000000001e",
+    "depth": 0,
+    "children": [],
+    "total": {
+     "input": 21484,
+     "output": 15211,
+     "cache_read": 247129,
+     "thinking": 2088,
+     "calls": 11,
+     "d7_tokens": 0,
+     "est_cost_usd": 0.0687,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "d7_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "cost_by_pool": {
+      "gemini": 0.068731,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "subagents": 0,
+     "last_at": "2026-11-02T07:35:36+08:00"
+    },
+    "agent": null
    },
    {
     "id": "5a1e0000-0000-4000-8000-00000000001b",
@@ -2039,8 +3246,8 @@
     "model": "gemini-3-flash",
     "display_name": "Gemini 3 Flash",
     "pool": "gemini",
-    "first_at": "2026-10-31T02:05:10+08:00",
-    "last_at": "2026-10-31T02:51:25+08:00",
+    "first_at": "2026-10-31T06:34:56+08:00",
+    "last_at": "2026-10-31T07:21:11+08:00",
     "input": 31292,
     "output": 22946,
     "cache_read": 359916,
@@ -2051,11 +3258,17 @@
      "claude_gpt": 0,
      "other": 0
     },
+    "cost_by_pool": {
+     "gemini": 0.10248,
+     "claude_gpt": 0,
+     "other": 0
+    },
     "calls": 16,
     "est_cost_usd": 0.1025,
     "cost_partial": false,
     "cost_estimated": false,
     "is_subagent": false,
+    "archived": false,
     "by_model": [
      {
       "model": "gemini-3-flash",
@@ -2068,7 +3281,35 @@
       "est_cost_usd": 0.1025,
       "cost_estimated": false
      }
-    ]
+    ],
+    "parent_id": null,
+    "root_id": "5a1e0000-0000-4000-8000-00000000001b",
+    "depth": 0,
+    "children": [],
+    "total": {
+     "input": 31292,
+     "output": 22946,
+     "cache_read": 359916,
+     "thinking": 4484,
+     "calls": 16,
+     "d7_tokens": 0,
+     "est_cost_usd": 0.1025,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "d7_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "cost_by_pool": {
+      "gemini": 0.10248,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "subagents": 0,
+     "last_at": "2026-10-31T07:21:11+08:00"
+    },
+    "agent": null
    },
    {
     "id": "5a1e0000-0000-4000-8000-00000000001c",
@@ -2077,8 +3318,8 @@
     "model": "gemini-3-pro",
     "display_name": "Gemini 3 Pro (High)",
     "pool": "gemini",
-    "first_at": "2026-10-31T01:26:04+08:00",
-    "last_at": "2026-10-31T02:28:04+08:00",
+    "first_at": "2026-10-31T05:55:50+08:00",
+    "last_at": "2026-10-31T06:57:50+08:00",
     "input": 69833,
     "output": 50139,
     "cache_read": 803182,
@@ -2089,11 +3330,17 @@
      "claude_gpt": 0,
      "other": 0
     },
+    "cost_by_pool": {
+     "gemini": 0.90197,
+     "claude_gpt": 0,
+     "other": 0
+    },
     "calls": 21,
     "est_cost_usd": 0.902,
     "cost_partial": false,
     "cost_estimated": false,
     "is_subagent": false,
+    "archived": false,
     "by_model": [
      {
       "model": "gemini-3-pro",
@@ -2106,7 +3353,35 @@
       "est_cost_usd": 0.902,
       "cost_estimated": false
      }
-    ]
+    ],
+    "parent_id": null,
+    "root_id": "5a1e0000-0000-4000-8000-00000000001c",
+    "depth": 0,
+    "children": [],
+    "total": {
+     "input": 69833,
+     "output": 50139,
+     "cache_read": 803182,
+     "thinking": 9082,
+     "calls": 21,
+     "d7_tokens": 0,
+     "est_cost_usd": 0.902,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "d7_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "cost_by_pool": {
+      "gemini": 0.90197,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "subagents": 0,
+     "last_at": "2026-10-31T06:57:50+08:00"
+    },
+    "agent": null
    },
    {
     "id": "5a1e0000-0000-4000-8000-00000000001d",
@@ -2115,8 +3390,8 @@
     "model": "claude-opus-4-6",
     "display_name": "Claude Opus 4.6 (Thinking)",
     "pool": "claude_gpt",
-    "first_at": "2026-10-31T01:15:38+08:00",
-    "last_at": "2026-10-31T01:47:50+08:00",
+    "first_at": "2026-10-31T05:45:24+08:00",
+    "last_at": "2026-10-31T06:17:36+08:00",
     "input": 40628,
     "output": 34919,
     "cache_read": 467308,
@@ -2127,11 +3402,17 @@
      "claude_gpt": 0,
      "other": 0
     },
+    "cost_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 1.309769,
+     "other": 0
+    },
     "calls": 16,
-    "est_cost_usd": 3.9293,
+    "est_cost_usd": 1.3098,
     "cost_partial": false,
     "cost_estimated": false,
     "is_subagent": false,
+    "archived": false,
     "by_model": [
      {
       "model": "claude-opus-4-6",
@@ -2141,10 +3422,38 @@
       "cache_read": 467308,
       "thinking": 5729,
       "calls": 16,
-      "est_cost_usd": 3.9293,
+      "est_cost_usd": 1.3098,
       "cost_estimated": false
      }
-    ]
+    ],
+    "parent_id": null,
+    "root_id": "5a1e0000-0000-4000-8000-00000000001d",
+    "depth": 0,
+    "children": [],
+    "total": {
+     "input": 40628,
+     "output": 34919,
+     "cache_read": 467308,
+     "thinking": 5729,
+     "calls": 16,
+     "d7_tokens": 0,
+     "est_cost_usd": 1.3098,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "d7_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "cost_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 1.309769,
+      "other": 0
+     },
+     "subagents": 0,
+     "last_at": "2026-10-31T06:17:36+08:00"
+    },
+    "agent": null
    },
    {
     "id": "5a1e0000-0000-4000-8000-000000000019",
@@ -2153,8 +3462,8 @@
     "model": "gemini-3-pro",
     "display_name": "Gemini 3 Pro (High)",
     "pool": "gemini",
-    "first_at": "2026-10-30T05:12:08+08:00",
-    "last_at": "2026-10-30T06:41:44+08:00",
+    "first_at": "2026-10-30T09:41:54+08:00",
+    "last_at": "2026-10-30T11:11:30+08:00",
     "input": 72785,
     "output": 60305,
     "cache_read": 837168,
@@ -2165,11 +3474,17 @@
      "claude_gpt": 0,
      "other": 0
     },
+    "cost_by_pool": {
+     "gemini": 1.036664,
+     "claude_gpt": 0,
+     "other": 0
+    },
     "calls": 26,
     "est_cost_usd": 1.0367,
     "cost_partial": false,
     "cost_estimated": false,
     "is_subagent": false,
+    "archived": false,
     "by_model": [
      {
       "model": "gemini-3-pro",
@@ -2182,7 +3497,35 @@
       "est_cost_usd": 1.0367,
       "cost_estimated": false
      }
-    ]
+    ],
+    "parent_id": null,
+    "root_id": "5a1e0000-0000-4000-8000-000000000019",
+    "depth": 0,
+    "children": [],
+    "total": {
+     "input": 72785,
+     "output": 60305,
+     "cache_read": 837168,
+     "thinking": 15317,
+     "calls": 26,
+     "d7_tokens": 0,
+     "est_cost_usd": 1.0367,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "d7_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "cost_by_pool": {
+      "gemini": 1.036664,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "subagents": 0,
+     "last_at": "2026-10-30T11:11:30+08:00"
+    },
+    "agent": null
    },
    {
     "id": "5a1e0000-0000-4000-8000-00000000001a",
@@ -2191,8 +3534,8 @@
     "model": "claude-opus-4-6",
     "display_name": "Claude Opus 4.6 (Thinking)",
     "pool": "claude_gpt",
-    "first_at": "2026-10-30T00:37:39+08:00",
-    "last_at": "2026-10-30T00:53:04+08:00",
+    "first_at": "2026-10-30T05:07:25+08:00",
+    "last_at": "2026-10-30T05:22:50+08:00",
     "input": 22558,
     "output": 13966,
     "cache_read": 259441,
@@ -2203,11 +3546,17 @@
      "claude_gpt": 0,
      "other": 0
     },
+    "cost_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0.59166,
+     "other": 0
+    },
     "calls": 7,
-    "est_cost_usd": 1.775,
+    "est_cost_usd": 0.5917,
     "cost_partial": false,
     "cost_estimated": false,
     "is_subagent": false,
+    "archived": false,
     "by_model": [
      {
       "model": "claude-opus-4-6",
@@ -2217,10 +3566,38 @@
       "cache_read": 259441,
       "thinking": 2602,
       "calls": 7,
-      "est_cost_usd": 1.775,
+      "est_cost_usd": 0.5917,
       "cost_estimated": false
      }
-    ]
+    ],
+    "parent_id": null,
+    "root_id": "5a1e0000-0000-4000-8000-00000000001a",
+    "depth": 0,
+    "children": [],
+    "total": {
+     "input": 22558,
+     "output": 13966,
+     "cache_read": 259441,
+     "thinking": 2602,
+     "calls": 7,
+     "d7_tokens": 0,
+     "est_cost_usd": 0.5917,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "d7_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "cost_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0.59166,
+      "other": 0
+     },
+     "subagents": 0,
+     "last_at": "2026-10-30T05:22:50+08:00"
+    },
+    "agent": null
    },
    {
     "id": "5a1e0000-0000-4000-8000-000000000018",
@@ -2229,8 +3606,8 @@
     "model": "gemini-3-pro",
     "display_name": "Gemini 3 Pro (High)",
     "pool": "gemini",
-    "first_at": "2026-10-29T08:36:11+08:00",
-    "last_at": "2026-10-29T09:14:52+08:00",
+    "first_at": "2026-10-29T13:05:57+08:00",
+    "last_at": "2026-10-29T13:44:38+08:00",
     "input": 45377,
     "output": 34997,
     "cache_read": 521912,
@@ -2241,11 +3618,17 @@
      "claude_gpt": 0,
      "other": 0
     },
+    "cost_by_pool": {
+     "gemini": 0.6151,
+     "claude_gpt": 0,
+     "other": 0
+    },
     "calls": 14,
     "est_cost_usd": 0.6151,
     "cost_partial": false,
     "cost_estimated": false,
     "is_subagent": false,
+    "archived": false,
     "by_model": [
      {
       "model": "gemini-3-pro",
@@ -2258,7 +3641,35 @@
       "est_cost_usd": 0.6151,
       "cost_estimated": false
      }
-    ]
+    ],
+    "parent_id": null,
+    "root_id": "5a1e0000-0000-4000-8000-000000000018",
+    "depth": 0,
+    "children": [],
+    "total": {
+     "input": 45377,
+     "output": 34997,
+     "cache_read": 521912,
+     "thinking": 7186,
+     "calls": 14,
+     "d7_tokens": 0,
+     "est_cost_usd": 0.6151,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "d7_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "cost_by_pool": {
+      "gemini": 0.6151,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "subagents": 0,
+     "last_at": "2026-10-29T13:44:38+08:00"
+    },
+    "agent": null
    },
    {
     "id": "5a1e0000-0000-4000-8000-000000000017",
@@ -2267,8 +3678,8 @@
     "model": "gemini-3-pro",
     "display_name": "Gemini 3 Pro (High)",
     "pool": "gemini",
-    "first_at": "2026-10-29T05:36:31+08:00",
-    "last_at": "2026-10-29T07:04:29+08:00",
+    "first_at": "2026-10-29T10:06:17+08:00",
+    "last_at": "2026-10-29T11:34:15+08:00",
     "input": 82161,
     "output": 68607,
     "cache_read": 944998,
@@ -2279,11 +3690,17 @@
      "claude_gpt": 0,
      "other": 0
     },
+    "cost_by_pool": {
+     "gemini": 1.176606,
+     "claude_gpt": 0,
+     "other": 0
+    },
     "calls": 30,
     "est_cost_usd": 1.1766,
     "cost_partial": false,
     "cost_estimated": false,
     "is_subagent": false,
+    "archived": false,
     "by_model": [
      {
       "model": "gemini-3-pro",
@@ -2296,7 +3713,35 @@
       "est_cost_usd": 1.1766,
       "cost_estimated": false
      }
-    ]
+    ],
+    "parent_id": null,
+    "root_id": "5a1e0000-0000-4000-8000-000000000017",
+    "depth": 0,
+    "children": [],
+    "total": {
+     "input": 82161,
+     "output": 68607,
+     "cache_read": 944998,
+     "thinking": 13634,
+     "calls": 30,
+     "d7_tokens": 0,
+     "est_cost_usd": 1.1766,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "d7_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "cost_by_pool": {
+      "gemini": 1.176606,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "subagents": 0,
+     "last_at": "2026-10-29T11:34:15+08:00"
+    },
+    "agent": null
    },
    {
     "id": "5a1e0000-0000-4000-8000-000000000016",
@@ -2305,8 +3750,8 @@
     "model": "claude-opus-4-6",
     "display_name": "Claude Opus 4.6 (Thinking)",
     "pool": "claude_gpt",
-    "first_at": "2026-10-28T06:04:43+08:00",
-    "last_at": "2026-10-28T07:28:19+08:00",
+    "first_at": "2026-10-28T10:34:29+08:00",
+    "last_at": "2026-10-28T11:58:05+08:00",
     "input": 65844,
     "output": 56235,
     "cache_read": 757321,
@@ -2317,11 +3762,17 @@
      "claude_gpt": 0,
      "other": 0
     },
+    "cost_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 2.113756,
+     "other": 0
+    },
     "calls": 25,
-    "est_cost_usd": 6.3413,
+    "est_cost_usd": 2.1138,
     "cost_partial": false,
     "cost_estimated": false,
     "is_subagent": false,
+    "archived": false,
     "by_model": [
      {
       "model": "claude-opus-4-6",
@@ -2331,10 +3782,38 @@
       "cache_read": 757321,
       "thinking": 9150,
       "calls": 25,
-      "est_cost_usd": 6.3413,
+      "est_cost_usd": 2.1138,
       "cost_estimated": false
      }
-    ]
+    ],
+    "parent_id": null,
+    "root_id": "5a1e0000-0000-4000-8000-000000000016",
+    "depth": 0,
+    "children": [],
+    "total": {
+     "input": 65844,
+     "output": 56235,
+     "cache_read": 757321,
+     "thinking": 9150,
+     "calls": 25,
+     "d7_tokens": 0,
+     "est_cost_usd": 2.1138,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "d7_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "cost_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 2.113756,
+      "other": 0
+     },
+     "subagents": 0,
+     "last_at": "2026-10-28T11:58:05+08:00"
+    },
+    "agent": null
    },
    {
     "id": "5a1e0000-0000-4000-8000-000000000015",
@@ -2343,8 +3822,8 @@
     "model": "claude-opus-4-6",
     "display_name": "Claude Opus 4.6 (Thinking)",
     "pool": "claude_gpt",
-    "first_at": "2026-10-28T06:05:19+08:00",
-    "last_at": "2026-10-28T07:03:34+08:00",
+    "first_at": "2026-10-28T10:35:05+08:00",
+    "last_at": "2026-10-28T11:33:20+08:00",
     "input": 47940,
     "output": 32085,
     "cache_read": 551379,
@@ -2355,11 +3834,17 @@
      "claude_gpt": 0,
      "other": 0
     },
+    "cost_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 1.317515,
+     "other": 0
+    },
     "calls": 16,
-    "est_cost_usd": 3.9525,
+    "est_cost_usd": 1.3175,
     "cost_partial": false,
     "cost_estimated": false,
     "is_subagent": false,
+    "archived": false,
     "by_model": [
      {
       "model": "claude-opus-4-6",
@@ -2369,10 +3854,38 @@
       "cache_read": 551379,
       "thinking": 7026,
       "calls": 16,
-      "est_cost_usd": 3.9525,
+      "est_cost_usd": 1.3175,
       "cost_estimated": false
      }
-    ]
+    ],
+    "parent_id": null,
+    "root_id": "5a1e0000-0000-4000-8000-000000000015",
+    "depth": 0,
+    "children": [],
+    "total": {
+     "input": 47940,
+     "output": 32085,
+     "cache_read": 551379,
+     "thinking": 7026,
+     "calls": 16,
+     "d7_tokens": 0,
+     "est_cost_usd": 1.3175,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "d7_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "cost_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 1.317515,
+      "other": 0
+     },
+     "subagents": 0,
+     "last_at": "2026-10-28T11:33:20+08:00"
+    },
+    "agent": null
    },
    {
     "id": "5a1e0000-0000-4000-8000-000000000014",
@@ -2381,8 +3894,8 @@
     "model": "gemini-3-pro",
     "display_name": "Gemini 3 Pro (High)",
     "pool": "gemini",
-    "first_at": "2026-10-28T02:21:24+08:00",
-    "last_at": "2026-10-28T03:25:36+08:00",
+    "first_at": "2026-10-28T06:51:10+08:00",
+    "last_at": "2026-10-28T07:55:22+08:00",
     "input": 47152,
     "output": 47293,
     "cache_read": 542338,
@@ -2393,11 +3906,17 @@
      "claude_gpt": 0,
      "other": 0
     },
+    "cost_by_pool": {
+     "gemini": 0.770288,
+     "claude_gpt": 0,
+     "other": 0
+    },
     "calls": 19,
     "est_cost_usd": 0.7703,
     "cost_partial": false,
     "cost_estimated": false,
     "is_subagent": false,
+    "archived": false,
     "by_model": [
      {
       "model": "gemini-3-pro",
@@ -2410,7 +3929,35 @@
       "est_cost_usd": 0.7703,
       "cost_estimated": false
      }
-    ]
+    ],
+    "parent_id": null,
+    "root_id": "5a1e0000-0000-4000-8000-000000000014",
+    "depth": 0,
+    "children": [],
+    "total": {
+     "input": 47152,
+     "output": 47293,
+     "cache_read": 542338,
+     "thinking": 9769,
+     "calls": 19,
+     "d7_tokens": 0,
+     "est_cost_usd": 0.7703,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "d7_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "cost_by_pool": {
+      "gemini": 0.770288,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "subagents": 0,
+     "last_at": "2026-10-28T07:55:22+08:00"
+    },
+    "agent": null
    },
    {
     "id": "5a1e0000-0000-4000-8000-000000000011",
@@ -2419,8 +3966,8 @@
     "model": "claude-sonnet-4-6",
     "display_name": "Claude Sonnet 4.6 (Thinking)",
     "pool": "claude_gpt",
-    "first_at": "2026-10-27T05:12:09+08:00",
-    "last_at": "2026-10-27T05:41:33+08:00",
+    "first_at": "2026-10-27T09:41:55+08:00",
+    "last_at": "2026-10-27T10:11:19+08:00",
     "input": 29886,
     "output": 25389,
     "cache_read": 343767,
@@ -2431,11 +3978,17 @@
      "claude_gpt": 0,
      "other": 0
     },
+    "cost_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0.573623,
+     "other": 0
+    },
     "calls": 13,
     "est_cost_usd": 0.5736,
     "cost_partial": false,
     "cost_estimated": false,
     "is_subagent": false,
+    "archived": false,
     "by_model": [
      {
       "model": "claude-sonnet-4-6",
@@ -2448,7 +4001,35 @@
       "est_cost_usd": 0.5736,
       "cost_estimated": false
      }
-    ]
+    ],
+    "parent_id": null,
+    "root_id": "5a1e0000-0000-4000-8000-000000000011",
+    "depth": 0,
+    "children": [],
+    "total": {
+     "input": 29886,
+     "output": 25389,
+     "cache_read": 343767,
+     "thinking": 4825,
+     "calls": 13,
+     "d7_tokens": 0,
+     "est_cost_usd": 0.5736,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "d7_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "cost_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0.573623,
+      "other": 0
+     },
+     "subagents": 0,
+     "last_at": "2026-10-27T10:11:19+08:00"
+    },
+    "agent": null
    },
    {
     "id": "5a1e0000-0000-4000-8000-000000000012",
@@ -2457,8 +4038,8 @@
     "model": "claude-sonnet-4-6",
     "display_name": "Claude Sonnet 4.6 (Thinking)",
     "pool": "claude_gpt",
-    "first_at": "2026-10-27T02:47:20+08:00",
-    "last_at": "2026-10-27T04:27:12+08:00",
+    "first_at": "2026-10-27T07:17:06+08:00",
+    "last_at": "2026-10-27T08:56:58+08:00",
     "input": 61675,
     "output": 53363,
     "cache_read": 709375,
@@ -2469,11 +4050,17 @@
      "claude_gpt": 0,
      "other": 0
     },
+    "cost_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 1.198282,
+     "other": 0
+    },
     "calls": 29,
     "est_cost_usd": 1.1983,
     "cost_partial": false,
     "cost_estimated": false,
     "is_subagent": false,
+    "archived": false,
     "by_model": [
      {
       "model": "claude-sonnet-4-6",
@@ -2486,7 +4073,35 @@
       "est_cost_usd": 1.1983,
       "cost_estimated": false
      }
-    ]
+    ],
+    "parent_id": null,
+    "root_id": "5a1e0000-0000-4000-8000-000000000012",
+    "depth": 0,
+    "children": [],
+    "total": {
+     "input": 61675,
+     "output": 53363,
+     "cache_read": 709375,
+     "thinking": 11833,
+     "calls": 29,
+     "d7_tokens": 0,
+     "est_cost_usd": 1.1983,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "d7_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "cost_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 1.198282,
+      "other": 0
+     },
+     "subagents": 0,
+     "last_at": "2026-10-27T08:56:58+08:00"
+    },
+    "agent": null
    },
    {
     "id": "5a1e0000-0000-4000-8000-000000000013",
@@ -2495,8 +4110,8 @@
     "model": "claude-opus-4-6",
     "display_name": "Claude Opus 4.6 (Thinking)",
     "pool": "claude_gpt",
-    "first_at": "2026-10-27T02:59:45+08:00",
-    "last_at": "2026-10-27T03:30:33+08:00",
+    "first_at": "2026-10-27T07:29:31+08:00",
+    "last_at": "2026-10-27T08:00:19+08:00",
     "input": 24157,
     "output": 20078,
     "cache_read": 277847,
@@ -2507,11 +4122,17 @@
      "claude_gpt": 0,
      "other": 0
     },
+    "cost_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0.761658,
+     "other": 0
+    },
     "calls": 9,
-    "est_cost_usd": 2.285,
+    "est_cost_usd": 0.7617,
     "cost_partial": false,
     "cost_estimated": false,
     "is_subagent": false,
+    "archived": false,
     "by_model": [
      {
       "model": "claude-opus-4-6",
@@ -2521,10 +4142,38 @@
       "cache_read": 277847,
       "thinking": 1547,
       "calls": 9,
-      "est_cost_usd": 2.285,
+      "est_cost_usd": 0.7617,
       "cost_estimated": false
      }
-    ]
+    ],
+    "parent_id": null,
+    "root_id": "5a1e0000-0000-4000-8000-000000000013",
+    "depth": 0,
+    "children": [],
+    "total": {
+     "input": 24157,
+     "output": 20078,
+     "cache_read": 277847,
+     "thinking": 1547,
+     "calls": 9,
+     "d7_tokens": 0,
+     "est_cost_usd": 0.7617,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "d7_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "cost_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0.761658,
+      "other": 0
+     },
+     "subagents": 0,
+     "last_at": "2026-10-27T08:00:19+08:00"
+    },
+    "agent": null
    },
    {
     "id": "5a1e0000-0000-4000-8000-000000000010",
@@ -2533,8 +4182,8 @@
     "model": "claude-sonnet-4-6",
     "display_name": "Claude Sonnet 4.6 (Thinking)",
     "pool": "claude_gpt",
-    "first_at": "2026-10-25T03:59:28+08:00",
-    "last_at": "2026-10-25T04:39:15+08:00",
+    "first_at": "2026-10-25T08:29:14+08:00",
+    "last_at": "2026-10-25T09:09:01+08:00",
     "input": 31022,
     "output": 18931,
     "cache_read": 356833,
@@ -2545,11 +4194,17 @@
      "claude_gpt": 0,
      "other": 0
     },
+    "cost_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0.484081,
+     "other": 0
+    },
     "calls": 12,
     "est_cost_usd": 0.4841,
     "cost_partial": false,
     "cost_estimated": false,
     "is_subagent": false,
+    "archived": false,
     "by_model": [
      {
       "model": "claude-sonnet-4-6",
@@ -2562,7 +4217,35 @@
       "est_cost_usd": 0.4841,
       "cost_estimated": false
      }
-    ]
+    ],
+    "parent_id": null,
+    "root_id": "5a1e0000-0000-4000-8000-000000000010",
+    "depth": 0,
+    "children": [],
+    "total": {
+     "input": 31022,
+     "output": 18931,
+     "cache_read": 356833,
+     "thinking": 3512,
+     "calls": 12,
+     "d7_tokens": 0,
+     "est_cost_usd": 0.4841,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "d7_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "cost_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0.484081,
+      "other": 0
+     },
+     "subagents": 0,
+     "last_at": "2026-10-25T09:09:01+08:00"
+    },
+    "agent": null
    },
    {
     "id": "5a1e0000-0000-4000-8000-00000000000f",
@@ -2571,8 +4254,8 @@
     "model": "gpt-oss-120b",
     "display_name": "GPT-OSS 120B (Medium)",
     "pool": "claude_gpt",
-    "first_at": "2026-10-25T03:07:09+08:00",
-    "last_at": "2026-10-25T04:13:58+08:00",
+    "first_at": "2026-10-25T07:36:55+08:00",
+    "last_at": "2026-10-25T08:43:44+08:00",
     "input": 24117,
     "output": 21753,
     "cache_read": 277486,
@@ -2583,11 +4266,17 @@
      "claude_gpt": 0,
      "other": 0
     },
+    "cost_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0.037481,
+     "other": 0
+    },
     "calls": 22,
     "est_cost_usd": 0.0375,
     "cost_partial": false,
     "cost_estimated": false,
     "is_subagent": false,
+    "archived": false,
     "by_model": [
      {
       "model": "gpt-oss-120b",
@@ -2600,7 +4289,35 @@
       "est_cost_usd": 0.0375,
       "cost_estimated": false
      }
-    ]
+    ],
+    "parent_id": null,
+    "root_id": "5a1e0000-0000-4000-8000-00000000000f",
+    "depth": 0,
+    "children": [],
+    "total": {
+     "input": 24117,
+     "output": 21753,
+     "cache_read": 277486,
+     "thinking": 4424,
+     "calls": 22,
+     "d7_tokens": 0,
+     "est_cost_usd": 0.0375,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "d7_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "cost_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0.037481,
+      "other": 0
+     },
+     "subagents": 0,
+     "last_at": "2026-10-25T08:43:44+08:00"
+    },
+    "agent": null
    },
    {
     "id": "5a1e0000-0000-4000-8000-00000000000c",
@@ -2609,8 +4326,8 @@
     "model": "gemini-3-flash",
     "display_name": "Gemini 3 Flash",
     "pool": "gemini",
-    "first_at": "2026-10-24T08:39:07+08:00",
-    "last_at": "2026-10-24T09:45:56+08:00",
+    "first_at": "2026-10-24T13:08:53+08:00",
+    "last_at": "2026-10-24T14:15:42+08:00",
     "input": 44383,
     "output": 25356,
     "cache_read": 510504,
@@ -2621,11 +4338,17 @@
      "claude_gpt": 0,
      "other": 0
     },
+    "cost_by_pool": {
+     "gemini": 0.123785,
+     "claude_gpt": 0,
+     "other": 0
+    },
     "calls": 22,
     "est_cost_usd": 0.1238,
     "cost_partial": false,
     "cost_estimated": false,
     "is_subagent": false,
+    "archived": false,
     "by_model": [
      {
       "model": "gemini-3-flash",
@@ -2638,7 +4361,35 @@
       "est_cost_usd": 0.1238,
       "cost_estimated": false
      }
-    ]
+    ],
+    "parent_id": null,
+    "root_id": "5a1e0000-0000-4000-8000-00000000000c",
+    "depth": 0,
+    "children": [],
+    "total": {
+     "input": 44383,
+     "output": 25356,
+     "cache_read": 510504,
+     "thinking": 5812,
+     "calls": 22,
+     "d7_tokens": 0,
+     "est_cost_usd": 0.1238,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "d7_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "cost_by_pool": {
+      "gemini": 0.123785,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "subagents": 0,
+     "last_at": "2026-10-24T14:15:42+08:00"
+    },
+    "agent": null
    },
    {
     "id": "5a1e0000-0000-4000-8000-00000000000e",
@@ -2647,8 +4398,8 @@
     "model": "gemini-3-pro",
     "display_name": "Gemini 3 Pro (High)",
     "pool": "gemini",
-    "first_at": "2026-10-24T06:57:25+08:00",
-    "last_at": "2026-10-24T08:18:37+08:00",
+    "first_at": "2026-10-24T11:27:11+08:00",
+    "last_at": "2026-10-24T12:48:23+08:00",
     "input": 77733,
     "output": 72540,
     "cache_read": 894084,
@@ -2659,11 +4410,17 @@
      "claude_gpt": 0,
      "other": 0
     },
+    "cost_by_pool": {
+     "gemini": 1.204763,
+     "claude_gpt": 0,
+     "other": 0
+    },
     "calls": 29,
     "est_cost_usd": 1.2048,
     "cost_partial": false,
     "cost_estimated": false,
     "is_subagent": false,
+    "archived": false,
     "by_model": [
      {
       "model": "gemini-3-pro",
@@ -2676,7 +4433,35 @@
       "est_cost_usd": 1.2048,
       "cost_estimated": false
      }
-    ]
+    ],
+    "parent_id": null,
+    "root_id": "5a1e0000-0000-4000-8000-00000000000e",
+    "depth": 0,
+    "children": [],
+    "total": {
+     "input": 77733,
+     "output": 72540,
+     "cache_read": 894084,
+     "thinking": 16597,
+     "calls": 29,
+     "d7_tokens": 0,
+     "est_cost_usd": 1.2048,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "d7_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "cost_by_pool": {
+      "gemini": 1.204763,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "subagents": 0,
+     "last_at": "2026-10-24T12:48:23+08:00"
+    },
+    "agent": null
    },
    {
     "id": "5a1e0000-0000-4000-8000-00000000000d",
@@ -2685,8 +4470,8 @@
     "model": "claude-opus-4-6",
     "display_name": "Claude Opus 4.6 (Thinking)",
     "pool": "claude_gpt",
-    "first_at": "2026-10-24T05:04:43+08:00",
-    "last_at": "2026-10-24T06:15:03+08:00",
+    "first_at": "2026-10-24T09:34:29+08:00",
+    "last_at": "2026-10-24T10:44:49+08:00",
     "input": 61295,
     "output": 49320,
     "cache_read": 704999,
@@ -2697,11 +4482,17 @@
      "claude_gpt": 0,
      "other": 0
     },
+    "cost_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 1.891974,
+     "other": 0
+    },
     "calls": 21,
-    "est_cost_usd": 5.6759,
+    "est_cost_usd": 1.892,
     "cost_partial": false,
     "cost_estimated": false,
     "is_subagent": false,
+    "archived": false,
     "by_model": [
      {
       "model": "claude-opus-4-6",
@@ -2711,10 +4502,38 @@
       "cache_read": 704999,
       "thinking": 8690,
       "calls": 21,
-      "est_cost_usd": 5.6759,
+      "est_cost_usd": 1.892,
       "cost_estimated": false
      }
-    ]
+    ],
+    "parent_id": null,
+    "root_id": "5a1e0000-0000-4000-8000-00000000000d",
+    "depth": 0,
+    "children": [],
+    "total": {
+     "input": 61295,
+     "output": 49320,
+     "cache_read": 704999,
+     "thinking": 8690,
+     "calls": 21,
+     "d7_tokens": 0,
+     "est_cost_usd": 1.892,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "d7_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "cost_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 1.891974,
+      "other": 0
+     },
+     "subagents": 0,
+     "last_at": "2026-10-24T10:44:49+08:00"
+    },
+    "agent": null
    },
    {
     "id": "5a1e0000-0000-4000-8000-00000000000b",
@@ -2723,8 +4542,8 @@
     "model": "gemini-3-pro",
     "display_name": "Gemini 3 Pro (High)",
     "pool": "gemini",
-    "first_at": "2026-10-24T05:13:53+08:00",
-    "last_at": "2026-10-24T06:11:05+08:00",
+    "first_at": "2026-10-24T09:43:39+08:00",
+    "last_at": "2026-10-24T10:40:51+08:00",
     "input": 78903,
     "output": 65039,
     "cache_read": 907489,
@@ -2735,11 +4554,17 @@
      "claude_gpt": 0,
      "other": 0
     },
+    "cost_by_pool": {
+     "gemini": 1.119772,
+     "claude_gpt": 0,
+     "other": 0
+    },
     "calls": 23,
     "est_cost_usd": 1.1198,
     "cost_partial": false,
     "cost_estimated": false,
     "is_subagent": false,
+    "archived": false,
     "by_model": [
      {
       "model": "gemini-3-pro",
@@ -2752,7 +4577,35 @@
       "est_cost_usd": 1.1198,
       "cost_estimated": false
      }
-    ]
+    ],
+    "parent_id": null,
+    "root_id": "5a1e0000-0000-4000-8000-00000000000b",
+    "depth": 0,
+    "children": [],
+    "total": {
+     "input": 78903,
+     "output": 65039,
+     "cache_read": 907489,
+     "thinking": 10618,
+     "calls": 23,
+     "d7_tokens": 0,
+     "est_cost_usd": 1.1198,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "d7_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "cost_by_pool": {
+      "gemini": 1.119772,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "subagents": 0,
+     "last_at": "2026-10-24T10:40:51+08:00"
+    },
+    "agent": null
    },
    {
     "id": "5a1e0000-0000-4000-8000-00000000000a",
@@ -2761,8 +4614,8 @@
     "model": "gemini-3-pro",
     "display_name": "Gemini 3 Pro (High)",
     "pool": "gemini",
-    "first_at": "2026-10-23T05:59:21+08:00",
-    "last_at": "2026-10-23T06:38:24+08:00",
+    "first_at": "2026-10-23T10:29:07+08:00",
+    "last_at": "2026-10-23T11:08:10+08:00",
     "input": 36260,
     "output": 33269,
     "cache_read": 417063,
@@ -2773,11 +4626,17 @@
      "claude_gpt": 0,
      "other": 0
     },
+    "cost_by_pool": {
+     "gemini": 0.555161,
+     "claude_gpt": 0,
+     "other": 0
+    },
     "calls": 13,
     "est_cost_usd": 0.5552,
     "cost_partial": false,
     "cost_estimated": false,
     "is_subagent": false,
+    "archived": false,
     "by_model": [
      {
       "model": "gemini-3-pro",
@@ -2790,7 +4649,35 @@
       "est_cost_usd": 0.5552,
       "cost_estimated": false
      }
-    ]
+    ],
+    "parent_id": null,
+    "root_id": "5a1e0000-0000-4000-8000-00000000000a",
+    "depth": 0,
+    "children": [],
+    "total": {
+     "input": 36260,
+     "output": 33269,
+     "cache_read": 417063,
+     "thinking": 6540,
+     "calls": 13,
+     "d7_tokens": 0,
+     "est_cost_usd": 0.5552,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "d7_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "cost_by_pool": {
+      "gemini": 0.555161,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "subagents": 0,
+     "last_at": "2026-10-23T11:08:10+08:00"
+    },
+    "agent": null
    },
    {
     "id": "5a1e0000-0000-4000-8000-000000000009",
@@ -2799,8 +4686,8 @@
     "model": "gemini-3-pro",
     "display_name": "Gemini 3 Pro (High)",
     "pool": "gemini",
-    "first_at": "2026-10-23T04:24:07+08:00",
-    "last_at": "2026-10-23T05:14:13+08:00",
+    "first_at": "2026-10-23T08:53:53+08:00",
+    "last_at": "2026-10-23T09:43:59+08:00",
     "input": 54114,
     "output": 50048,
     "cache_read": 622406,
@@ -2811,11 +4698,17 @@
      "claude_gpt": 0,
      "other": 0
     },
+    "cost_by_pool": {
+     "gemini": 0.833285,
+     "claude_gpt": 0,
+     "other": 0
+    },
     "calls": 19,
     "est_cost_usd": 0.8333,
     "cost_partial": false,
     "cost_estimated": false,
     "is_subagent": false,
+    "archived": false,
     "by_model": [
      {
       "model": "gemini-3-pro",
@@ -2828,7 +4721,35 @@
       "est_cost_usd": 0.8333,
       "cost_estimated": false
      }
-    ]
+    ],
+    "parent_id": null,
+    "root_id": "5a1e0000-0000-4000-8000-000000000009",
+    "depth": 0,
+    "children": [],
+    "total": {
+     "input": 54114,
+     "output": 50048,
+     "cache_read": 622406,
+     "thinking": 9689,
+     "calls": 19,
+     "d7_tokens": 0,
+     "est_cost_usd": 0.8333,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "d7_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "cost_by_pool": {
+      "gemini": 0.833285,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "subagents": 0,
+     "last_at": "2026-10-23T09:43:59+08:00"
+    },
+    "agent": null
    },
    {
     "id": "5a1e0000-0000-4000-8000-000000000007",
@@ -2837,8 +4758,8 @@
     "model": "gemini-3-pro",
     "display_name": "Gemini 3 Pro (High)",
     "pool": "gemini",
-    "first_at": "2026-10-22T08:30:54+08:00",
-    "last_at": "2026-10-22T09:39:50+08:00",
+    "first_at": "2026-10-22T13:00:40+08:00",
+    "last_at": "2026-10-22T14:09:36+08:00",
     "input": 73271,
     "output": 65943,
     "cache_read": 842744,
@@ -2849,11 +4770,17 @@
      "claude_gpt": 0,
      "other": 0
     },
+    "cost_by_pool": {
+     "gemini": 1.106407,
+     "claude_gpt": 0,
+     "other": 0
+    },
     "calls": 26,
     "est_cost_usd": 1.1064,
     "cost_partial": false,
     "cost_estimated": false,
     "is_subagent": false,
+    "archived": false,
     "by_model": [
      {
       "model": "gemini-3-pro",
@@ -2866,7 +4793,35 @@
       "est_cost_usd": 1.1064,
       "cost_estimated": false
      }
-    ]
+    ],
+    "parent_id": null,
+    "root_id": "5a1e0000-0000-4000-8000-000000000007",
+    "depth": 0,
+    "children": [],
+    "total": {
+     "input": 73271,
+     "output": 65943,
+     "cache_read": 842744,
+     "thinking": 12107,
+     "calls": 26,
+     "d7_tokens": 0,
+     "est_cost_usd": 1.1064,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "d7_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "cost_by_pool": {
+      "gemini": 1.106407,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "subagents": 0,
+     "last_at": "2026-10-22T14:09:36+08:00"
+    },
+    "agent": null
    },
    {
     "id": "5a1e0000-0000-4000-8000-000000000006",
@@ -2875,8 +4830,8 @@
     "model": "gpt-oss-120b",
     "display_name": "GPT-OSS 120B (Medium)",
     "pool": "claude_gpt",
-    "first_at": "2026-10-22T05:51:46+08:00",
-    "last_at": "2026-10-22T06:48:10+08:00",
+    "first_at": "2026-10-22T10:21:32+08:00",
+    "last_at": "2026-10-22T11:17:56+08:00",
     "input": 28615,
     "output": 18473,
     "cache_read": 329161,
@@ -2887,11 +4842,17 @@
      "claude_gpt": 0,
      "other": 0
     },
+    "cost_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0.040063,
+     "other": 0
+    },
     "calls": 19,
     "est_cost_usd": 0.0401,
     "cost_partial": false,
     "cost_estimated": false,
     "is_subagent": false,
+    "archived": false,
     "by_model": [
      {
       "model": "gpt-oss-120b",
@@ -2904,7 +4865,35 @@
       "est_cost_usd": 0.0401,
       "cost_estimated": false
      }
-    ]
+    ],
+    "parent_id": null,
+    "root_id": "5a1e0000-0000-4000-8000-000000000006",
+    "depth": 0,
+    "children": [],
+    "total": {
+     "input": 28615,
+     "output": 18473,
+     "cache_read": 329161,
+     "thinking": 3533,
+     "calls": 19,
+     "d7_tokens": 0,
+     "est_cost_usd": 0.0401,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "d7_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "cost_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0.040063,
+      "other": 0
+     },
+     "subagents": 0,
+     "last_at": "2026-10-22T11:17:56+08:00"
+    },
+    "agent": null
    },
    {
     "id": "5a1e0000-0000-4000-8000-000000000008",
@@ -2913,8 +4902,8 @@
     "model": "gemini-3-pro",
     "display_name": "Gemini 3 Pro (High)",
     "pool": "gemini",
-    "first_at": "2026-10-22T04:07:11+08:00",
-    "last_at": "2026-10-22T04:23:51+08:00",
+    "first_at": "2026-10-22T08:36:57+08:00",
+    "last_at": "2026-10-22T08:53:37+08:00",
     "input": 31711,
     "output": 15771,
     "cache_read": 364735,
@@ -2925,11 +4914,17 @@
      "claude_gpt": 0,
      "other": 0
     },
+    "cost_by_pool": {
+     "gemini": 0.325621,
+     "claude_gpt": 0,
+     "other": 0
+    },
     "calls": 9,
     "est_cost_usd": 0.3256,
     "cost_partial": false,
     "cost_estimated": false,
     "is_subagent": false,
+    "archived": false,
     "by_model": [
      {
       "model": "gemini-3-pro",
@@ -2942,7 +4937,35 @@
       "est_cost_usd": 0.3256,
       "cost_estimated": false
      }
-    ]
+    ],
+    "parent_id": null,
+    "root_id": "5a1e0000-0000-4000-8000-000000000008",
+    "depth": 0,
+    "children": [],
+    "total": {
+     "input": 31711,
+     "output": 15771,
+     "cache_read": 364735,
+     "thinking": 3766,
+     "calls": 9,
+     "d7_tokens": 0,
+     "est_cost_usd": 0.3256,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "d7_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "cost_by_pool": {
+      "gemini": 0.325621,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "subagents": 0,
+     "last_at": "2026-10-22T08:53:37+08:00"
+    },
+    "agent": null
    },
    {
     "id": "5a1e0000-0000-4000-8000-000000000005",
@@ -2951,8 +4974,8 @@
     "model": "gpt-oss-120b",
     "display_name": "GPT-OSS 120B (Medium)",
     "pool": "claude_gpt",
-    "first_at": "2026-10-22T02:46:58+08:00",
-    "last_at": "2026-10-22T03:48:34+08:00",
+    "first_at": "2026-10-22T07:16:44+08:00",
+    "last_at": "2026-10-22T08:18:20+08:00",
     "input": 27699,
     "output": 23312,
     "cache_read": 318644,
@@ -2963,11 +4986,17 @@
      "claude_gpt": 0,
      "other": 0
     },
+    "cost_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 0.04204,
+     "other": 0
+    },
     "calls": 23,
     "est_cost_usd": 0.042,
     "cost_partial": false,
     "cost_estimated": false,
     "is_subagent": false,
+    "archived": false,
     "by_model": [
      {
       "model": "gpt-oss-120b",
@@ -2980,7 +5009,35 @@
       "est_cost_usd": 0.042,
       "cost_estimated": false
      }
-    ]
+    ],
+    "parent_id": null,
+    "root_id": "5a1e0000-0000-4000-8000-000000000005",
+    "depth": 0,
+    "children": [],
+    "total": {
+     "input": 27699,
+     "output": 23312,
+     "cache_read": 318644,
+     "thinking": 4038,
+     "calls": 23,
+     "d7_tokens": 0,
+     "est_cost_usd": 0.042,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "d7_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "cost_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0.04204,
+      "other": 0
+     },
+     "subagents": 0,
+     "last_at": "2026-10-22T08:18:20+08:00"
+    },
+    "agent": null
    },
    {
     "id": "5a1e0000-0000-4000-8000-000000000003",
@@ -2989,8 +5046,8 @@
     "model": "claude-opus-4-6",
     "display_name": "Claude Opus 4.6 (Thinking)",
     "pool": "claude_gpt",
-    "first_at": "2026-10-21T07:16:03+08:00",
-    "last_at": "2026-10-21T08:00:23+08:00",
+    "first_at": "2026-10-21T11:45:49+08:00",
+    "last_at": "2026-10-21T12:30:09+08:00",
     "input": 56855,
     "output": 43878,
     "cache_read": 653910,
@@ -3001,11 +5058,17 @@
      "claude_gpt": 0,
      "other": 0
     },
+    "cost_by_pool": {
+     "gemini": 0,
+     "claude_gpt": 1.70818,
+     "other": 0
+    },
     "calls": 20,
-    "est_cost_usd": 5.1245,
+    "est_cost_usd": 1.7082,
     "cost_partial": false,
     "cost_estimated": false,
     "is_subagent": false,
+    "archived": false,
     "by_model": [
      {
       "model": "claude-opus-4-6",
@@ -3015,10 +5078,38 @@
       "cache_read": 653910,
       "thinking": 10083,
       "calls": 20,
-      "est_cost_usd": 5.1245,
+      "est_cost_usd": 1.7082,
       "cost_estimated": false
      }
-    ]
+    ],
+    "parent_id": null,
+    "root_id": "5a1e0000-0000-4000-8000-000000000003",
+    "depth": 0,
+    "children": [],
+    "total": {
+     "input": 56855,
+     "output": 43878,
+     "cache_read": 653910,
+     "thinking": 10083,
+     "calls": 20,
+     "d7_tokens": 0,
+     "est_cost_usd": 1.7082,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "d7_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "cost_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 1.70818,
+      "other": 0
+     },
+     "subagents": 0,
+     "last_at": "2026-10-21T12:30:09+08:00"
+    },
+    "agent": null
    },
    {
     "id": "5a1e0000-0000-4000-8000-000000000004",
@@ -3027,8 +5118,8 @@
     "model": "gemini-3-pro",
     "display_name": "Gemini 3 Pro (High)",
     "pool": "gemini",
-    "first_at": "2026-10-21T04:44:21+08:00",
-    "last_at": "2026-10-21T05:07:45+08:00",
+    "first_at": "2026-10-21T09:14:07+08:00",
+    "last_at": "2026-10-21T09:37:31+08:00",
     "input": 44900,
     "output": 31600,
     "cache_read": 516407,
@@ -3039,11 +5130,17 @@
      "claude_gpt": 0,
      "other": 0
     },
+    "cost_by_pool": {
+     "gemini": 0.572281,
+     "claude_gpt": 0,
+     "other": 0
+    },
     "calls": 12,
     "est_cost_usd": 0.5723,
     "cost_partial": false,
     "cost_estimated": false,
     "is_subagent": false,
+    "archived": false,
     "by_model": [
      {
       "model": "gemini-3-pro",
@@ -3056,7 +5153,35 @@
       "est_cost_usd": 0.5723,
       "cost_estimated": false
      }
-    ]
+    ],
+    "parent_id": null,
+    "root_id": "5a1e0000-0000-4000-8000-000000000004",
+    "depth": 0,
+    "children": [],
+    "total": {
+     "input": 44900,
+     "output": 31600,
+     "cache_read": 516407,
+     "thinking": 5447,
+     "calls": 12,
+     "d7_tokens": 0,
+     "est_cost_usd": 0.5723,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "d7_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "cost_by_pool": {
+      "gemini": 0.572281,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "subagents": 0,
+     "last_at": "2026-10-21T09:37:31+08:00"
+    },
+    "agent": null
    },
    {
     "id": "5a1e0000-0000-4000-8000-000000000001",
@@ -3065,8 +5190,8 @@
     "model": "gemini-3-flash",
     "display_name": "Gemini 3 Flash",
     "pool": "gemini",
-    "first_at": "2026-10-20T04:49:02+08:00",
-    "last_at": "2026-10-20T05:14:06+08:00",
+    "first_at": "2026-10-20T09:18:48+08:00",
+    "last_at": "2026-10-20T09:43:52+08:00",
     "input": 19745,
     "output": 14907,
     "cache_read": 227117,
@@ -3077,11 +5202,17 @@
      "claude_gpt": 0,
      "other": 0
     },
+    "cost_by_pool": {
+     "gemini": 0.065949,
+     "claude_gpt": 0,
+     "other": 0
+    },
     "calls": 10,
     "est_cost_usd": 0.0659,
     "cost_partial": false,
     "cost_estimated": false,
     "is_subagent": false,
+    "archived": false,
     "by_model": [
      {
       "model": "gemini-3-flash",
@@ -3094,7 +5225,35 @@
       "est_cost_usd": 0.0659,
       "cost_estimated": false
      }
-    ]
+    ],
+    "parent_id": null,
+    "root_id": "5a1e0000-0000-4000-8000-000000000001",
+    "depth": 0,
+    "children": [],
+    "total": {
+     "input": 19745,
+     "output": 14907,
+     "cache_read": 227117,
+     "thinking": 2647,
+     "calls": 10,
+     "d7_tokens": 0,
+     "est_cost_usd": 0.0659,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "d7_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "cost_by_pool": {
+      "gemini": 0.065949,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "subagents": 0,
+     "last_at": "2026-10-20T09:43:52+08:00"
+    },
+    "agent": null
    },
    {
     "id": "5a1e0000-0000-4000-8000-000000000002",
@@ -3103,8 +5262,8 @@
     "model": "gemini-3-flash",
     "display_name": "Gemini 3 Flash",
     "pool": "gemini",
-    "first_at": "2026-10-20T01:09:04+08:00",
-    "last_at": "2026-10-20T02:04:34+08:00",
+    "first_at": "2026-10-20T05:38:50+08:00",
+    "last_at": "2026-10-20T06:34:20+08:00",
     "input": 31774,
     "output": 22913,
     "cache_read": 365475,
@@ -3115,11 +5274,17 @@
      "claude_gpt": 0,
      "other": 0
     },
+    "cost_by_pool": {
+     "gemini": 0.1029,
+     "claude_gpt": 0,
+     "other": 0
+    },
     "calls": 16,
     "est_cost_usd": 0.1029,
     "cost_partial": false,
     "cost_estimated": false,
     "is_subagent": false,
+    "archived": false,
     "by_model": [
      {
       "model": "gemini-3-flash",
@@ -3132,7 +5297,35 @@
       "est_cost_usd": 0.1029,
       "cost_estimated": false
      }
-    ]
+    ],
+    "parent_id": null,
+    "root_id": "5a1e0000-0000-4000-8000-000000000002",
+    "depth": 0,
+    "children": [],
+    "total": {
+     "input": 31774,
+     "output": 22913,
+     "cache_read": 365475,
+     "thinking": 3365,
+     "calls": 16,
+     "d7_tokens": 0,
+     "est_cost_usd": 0.1029,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "d7_by_pool": {
+      "gemini": 0,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "cost_by_pool": {
+      "gemini": 0.1029,
+      "claude_gpt": 0,
+      "other": 0
+     },
+     "subagents": 0,
+     "last_at": "2026-10-20T06:34:20+08:00"
+    },
+    "agent": null
    }
   ],
   "daily": [
@@ -4990,33 +7183,33 @@
    },
    {
     "hour": 5,
-    "tokens": 96200,
-    "calls": 2
+    "tokens": 0,
+    "calls": 0
    },
    {
     "hour": 6,
-    "tokens": 481000,
-    "calls": 10
+    "tokens": 0,
+    "calls": 0
    },
    {
     "hour": 7,
-    "tokens": 61400,
-    "calls": 2
+    "tokens": 0,
+    "calls": 0
    },
    {
     "hour": 8,
-    "tokens": 438856,
-    "calls": 16
+    "tokens": 0,
+    "calls": 0
    },
    {
     "hour": 9,
-    "tokens": 342140,
-    "calls": 11
+    "tokens": 0,
+    "calls": 0
    },
    {
     "hour": 10,
-    "tokens": 192400,
-    "calls": 4
+    "tokens": 577200,
+    "calls": 12
    },
    {
     "hour": 11,
@@ -5025,18 +7218,18 @@
    },
    {
     "hour": 12,
-    "tokens": 85740,
-    "calls": 1
-   },
-   {
-    "hour": 13,
-    "tokens": 1252506,
+    "tokens": 276300,
     "calls": 9
    },
    {
+    "hour": 13,
+    "tokens": 469896,
+    "calls": 18
+   },
+   {
     "hour": 14,
-    "tokens": 401335,
-    "calls": 2
+    "tokens": 288600,
+    "calls": 6
    },
    {
     "hour": 15,
@@ -5050,13 +7243,13 @@
    },
    {
     "hour": 17,
-    "tokens": 0,
-    "calls": 0
+    "tokens": 534723,
+    "calls": 5
    },
    {
     "hour": 18,
-    "tokens": 0,
-    "calls": 0
+    "tokens": 1204858,
+    "calls": 7
    },
    {
     "hour": 19,
@@ -5089,15 +7282,116 @@
    "claude_gpt": 451596,
    "other": 0
   },
+  "weekly_cycles": {
+   "gemini": [
+    {
+     "cycle_start": "2026-11-20T15:26:21.836Z",
+     "reset_time": "2026-11-27T15:26:21.836Z",
+     "observed_at": "2026-11-22T11:26:21.836Z",
+     "eval_obs_at": "2026-11-22T11:26:21.836Z",
+     "remaining_fraction": 0.8,
+     "used_fraction": 0.2,
+     "eval_used_fraction": 0.2,
+     "saturated": false,
+     "is_current": true,
+     "observed_cost_usd": 1.0421,
+     "cycle_cost_usd": 1.0421,
+     "observed_calls": 30,
+     "cycle_calls": 30,
+     "weekly_value_usd": 5.21,
+     "prev_weekly_value_usd": 2.97,
+     "change_pct": 75.4,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "plan": "Pro",
+     "tier": "Pro"
+    },
+    {
+     "cycle_start": "2026-11-13T15:26:21.836Z",
+     "reset_time": "2026-11-20T15:26:21.836Z",
+     "observed_at": "2026-11-20T14:26:21.836Z",
+     "eval_obs_at": "2026-11-20T14:26:21.836Z",
+     "remaining_fraction": 0.15,
+     "used_fraction": 0.85,
+     "eval_used_fraction": 0.85,
+     "saturated": false,
+     "is_current": false,
+     "observed_cost_usd": 2.5255,
+     "cycle_cost_usd": 2.5255,
+     "observed_calls": 58,
+     "cycle_calls": 58,
+     "weekly_value_usd": 2.97,
+     "prev_weekly_value_usd": null,
+     "change_pct": null,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "plan": "Pro",
+     "tier": "Pro"
+    }
+   ],
+   "claude_gpt": [
+    {
+     "cycle_start": "2026-11-19T23:26:21.836Z",
+     "reset_time": "2026-11-26T23:26:21.836Z",
+     "observed_at": "2026-11-22T11:26:21.836Z",
+     "eval_obs_at": "2026-11-22T11:26:21.836Z",
+     "remaining_fraction": 0.41,
+     "used_fraction": 0.59,
+     "eval_used_fraction": 0.59,
+     "saturated": false,
+     "is_current": true,
+     "observed_cost_usd": 2.5377,
+     "cycle_cost_usd": 2.5377,
+     "observed_calls": 80,
+     "cycle_calls": 80,
+     "weekly_value_usd": 4.3,
+     "prev_weekly_value_usd": 6.66,
+     "change_pct": -35.4,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "plan": "Pro",
+     "tier": "Pro"
+    },
+    {
+     "cycle_start": "2026-11-12T23:26:21.836Z",
+     "reset_time": "2026-11-19T23:26:21.836Z",
+     "observed_at": "2026-11-19T22:26:21.836Z",
+     "eval_obs_at": "2026-11-19T22:26:21.836Z",
+     "remaining_fraction": 0.08,
+     "used_fraction": 0.92,
+     "eval_used_fraction": 0.92,
+     "saturated": false,
+     "is_current": false,
+     "observed_cost_usd": 6.1248,
+     "cycle_cost_usd": 6.1248,
+     "observed_calls": 97,
+     "cycle_calls": 97,
+     "weekly_value_usd": 6.66,
+     "prev_weekly_value_usd": null,
+     "change_pct": null,
+     "cost_estimated": false,
+     "cost_partial": false,
+     "plan": "Pro",
+     "tier": "Pro"
+    }
+   ],
+   "other": []
+  },
+  "weekly_value_usd": {
+   "gemini": 5.21,
+   "claude_gpt": 4.3,
+   "other": null
+  },
   "pricing_source": "builtin",
   "pricing_fetched_at": null,
   "sources": {
    "desktop": 58,
    "cli": 4
   },
+  "archived_conversations": 0,
   "errors": 0,
-  "scanned_at": "2026-11-22T14:56:43+08:00",
-  "elapsed_ms": 128
+  "scanned_at": "2026-11-22T19:26:30+08:00",
+  "elapsed_ms": 173
  },
  "pricing": {
   "source": "builtin",

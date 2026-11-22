@@ -978,7 +978,7 @@ export const TESTS = [
     id: 'T2-F3-05',
     tier: 2,
     feature: 'F3',
-    title: 'Corrupt history-cache.json and empty steps DB recover cleanly and rewrite valid v5 cache',
+    title: 'Corrupt history-cache.json and empty steps DB recover cleanly and rewrite valid v6 cache',
     async run() {
       const sb = createSandbox('t2-f3-05-');
       try {
@@ -996,7 +996,7 @@ export const TESTS = [
         assert.equal(hist.errors, 0);
         assert.equal(hist.totals.all.calls, 0);
         const cache = JSON.parse(readFileSync(join(sb.dataDir, 'history-cache.json'), 'utf8'));
-        assert.equal(cache.version, 5);
+        assert.equal(cache.version, 6);
       } finally {
         await sb.cleanup();
       }

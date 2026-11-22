@@ -790,7 +790,7 @@ export function mergeQuotaObservation(ledger, quotaResult) {
           ex.used_fraction = used;
           ex.saturated = false;
           ex.obs_count += 1;
-          if (used >= 0.01) {
+          if (used >= 0.01 && (!ex.peak_unsaturated || used > ex.peak_unsaturated.used_fraction)) {
             ex.peak_unsaturated = { observed_at: effObsIso, remaining_fraction: rem, used_fraction: used };
           }
           if (plan) ex.plan = plan;

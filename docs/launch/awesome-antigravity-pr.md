@@ -7,21 +7,21 @@
 **Entry:**
 
 ```markdown
-- [Agy Lens](https://github.com/Aoike123/agy-lens) - All-in-one local cockpit for Antigravity 2.0: context window by category, live tok/s, 5-hour & weekly quotas, and token spend in one zero-dependency side panel + CLI.
+- [Agy Lens](https://github.com/Aoike123/agy-lens) - All-in-one local cockpit & CLI for Antigravity 2.0: exact context window by category, live tok/s, 5-hour & weekly quotas with implied dollar value tracking, subagent tree rollups, and sanitized share cards.
 ```
 
-**PR title:** `Add Agy Lens (context, speed, quota and usage side panel)`
+**PR title:** `Add Agy Lens (context, speed, quota value & usage side panel + CLI)`
 
 **PR body:**
 
 ```markdown
-Adds [Agy Lens](https://github.com/Aoike123/agy-lens), an MIT-licensed plugin for the Antigravity 2.0 desktop app.
+Adds [Agy Lens](https://github.com/Aoike123/agy-lens), an MIT-licensed plugin & CLI for the Antigravity 2.0 desktop app.
 
-- Context window breakdown (same accounting as the agy CLI's `/context`)
-- Streaming tok/s, time to first token and cache hit rate per model
-- Official 5-hour and weekly quotas with reset countdowns
-- Desktop + CLI usage history with public-price cost estimates
-- Runs on Antigravity's bundled Node.js 24, zero dependencies, read-only, no external requests by default
+- Exact context window breakdown (same accounting as `agy /context`) + request-budget trimming alert
+- Streaming tok/s, time to first token, and cache hit rate per model
+- Official 5-hour and weekly quotas with countdowns + implied 100% weekly quota value & shrinkage history
+- Desktop + CLI usage history with subagent tree rollups, pruned DB archiving, per-project weekly `%`, and sanitized SVG/PNG share cards
+- Runs on Antigravity's bundled Node.js 24 (`npx github:Aoike123/agy-lens`), zero dependencies, read-only, no external requests by default
 
 Placed alphabetically in the section; happy to move it if another section fits better.
 ```

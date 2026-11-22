@@ -3,14 +3,16 @@
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { EventEmitter } from 'node:events';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import http from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { test } from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { parseArgs, readVersion } from '../bin/cli.mjs';
+import { parseArgs, readVersion, runCliMain } from '../bin/cli.mjs';
 import { encodeVarint } from '../sidecars/agy-lens/lib/pb.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -373,4 +375,125 @@ test('bin/cli.mjs starts with Node shebang and matches package.json bin', () => 
   assert.equal(firstLine, '#!/usr/bin/env node');
   const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'));
   assert.equal(pkg.bin['agy-lens'], 'bin/cli.mjs');
+});
+
+test('CLI renders quota reset_time, loads quota-cycles weekly_value_usd, and rolls up subagents', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'agy-cli-quota-sub-'));
+  const origReq = http.request;
+  const origWrite = process.stdout.write.bind(process.stdout);
+  const prevEnv = {
+    ANTIGRAVITY_GEMINI_DIR: process.env.ANTIGRAVITY_GEMINI_DIR,
+    ANTIGRAVITY_EXECUTABLE_DATA_DIR: process.env.ANTIGRAVITY_EXECUTABLE_DATA_DIR,
+    ANTIGRAVITY_LS_ADDRESS: process.env.ANTIGRAVITY_LS_ADDRESS,
+    ANTIGRAVITY_CSRF_TOKEN: process.env.ANTIGRAVITY_CSRF_TOKEN,
+    NO_COLOR: process.env.NO_COLOR,
+  };
+  try {
+    const geminiDir = join(dir, 'gemini');
+    const dataDir = join(dir, 'data');
+    const deskDir = join(geminiDir, 'antigravity', 'conversations');
+    mkdirSync(deskDir, { recursive: true });
+    mkdirSync(dataDir, { recursive: true });
+
+    const nowMs = Date.now();
+    const nowSec = Math.floor(nowMs / 1000) - 120;
+    const weeklyReset = new Date(nowMs + 4 * 86400_000).toISOString();
+    const sumDb = new DatabaseSync(join(geminiDir, 'antigravity', 'conversation_summaries.db'));
+    sumDb.exec("CREATE TABLE conversation_summaries (conversation_id text PRIMARY KEY, title text NOT NULL DEFAULT '', preview text NOT NULL DEFAULT '', agent_name text NOT NULL DEFAULT '', parent_conversation_id text NOT NULL DEFAULT '')");
+    sumDb.prepare('INSERT INTO conversation_summaries VALUES (?, ?, ?, ?, ?)').run('parent-conv', 'Parent Task', '', '', '');
+    sumDb.prepare('INSERT INTO conversation_summaries VALUES (?, ?, ?, ?, ?)').run('child-conv', '', '', 'research', 'parent-conv');
+    sumDb.close();
+
+    const pDb = join(deskDir, 'parent-conv.db');
+    const dbP = createConvDb(pDb);
+    dbP.step(14, { metadata: pbTs(nowSec), payloadField: 19, payload: pbField(2, 'Build feature') });
+    dbP.step(15, { metadata: pbTs(nowSec + 1), payloadField: 20, payload: pbField(1, 'Done') });
+    dbP.generation({ usage: pbUsage({ inp: 100000, out: 10000 }), model: 'gemini-2.5-pro', displayName: 'Gemini 2.5 Pro' });
+    dbP.close();
+
+    const cDb = join(deskDir, 'child-conv.db');
+    const dbC = createConvDb(cDb);
+    dbC.step(15, { metadata: pbTs(nowSec + 2), payloadField: 20, payload: pbField(1, 'Sub reply') });
+    dbC.generation({ usage: pbUsage({ inp: 50000, out: 5000 }), model: 'gemini-2.5-pro', displayName: 'Gemini 2.5 Pro' });
+    dbC.close();
+
+    // Stub http.request in-process so Windows sandbox TCP restrictions do not block mock LS RPCs.
+    http.request = (opts, cb) => {
+      const req = new EventEmitter();
+      req.end = () => {
+        const res = new EventEmitter();
+        res.statusCode = 200;
+        let payload;
+        if (String(opts.path).endsWith('/GetAvailableModels')) {
+          payload = {
+            models: {
+              'gemini-2.5-pro': {
+                displayName: 'Gemini 2.5 Pro',
+                maxTokens: 1048576,
+                modelProvider: 'MODEL_PROVIDER_GOOGLE',
+                quotaInfo: { remainingFraction: 0.75, resetTime: weeklyReset },
+              },
+            },
+            agentModelSorts: [{ groups: [{ modelIds: ['gemini-2.5-pro'] }] }],
+          };
+        } else if (String(opts.path).endsWith('/RetrieveUserQuotaSummary')) {
+          payload = {
+            groups: [{
+              displayName: 'Gemini Models',
+              buckets: [{ bucketId: 'gemini-weekly', window: 'weekly', remainingFraction: 0.75, resetTime: weeklyReset }],
+            }],
+          };
+        } else {
+          payload = { userStatus: { planStatus: { planInfo: { planName: 'Pro' } } } };
+        }
+        queueMicrotask(() => {
+          cb(res);
+          res.emit('data', JSON.stringify(payload));
+          res.emit('end');
+        });
+      };
+      req.destroy = () => {};
+      return req;
+    };
+
+    process.env.ANTIGRAVITY_GEMINI_DIR = geminiDir;
+    process.env.ANTIGRAVITY_EXECUTABLE_DATA_DIR = dataDir;
+    process.env.ANTIGRAVITY_LS_ADDRESS = 'http://127.0.0.1:19999';
+    process.env.ANTIGRAVITY_CSRF_TOKEN = 'test-csrf';
+    process.env.NO_COLOR = '1';
+
+    let textOut = '';
+    process.stdout.write = (chunk) => { textOut += String(chunk); return true; };
+    const codeText = await runCliMain(['--no-color']);
+    process.stdout.write = origWrite;
+    assert.equal(codeText, 0);
+    assert.ok(textOut.includes(`resets ${weeklyReset}`), `Expected reset_time in CLI output:\n${textOut}`);
+
+    // Verify child-process CLI offline reads the persisted quota-cycles.json and rolls up subagents.
+    const env = {
+      ANTIGRAVITY_GEMINI_DIR: geminiDir,
+      ANTIGRAVITY_EXECUTABLE_DATA_DIR: dataDir,
+    };
+
+    const rJson = runCli(['--json'], env);
+    assert.equal(rJson.status, 0, rJson.stderr);
+    const parsed = JSON.parse(rJson.stdout);
+    assert.ok(parsed.history.weekly_value_usd.gemini > 0, 'Expected CLI history to populate weekly_value_usd from quota-cycles');
+    assert.equal(parsed.history.totals.all.conversations, 1, 'Expected top-level conversation tree count = 1');
+
+    const rDb = runCli(['--json', '--db', pDb], env);
+    assert.equal(rDb.status, 0, rDb.stderr);
+    const dbRep = JSON.parse(rDb.stdout);
+    assert.equal(dbRep.session.input, 150000);
+    assert.equal(dbRep.session.subagents, 1);
+    assert.equal(dbRep.session.self.input, 100000);
+  } finally {
+    http.request = origReq;
+    process.stdout.write = origWrite;
+    for (const [k, v] of Object.entries(prevEnv)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

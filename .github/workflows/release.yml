@@ -51,6 +51,49 @@ jobs:
       - name: Build direct-install ZIP
         shell: bash
         run: node scripts/build-release.mjs
+      - name: Prepare release notes
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VER="${TAG#v}"
+          node -e '
+            const fs = require("node:fs");
+            const ver = process.argv[1];
+            const tag = process.argv[2];
+            const cl = fs.readFileSync("CHANGELOG.md", "utf8");
+            const linesAll = cl.split(/\r?\n/);
+            const header = "## [" + ver + "]";
+            const start = linesAll.findIndex((l) => l.startsWith(header));
+            let body = "";
+            if (start >= 0) {
+              const section = [];
+              for (let i = start + 1; i < linesAll.length; i += 1) {
+                if (/^## \[/.test(linesAll[i]) || /^\[[^\]]+\]:\s*http/.test(linesAll[i])) break;
+                section.push(linesAll[i]);
+              }
+              body = section.join("\n").trim();
+            }
+            const out = [
+              "![Agy Lens](https://raw.githubusercontent.com/Aoike123/agy-lens/" + tag + "/docs/img/hero-en.png)",
+              "",
+            ];
+            if (body) out.push(body, "");
+            out.push(
+              "## Quick Install",
+              "",
+              "**Windows (PowerShell):**",
+              "```powershell",
+              "irm https://raw.githubusercontent.com/Aoike123/agy-lens/main/scripts/install.ps1 | iex",
+              "```",
+              "",
+              "**macOS / Linux:**",
+              "```bash",
+              "curl -fsSL https://raw.githubusercontent.com/Aoike123/agy-lens/main/scripts/install.sh | bash",
+              "```",
+              ""
+            );
+            fs.writeFileSync("/tmp/release-notes.md", out.join("\n"), "utf8");
+          ' "$VER" "$TAG"
       - name: Upload release assets
         env:
           GH_TOKEN: ${{ github.token }}
@@ -58,6 +101,8 @@ jobs:
           TAG="${GITHUB_REF_NAME}"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" dist/* --clobber
+          elif [ -s /tmp/release-notes.md ]; then
+            gh release create "$TAG" dist/* --title "${TAG} — Agy Lens (agy-lens)" --notes-file /tmp/release-notes.md
           else
             gh release create "$TAG" dist/* --title "${TAG} — Agy Lens (agy-lens)" --generate-notes
           fi

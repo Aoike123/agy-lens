@@ -3,34 +3,35 @@
 Attach `docs/img/hero-en.png` to post 1 and `docs/img/en/share-card.png` to post 3.
 
 **1/**
-Antigravity 2.0 tells you that you hit the 5-hour limit. It doesn't tell you you're about to.
+Antigravity 2.0 tells you that you hit the 5-hour limit. It doesn't tell you you're about to — or if your weekly quota silently shrank.
 
-So I built Agy Lens: context window, live tok/s, 5h + weekly quotas and token spend in one local side panel.
+So I built Agy Lens: context window, live tok/s, 5h + weekly quotas, implied `$` value per weekly cycle, and project spend in one local side panel.
 
-Free, MIT, zero dependencies.
-https://github.com/Aoike123/agy-lens
+MIT, zero deps: https://github.com/Aoike123/agy-lens
 
 **2/**
-What it shows:
-• context by category (same accounting as agy /context)
-• request-budget warning before history gets trimmed
-• streaming tok/s + TTFT per model
-• official 5h / weekly quotas with countdowns
-• desktop + CLI history with estimated cost
+What it gives you without leaving your editor:
+• Exact context breakdown (same numbers as `agy /context`) + request-budget warning
+• Streaming tok/s & TTFT per model
+• Official 5h + weekly limits with countdowns & week-over-week `$` valuation history
+• Subagent tree rollups + per-project `≈ X% weekly` sizing
 
 **3/**
-There's a share card too. Aggregate numbers only: no conversation titles, no paths.
+Antigravity prunes older conversation DBs over time, so Agy Lens archives deleted sessions locally and recovers subagent totals too.
 
-My last 30 days 👇
+You can also export a sanitized Share Card (SVG / PNG) — aggregate numbers only, zero conversation titles or file paths. My 30d snapshot 👇
 
 **4/**
-100% local and read-only. It runs on the Node that ships inside Antigravity, never calls a model, and refreshing costs zero tokens.
+100% local, read-only, zero tokens per refresh. It runs directly on the Node.js 24 bundled inside Antigravity — zero npm packages, zero Python.
 
-Windows:
+Windows (30s):
 irm https://raw.githubusercontent.com/Aoike123/agy-lens/main/scripts/install.ps1 | iex
 
+macOS / Linux:
+curl -fsSL https://raw.githubusercontent.com/Aoike123/agy-lens/main/scripts/install.sh | bash
+
 **5/**
-Also works from the terminal:
+Prefer the terminal? Same engine works as a CLI:
 npx github:Aoike123/agy-lens
 
-If it saves you from a rate-limit surprise, a ⭐ helps others find it.
+If Agy Lens saves you from a mid-task rate-limit surprise, a ⭐ on GitHub helps other Antigravity users find it!

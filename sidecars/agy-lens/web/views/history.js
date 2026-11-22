@@ -9,15 +9,11 @@ import {
   CONV_VISIBLE,
   convWeeklyLabel,
   dayKey,
-  deltaLevel,
   errorBox,
   esc,
   fmtAgo,
   fmtCost,
-  fmtCycleSpan,
-  fmtDeltaPct,
   fmtInt,
-  fmtPctNum,
   fmtTime,
   fmtTok,
   fmtUsd,
@@ -41,8 +37,8 @@ import {
   pricingSourceName,
   poolRowLabel,
   pricingTip,
-  resetText,
   SESSION_PERIODS,
+  sliceModelsForPeriod,
   SOURCE_FILTERS,
   tsOf,
   withSubtree,
@@ -159,47 +155,6 @@ export function createHistoryController({
     return `<div class="period-row"><div class="period-bar" role="tablist" aria-label="${esc(t('periodBarAria'))}">${pills}</div><div class="period-actions">${share}${sync}</div></div>`;
   }
 
-  function weeklyCyclesHtml(data) {
-    const t = getT();
-    const lang = getLang();
-    const cyclesMap = data && data.weekly_cycles && typeof data.weekly_cycles === 'object' ? data.weekly_cycles : null;
-    if (!cyclesMap) return '';
-    const pn = t('poolShort');
-    const sections = [];
-    let maxWeeks = 0;
-    for (const pk of CAL_POOLS) {
-      const list = Array.isArray(cyclesMap[pk]) ? cyclesMap[pk] : [];
-      if (!list.length) continue;
-      maxWeeks = Math.max(maxWeeks, list.length);
-      const rows = list.map((cy) => {
-        const span = fmtCycleSpan(cy.cycle_start, cy.reset_time, lang);
-        const curBadge = cy.is_current ? `<span class="wtag">${esc(t('cycleCurrent'))}</span>` : '';
-        const usedPctStr = fmtPctNum(num(cy.used_fraction) * 100);
-        const costStr = fmtCost(cy.observed_cost_usd, { estimated: !!cy.cost_estimated, partial: !!cy.cost_partial });
-        let rightHtml;
-        if (isNum(cy.weekly_value_usd) && cy.weekly_value_usd > 0) {
-          const valStr = fmtUsd(cy.weekly_value_usd);
-          const dStr = fmtDeltaPct(cy.change_pct);
-          const dLvl = deltaLevel(cy.change_pct);
-          const dTip = isNum(cy.prev_weekly_value_usd) ? t('deltaTip', fmtUsd(cy.prev_weekly_value_usd)) : '';
-          const deltaHtml = dStr ? `<span class="wdelta${dLvl ? ` ${dLvl}` : ''}"${dTip ? ` title="${esc(dTip)}"` : ''}>${esc(dStr)}</span>` : '';
-          rightHtml = `${esc(usedPctStr)} · ${esc(costStr || '$0.00')} → <b>${esc(valStr)}</b>${deltaHtml}`;
-        } else {
-          rightHtml = `${esc(usedPctStr)} · ${esc(t('weeklyCollecting'))}`;
-        }
-        const obsTxt = cy.eval_obs_at ? fmtTime(cy.eval_obs_at, true, lang) : fmtTime(cy.observed_at, true, lang);
-        const tip = t('cycleTip', fmtTime(cy.cycle_start, true, lang), fmtTime(cy.reset_time, true, lang), obsTxt);
-        return `<li title="${esc(tip)}"><span>${esc(span)}${curBadge}</span><span class="num dim">${rightHtml}</span></li>`;
-      }).join('');
-      sections.push(`<div class="wcycles-pool"><div class="lbl">${esc(pn[pk] || pk)}</div><ul class="mini">${rows}</ul></div>`);
-    }
-    if (!sections.length) return '';
-    return `<details class="wcycles" data-key="weekly-cycles"${openKeys.has('weekly-cycles') ? ' open' : ''}>
-      <summary>${CHEV}<span>${esc(t('weeklyHistoryTitle', fmtInt(maxWeeks, lang)))}</span></summary>
-      <div class="wcycles-body">${sections.join('')}<p class="wcycles-note">${esc(t('weeklyHistoryNote'))}</p></div>
-    </details>`;
-  }
-
   function totalsHero(data) {
     const t = getT();
     const lang = getLang();
@@ -210,60 +165,26 @@ export function createHistoryController({
       || (period === 'all' && Array.isArray(data.by_model) && data.by_model.some((m) => num(m.calls) > 0 && !isNum(m.est_cost_usd)));
     const costStr = fmtCost(p.est_cost_usd, { estimated: !!p.cost_estimated, partial: costPartial && isNum(p.est_cost_usd) });
     const costTip = pricingTip(data.pricing_source, data.pricing_fetched_at, { partial: costPartial }, t, lang);
-    const pn = t('poolShort');
     const pc = t('poolCompact');
     const liveEntries = CAL_POOLS.map((k) => ({ k, eff: liveWeeklyEntry(quotaData, k) })).filter((x) => x.eff != null);
     const weeklyValueUsd = data.weekly_value_usd || {};
-    const cyclesMap = data.weekly_cycles || {};
     const hasVal = hasAnyWeeklyValue(weeklyValueUsd);
+    const valParts = CAL_POOLS.filter((k) => num(weeklyValueUsd[k]) > 0).map((k) => `${pc[k]} ${fmtUsd(num(weeklyValueUsd[k]))}`);
 
     let quotaVal;
     if (liveEntries.length) {
       const worst = Math.max(...liveEntries.map((x) => x.eff.used));
       const lvl = budgetLevel(worst / 100);
       const cls = lvl === 'crit' ? ' txt-crit' : lvl === 'warn' ? ' txt-warn' : '';
-      quotaVal = `<span class="num${cls}" title="${esc(t('liveWeeklyTip'))}">${esc(t('liveSynced'))}</span>`;
+      const tip = valParts.length ? t('weeklyRefTip', valParts.join(' · ')) : t('liveWeeklyTip');
+      quotaVal = `<button type="button" class="inline-link on${cls}" data-go-tab="quota" title="${esc(tip)}">${esc(t('liveSynced'))}</button>`;
     } else if (hasVal) {
-      quotaVal = `<button type="button" class="inline-link on" data-go-tab="quota" title="${esc(t('weeklyCachedTip'))}">${esc(t('weeklyCached'))}</button>`;
+      const tip = valParts.length ? t('weeklyRefTip', valParts.join(' · ')) : t('weeklyCachedTip');
+      quotaVal = `<button type="button" class="inline-link on" data-go-tab="quota" title="${esc(tip)}">${esc(t('weeklyCached'))}</button>`;
     } else {
       quotaVal = `<button type="button" class="inline-link" data-go-tab="quota" title="${esc(t('weeklyOfflineTip'))}">${esc(t('weeklyOffline'))}</button>`;
     }
 
-    let liveHtml = '';
-    if (liveEntries.length) {
-      const liveHead = `<div class="wbudget-cap num" title="${esc(t('liveWeeklyTip'))}">${esc(t('liveWeeklyHead', liveEntries.map((x) => t('liveWeeklyPart', pc[x.k], fmtPctNum(x.eff.used))).join(' · ')))}</div>`;
-      const items = liveEntries.map(({ k, eff }) => {
-        const usedPct = Math.max(0, Math.min(100, eff.used));
-        const lvl = budgetLevel(usedPct / 100);
-        const resetBit = eff.reset_time ? resetText(eff.reset_time, t, lang) : '';
-        const rightTxt = [resetBit, `${t('remaining')} ${fmtPctNum(eff.left)}`].filter(Boolean).join(' · ');
-        const resetTitle = eff.reset_time ? t('resetAt', fmtTime(eff.reset_time, true, lang)) : '';
-        const list = Array.isArray(cyclesMap[k]) ? cyclesMap[k] : [];
-        const curCy = list.find((cy) => cy.is_current || (eff.reset_time && tsOf(cy.reset_time) === tsOf(eff.reset_time))) || null;
-        const refVal = num(weeklyValueUsd[k]);
-        let valHtml = '';
-        if (curCy && isNum(curCy.weekly_value_usd) && curCy.weekly_value_usd > 0) {
-          const spentStr = fmtCost(curCy.cycle_cost_usd || curCy.observed_cost_usd, { estimated: !!curCy.cost_estimated, partial: !!curCy.cost_partial }) || '$0.00';
-          const estStr = fmtUsd(curCy.weekly_value_usd);
-          const dStr = fmtDeltaPct(curCy.change_pct);
-          const dLvl = deltaLevel(curCy.change_pct);
-          const dTip = isNum(curCy.prev_weekly_value_usd) ? t('deltaTip', fmtUsd(curCy.prev_weekly_value_usd)) : '';
-          const deltaHtml = dStr ? `<span class="wdelta${dLvl ? ` ${dLvl}` : ''}"${dTip ? ` title="${esc(dTip)}"` : ''}>${esc(dStr)}</span>` : '';
-          valHtml = `<div class="wbudget-val num"><span>${esc(t('cycleSpent', spentStr))}</span><span>${esc(t('weeklyEstValue', estStr))}${deltaHtml}</span></div>`;
-        } else if (curCy && num(curCy.used_fraction) > 0) {
-          const rightVal = refVal > 0 ? t('weeklyPrevRef', fmtUsd(refVal)) : t('weeklyCollecting');
-          valHtml = `<div class="wbudget-val num"><span>${esc(t('cycleLowUsage'))}</span><span>${esc(rightVal)}</span></div>`;
-        } else if (refVal > 0) {
-          valHtml = `<div class="wbudget-val num"><span>${esc(t('weeklyPrevRef', fmtUsd(refVal)))}</span></div>`;
-        }
-        return `<div><div class="wbudget-head num"><span>${esc(pn[k])}</span><span${resetTitle ? ` title="${esc(resetTitle)}"` : ''}>${esc(rightTxt)}</span></div>
-          <div class="wbar ${lvl}" role="progressbar" aria-label="${esc(t('liveWeeklyPart', pn[k], fmtPctNum(usedPct)))}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(usedPct)}">
-            <span style="width:${usedPct.toFixed(1)}%"></span></div>${valHtml}</div>`;
-      }).join('');
-      liveHtml = liveHead + items;
-    }
-    const histCyclesHtml = weeklyCyclesHtml(data);
-    const barsHtml = (liveHtml || histCyclesHtml) ? `<div class="wbudget">${liveHtml}${histCyclesHtml}</div>` : '';
     const syncNote = pricingNotice
       ? `<div id="history-sync-note" class="sync-note ${pricingNotice.ok ? 'ok' : 'err'}">${esc(pricingNotice.text)}</div>`
       : '<div id="history-sync-note" class="sync-note" hidden></div>';
@@ -279,8 +200,7 @@ export function createHistoryController({
         <div><div class="lbl">${esc(t('colCalls'))}</div><div class="v num">${fmtInt(p.calls, lang)}</div></div>
         <div title="${esc(costTip)}"><div class="lbl">${esc(t('colCost'))}</div><div class="v num">${costStr ? esc(costStr) : '<span class="dim">—</span>'}</div></div>
         <div><div class="lbl">${esc(t('weeklyQuota'))}</div><div class="v">${quotaVal}</div></div>
-      </div>
-      ${barsHtml}`;
+      </div>`;
   }
 
   function heatFooter(summary) {
@@ -452,7 +372,7 @@ export function createHistoryController({
   function byModel(data) {
     const t = getT();
     const lang = getLang();
-    const merged = mergeModels(data.by_model);
+    const merged = mergeModels(sliceModelsForPeriod(data.by_model, period));
     if (!merged.length) return `<section id="history-models"><h2>${esc(t('byModel'))}</h2><p class="note" style="margin:0">${esc(t('noModels'))}</p></section>`;
     const weeklyValueUsd = (data && data.weekly_value_usd) || null;
     const max = Math.max(1, ...merged.map(allTok));

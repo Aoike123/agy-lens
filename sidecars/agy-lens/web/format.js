@@ -325,6 +325,42 @@ export function convWeeklyLabel(c, { compact = true, weeklyValueUsd = null, t = 
   return compact ? '' : t('weeklyPending');
 }
 
+/** Slice by_model rows to a given period (`today` | `d7` | `d30` | `all`), dropping unused models. */
+export function sliceModelsForPeriod(list, period = 'all') {
+  const out = [];
+  for (const m of Array.isArray(list) ? list : []) {
+    if (!m || typeof m !== 'object') continue;
+    const p = m.periods && typeof m.periods === 'object' && m.periods[period] && typeof m.periods[period] === 'object'
+      ? m.periods[period]
+      : null;
+    if (!p) {
+      out.push(m);
+      continue;
+    }
+    const input = num(p.input);
+    const output = num(p.output);
+    const cacheRead = num(p.cache_read);
+    const calls = num(p.calls);
+    if (calls <= 0 && input + output + cacheRead <= 0) continue;
+    const hasCost = Object.prototype.hasOwnProperty.call(p, 'est_cost_usd');
+    const estCost = hasCost ? p.est_cost_usd : (period === 'all' ? m.est_cost_usd : null);
+    const estFlag = Object.prototype.hasOwnProperty.call(p, 'cost_estimated') ? Boolean(p.cost_estimated) : Boolean(m.cost_estimated);
+    const partFlag = Object.prototype.hasOwnProperty.call(p, 'cost_partial') ? Boolean(p.cost_partial) : Boolean(m.cost_partial);
+    out.push({
+      ...m,
+      input,
+      output,
+      cache_read: cacheRead,
+      thinking: Object.prototype.hasOwnProperty.call(p, 'thinking') ? num(p.thinking) : num(m.thinking),
+      calls,
+      est_cost_usd: estCost,
+      cost_estimated: estFlag,
+      cost_partial: partFlag,
+    });
+  }
+  return out;
+}
+
 /** Merge duplicate display names so raw model variants never clutter inline rows. */
 export function mergeModels(list) {
   const map = new Map();
@@ -359,6 +395,7 @@ export function mergeModels(list) {
     if (isNum(m.est_cost_usd)) g.est_cost_usd = (g.est_cost_usd || 0) + m.est_cost_usd;
     else if (num(m.calls) > 0) g.cost_partial = true;
     if (m.cost_estimated) g.cost_estimated = true;
+    if (m.cost_partial) g.cost_partial = true;
   }
   return [...map.values()].sort((a, b) => allTok(b) - allTok(a) || newTok(b) - newTok(a));
 }

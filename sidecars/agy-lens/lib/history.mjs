@@ -9,7 +9,7 @@
  */
 
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
 import { POOLS, catalogDisplay, loadModelCatalog, modelPool } from './catalog.mjs';
@@ -26,7 +26,8 @@ import {
 } from './pb.mjs';
 import { LONG_CONTEXT_THRESHOLD, costOf, loadPricingFile, priceInfo } from './pricing.mjs';
 
-export const CACHE_VERSION = 5;
+export const CACHE_VERSION = 6;
+export const ENUM_PREFIX = 'enum:';
 
 const GEN_FIELDS = new Set([1, 3]); // chat_model, planner_config
 const CHAT_FIELDS = new Set([4, 19, 21]); // usage, response_model, model_display_name
@@ -130,6 +131,29 @@ const STEP_USAGE_MD_FIELDS = new Set([1, 9, 28]); // created_at, usage, retries[
 const usageId = (u) => u.str(11) || u.str(7);
 
 /**
+ * Extracts exact timestamps per response/message ID from steps.metadata so
+ * gen_metadata calls do not drift when step/generation counts diverge.
+ */
+export function stepUsageTimestamps(stepRows) {
+  const map = new Map();
+  for (const row of stepRows) {
+    if (!row || !row.metadata) continue;
+    const md = new Msg(row.metadata, STEP_USAGE_MD_FIELDS);
+    const created = md.msg(1);
+    const sec = created ? created.int(1) : 0;
+    if (sec <= 0) continue;
+    const usages = [md.msg(9, USAGE_ID_FIELDS)];
+    for (const retry of md.msgs(28)) usages.push(retry.msg(2, USAGE_ID_FIELDS));
+    for (const u of usages) {
+      if (!u) continue;
+      const id = usageId(u);
+      if (id && !map.has(id)) map.set(id, sec);
+    }
+  }
+  return map;
+}
+
+/**
  * Model calls recorded only in step metadata, not in gen_metadata: context
  * compaction / checkpoint summaries (CHECKPOINT steps) and their retries.
  * Records whose response id is already in gen_metadata are skipped.
@@ -153,7 +177,11 @@ export function stepOnlyUsage(stepRows, seenIds, enumModels, fallbackModel, fall
       const think = u.int(9);
       if (!(inp || out || cache || think)) continue;
       seenIds.add(id);
-      const model = enumModels.get(u.int(1)) || fallbackModel || 'unknown';
+      const enumNum = u.int(1);
+      let model;
+      if (enumNum > 0 && enumModels.has(enumNum)) model = enumModels.get(enumNum);
+      else if (enumNum > 0) model = `${ENUM_PREFIX}${enumNum}`;
+      else model = fallbackModel || 'unknown';
       calls.push([sec > 0 ? sec : fallbackTs, model, inp, out, cache, think]);
     }
   }
@@ -174,7 +202,7 @@ export async function parseDb(dbPath) {
     } catch (err) {
       if (!String(err?.message || '').includes('no such table')) throw err;
       conn.prepare('SELECT 1 FROM sqlite_master LIMIT 1').all();
-      return { calls: [], names: {}, first_input: null };
+      return { calls: [], names: {}, enums: {}, first_input: null };
     }
     stamps = plannerTimestamps(conn);
     firstInput = firstUserText(conn);
@@ -185,6 +213,7 @@ export async function parseDb(dbPath) {
     conn.close();
   }
 
+  const idTimestamps = stepUsageTimestamps(stepRows);
   const calls = [];
   const names = Object.create(null);
   const seenIds = new Set();
@@ -193,10 +222,8 @@ export async function parseDb(dbPath) {
   for (let i = 0; i < gens.length; i += 1) {
     const g = parseGeneration(gens[i].data);
     const u = new Msg(gens[i].data, GEN_FIELDS).msg(1, CHAT_FIELDS)?.msg(4, USAGE_ID_FIELDS);
-    if (u) {
-      const id = usageId(u);
-      if (id) seenIds.add(id);
-    }
+    const id = u ? usageId(u) : '';
+    if (id) seenIds.add(id);
     if (!g) continue;
     let [model, display] = g;
     const [, , inp, out, cache, think] = g;
@@ -208,14 +235,15 @@ export async function parseDb(dbPath) {
       model = display ? DISPLAY_PREFIX + display : 'unknown';
     }
     modelCounts.set(model, (modelCounts.get(model) || 0) + 1);
-    calls.push([generationTime(stamps, i, fallbackTs), model, inp, out, cache, think]);
+    const ts = (id && idTimestamps.has(id)) ? idTimestamps.get(id) : generationTime(stamps, i, fallbackTs);
+    calls.push([ts, model, inp, out, cache, think]);
   }
   let mainModel = null;
   for (const [m, n] of modelCounts) {
     if (mainModel === null || n > modelCounts.get(mainModel)) mainModel = m;
   }
   calls.push(...stepOnlyUsage(stepRows, seenIds, enumModels, mainModel, fallbackTs));
-  return { calls, names: { ...names }, first_input: firstInput };
+  return { calls, names: { ...names }, enums: Object.fromEntries(enumModels), first_input: firstInput };
 }
 
 export async function loadTitles(roots) {
@@ -274,58 +302,103 @@ export async function loadTitles(roots) {
 }
 
 /**
- * Database paths of every subagent conversation below `conversationId`
- * (children, grandchildren, ...) that still exist under `roots`.
+ * Live subagent database paths plus archived subagent entries (when a subagent
+ * DB was deleted from disk) and known model enum mappings below `conversationId`.
  */
-export async function findSubagentDbs(roots, conversationId) {
-  if (!conversationId) return [];
-  const [, , parents] = await loadTitles(roots);
+export async function findSubagentSources(roots, conversationId, cachePath = null) {
+  if (!conversationId) return { dbPaths: [], archivedEntries: [], enums: {} };
+  const [, , summaryParents] = await loadTitles(roots);
+  const parents = new Map(summaryParents);
+  const { dbs: cachedDbs, enums: cachedEnums } = cachePath ? loadCacheFile(cachePath) : { dbs: {}, enums: {} };
+  const mergedEnums = Object.create(null);
+  if (cachedEnums && typeof cachedEnums === 'object') {
+    for (const [k, v] of Object.entries(cachedEnums)) {
+      if (typeof v === 'string' && v && !v.startsWith(ENUM_PREFIX)) mergedEnums[k] = v;
+    }
+  }
+  const normKey = (k) => (process.platform === 'win32' ? String(k).toLowerCase() : String(k));
+  const rootSet = new Set(roots.map(([rawRoot]) => normKey(resolve(expandHome(rawRoot)))));
+  const archivedById = new Map();
+  for (const [key, entry] of Object.entries(cachedDbs || {})) {
+    if (!entry || typeof entry !== 'object') continue;
+    if (entry.enums && typeof entry.enums === 'object') {
+      for (const [k, v] of Object.entries(entry.enums)) {
+        if (typeof v === 'string' && v && !v.startsWith(ENUM_PREFIX)) mergedEnums[k] = v;
+      }
+    }
+    if (!rootSet.has(normKey(dirname(key)))) continue;
+    const base = basename(key);
+    const stem = base.endsWith('.db') ? base.slice(0, -3) : base;
+    if (typeof entry.parent === 'string' && entry.parent && entry.parent !== stem && !parents.has(stem)) {
+      parents.set(stem, entry.parent);
+    }
+    if (Array.isArray(entry.calls) && entry.calls.length && !existsSync(key)) {
+      const prev = archivedById.get(stem);
+      if (!prev || rowCalls(entry) > rowCalls(prev)) archivedById.set(stem, entry);
+    }
+  }
   const kids = new Map();
   for (const [id, pid] of parents) {
     if (!kids.has(pid)) kids.set(pid, []);
     kids.get(pid).push(id);
   }
-  const out = [];
+  const dbPaths = [];
+  const archivedEntries = [];
   const seen = new Set([conversationId]);
   const queue = [...(kids.get(conversationId) || [])];
   while (queue.length) {
     const id = queue.shift();
     if (seen.has(id)) continue;
     seen.add(id);
+    let foundLive = false;
     for (const [root] of roots) {
       const p = join(resolve(expandHome(root)), `${id}.db`);
       if (existsSync(p)) {
-        out.push(p);
+        dbPaths.push(p);
+        foundLive = true;
         break;
       }
     }
+    if (!foundLive && archivedById.has(id)) {
+      archivedEntries.push(archivedById.get(id));
+    }
     queue.push(...(kids.get(id) || []));
   }
-  return out;
+  return { dbPaths, archivedEntries, enums: mergedEnums };
+}
+
+/**
+ * Database paths of every subagent conversation below `conversationId`
+ * (children, grandchildren, ...) that still exist under `roots`.
+ */
+export async function findSubagentDbs(roots, conversationId) {
+  const { dbPaths } = await findSubagentSources(roots, conversationId, null);
+  return dbPaths;
 }
 
 // --- cache -------------------------------------------------------------------
 
 // Older cache versions are still read so usage from conversations Antigravity has
 // since deleted is not lost on upgrade; their live entries are re-parsed.
-const READABLE_CACHE_VERSIONS = new Set([4, CACHE_VERSION]);
+const READABLE_CACHE_VERSIONS = new Set([4, 5, CACHE_VERSION]);
 
-// Returns { dbs, legacy }: `legacy` records which legacy cache files were imported.
+// Returns { dbs, legacy, enums }: `legacy` records which legacy cache files were imported.
 export function loadCacheFile(cachePath) {
-  if (!cachePath) return { dbs: {}, legacy: {} };
+  if (!cachePath) return { dbs: {}, legacy: {}, enums: {} };
   try {
     const data = JSON.parse(readFileSync(expandHome(cachePath), 'utf8'));
     if (data && typeof data === 'object' && READABLE_CACHE_VERSIONS.has(data.version) && data.dbs && typeof data.dbs === 'object' && !Array.isArray(data.dbs)) {
       const legacy = data.legacy && typeof data.legacy === 'object' && !Array.isArray(data.legacy) ? data.legacy : {};
-      if (data.version === CACHE_VERSION) return { dbs: data.dbs, legacy };
+      const enums = data.enums && typeof data.enums === 'object' && !Array.isArray(data.enums) ? data.enums : {};
+      if (data.version === CACHE_VERSION) return { dbs: data.dbs, legacy, enums };
       const out = Object.create(null);
       for (const [k, v] of Object.entries(data.dbs)) {
         if (v && typeof v === 'object') out[k] = { ...v, stale: true };
       }
-      return { dbs: out, legacy: {} };
+      return { dbs: out, legacy: {}, enums };
     }
   } catch { /* ignore */ }
-  return { dbs: {}, legacy: {} };
+  return { dbs: {}, legacy: {}, enums: {} };
 }
 
 export function loadCache(cachePath) {
@@ -343,7 +416,7 @@ const rowCalls = (entry) => {
 
 /**
  * Reads another history cache (older plugin builds, other installs, backups:
- * versions 3–5 share the call-row layout) and returns its entries for
+ * versions 3–6 share the call-row layout) and returns its entries for
  * conversation databases that no longer exist, as { key: entry }.
  */
 export function readLegacyCache(filePath) {
@@ -353,7 +426,7 @@ export function readLegacyCache(filePath) {
   } catch {
     return {};
   }
-  if (!data || typeof data !== 'object' || ![3, 4, 5].includes(data.version) || !data.dbs || typeof data.dbs !== 'object' || Array.isArray(data.dbs)) {
+  if (!data || typeof data !== 'object' || ![3, 4, 5, CACHE_VERSION].includes(data.version) || !data.dbs || typeof data.dbs !== 'object' || Array.isArray(data.dbs)) {
     return {};
   }
   const out = Object.create(null);
@@ -411,13 +484,13 @@ export function findLegacyHistoryCaches(geminiDir = defaultGeminiDir(), maxDepth
 // --- weekly quota cycles ----------------------------------------------------
 
 export const WEEK_SEC = 7 * 24 * 3600;
-export const MIN_CYCLE_USED_FRACTION = 0.01;
+export const MIN_CYCLE_USED_FRACTION = 0.05;
 
 /**
  * Prepares persistent per-pool weekly quota cycles for single-pass accumulation
  * inside `scan()`. Uses `[cycle_start, min(eval_obs_at, reset_time)]` for each
  * cycle, preferring `peak_unsaturated` when a cycle already hit 0% left and at
- * least 50% peak usage was observed prior to saturation.
+ * least 20% peak usage was observed prior to saturation.
  */
 export function prepareQuotaCycles(quotaCycles) {
   const map = new Map();
@@ -455,7 +528,7 @@ export function prepareQuotaCycles(quotaCycles) {
           : (typeof peak.remaining_fraction === 'number' && Number.isFinite(peak.remaining_fraction)
             ? roundN(1 - Math.min(1, Math.max(0, peak.remaining_fraction)), 8)
             : NaN);
-        if (Number.isFinite(pObsMs) && Number.isFinite(pUsed) && pUsed >= 0.5 && pUsed < 1) {
+        if (Number.isFinite(pObsMs) && Number.isFinite(pUsed) && pUsed >= 0.2 && pUsed < 1) {
           evalObsMs = Math.min(pObsMs, resetMs);
           evalUsed = pUsed;
         }
@@ -523,10 +596,13 @@ export function archiveEntry(entry) {
   return out;
 }
 
-export function saveCache(cachePath, dbs, legacy = null) {
+export function saveCache(cachePath, dbs, legacy = null, enums = null) {
   if (!cachePath) return;
   try {
-    writeJsonAtomic(cachePath, legacy && Object.keys(legacy).length ? { version: CACHE_VERSION, dbs, legacy } : { version: CACHE_VERSION, dbs });
+    const payload = { version: CACHE_VERSION, dbs };
+    if (legacy && Object.keys(legacy).length) payload.legacy = legacy;
+    if (enums && Object.keys(enums).length) payload.enums = enums;
+    writeJsonAtomic(cachePath, payload);
   } catch { /* ignore */ }
 }
 
@@ -713,7 +789,7 @@ export async function scan(roots, {
 
   const [customPrices, pricingSource, pricingFetchedAt] = loadPricingFile(pricingFile);
   const catalog = loadModelCatalog(modelCatalogPath);
-  const { dbs: oldCache, legacy: oldLegacy } = loadCacheFile(cachePath);
+  const { dbs: oldCache, legacy: oldLegacy, enums: oldEnums } = loadCacheFile(cachePath);
   const newCache = Object.create(null);
   const sources = { desktop: 0, cli: 0 };
   let errors = 0;
@@ -828,7 +904,34 @@ export async function scan(roots, {
   }
   for (const [id, pid] of summaryParents) if (!parentOf.has(id)) parentOf.set(id, pid);
 
-  saveCache(cachePath, newCache, legacy);
+  const globalEnums = new Map();
+  if (oldEnums && typeof oldEnums === 'object') {
+    for (const [k, v] of Object.entries(oldEnums)) {
+      if (typeof v === 'string' && v && !v.startsWith(ENUM_PREFIX)) globalEnums.set(String(k), v);
+    }
+  }
+  for (const [, entry] of perDb) {
+    if (entry.enums && typeof entry.enums === 'object') {
+      for (const [k, v] of Object.entries(entry.enums)) {
+        if (typeof v === 'string' && v && !v.startsWith(ENUM_PREFIX)) globalEnums.set(String(k), v);
+      }
+    }
+  }
+
+  saveCache(cachePath, newCache, legacy, Object.fromEntries(globalEnums));
+
+  const parentIds = new Set(parentOf.values());
+  const rootOf = (id) => {
+    let cur = id;
+    const seen = new Set([cur]);
+    while (parentOf.has(cur)) {
+      const p = parentOf.get(cur);
+      if (!p || seen.has(p)) break;
+      seen.add(p);
+      cur = p;
+    }
+    return cur;
+  };
 
   const todayKey = localDateKey(now);
   const nowHour = now.getHours();
@@ -907,12 +1010,19 @@ export async function scan(roots, {
     };
     convs.push(conv);
 
+    const rootId = rootOf(stem);
+    const convKey = (rootId !== stem || parentIds.has(stem)) ? rootId : key;
+
     for (const row of entry.calls) {
       const [ts, rawModel, inp, out, cache, think] = row;
       // Archived rows are pre-aggregated: [.., calls, long_context].
       const n = row.length >= 8 ? row[6] : 1;
       const longCtx = row.length >= 8 ? Boolean(row[7]) : null;
       let model = rawModel;
+      if (model.startsWith(ENUM_PREFIX)) {
+        const resolved = globalEnums.get(model.slice(ENUM_PREFIX.length));
+        model = resolved || 'unknown';
+      }
       if (model.startsWith(DISPLAY_PREFIX)) {
         const disp = model.slice(DISPLAY_PREFIX.length);
         model = byDisplay.has(disp) ? byDisplay.get(disp) : disp;
@@ -1018,7 +1128,7 @@ export async function scan(roots, {
             t.est_cost_usd = (t.est_cost_usd ?? 0) + cost;
             if (isEst) t.cost_estimated = true;
           }
-          convSets[w].add(key);
+          convSets[w].add(convKey);
         }
       }
 
@@ -1029,7 +1139,12 @@ export async function scan(roots, {
           d7_tokens: 0, calls: 0, est_cost_usd: null, cost_estimated: false,
           periods: {},
         };
-        for (const [w] of windows) bm.periods[w] = { input: 0, output: 0, cache_read: 0, calls: 0 };
+        for (const [w] of windows) {
+          bm.periods[w] = {
+            input: 0, output: 0, cache_read: 0, thinking: 0, calls: 0,
+            est_cost_usd: null, cost_estimated: false, cost_partial: false,
+          };
+        }
         byModel.set(model, bm);
       }
       for (const [w, start] of windows) {
@@ -1038,7 +1153,14 @@ export async function scan(roots, {
           pm.input += inp;
           pm.output += out;
           pm.cache_read += cache;
+          pm.thinking += think;
           pm.calls += n;
+          if (cost !== null) {
+            pm.est_cost_usd = (pm.est_cost_usd ?? 0) + cost;
+            if (isEst) pm.cost_estimated = true;
+          } else {
+            pm.cost_partial = true;
+          }
         }
       }
       bm.input += inp;
@@ -1075,6 +1197,9 @@ export async function scan(roots, {
   for (const bm of models) {
     bm.display_name = names.get(bm.model) || catalogDisplay(bm.model, catalog);
     if (bm.est_cost_usd !== null) bm.est_cost_usd = roundN(bm.est_cost_usd, 4);
+    for (const pm of Object.values(bm.periods)) {
+      if (pm && pm.est_cost_usd !== null) pm.est_cost_usd = roundN(pm.est_cost_usd, 4);
+    }
   }
   models.sort((a, b) => {
     const ta = a.input + a.output + a.cache_read;

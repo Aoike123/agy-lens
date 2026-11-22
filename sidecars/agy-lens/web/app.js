@@ -140,6 +140,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
       pane: panes.quota,
       openKeys,
       getTab: () => tab,
+      getHistoryData: () => (history ? history.loader.data : null),
       getT: () => t,
       getLang: () => lang,
       getJson,
@@ -168,6 +169,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
         if (overview && overview.getReport()) overview.refresh({ force: true });
       },
       onDataChange: () => {
+        if (quota && (quota.loader.data || quota.loader.error)) quota.paint();
         if (overview) overview.syncWeekly();
       },
     });
@@ -176,6 +178,13 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
       if (quota.loader.loading) return;
       if (force || !quota.loader.data || Date.now() - quota.loader.loadedAt > QUOTA_STALE_MS) {
         quota.loader.load({ refresh: force, silent: true });
+      }
+    }
+
+    function ensureHistoryForQuota(force = false) {
+      if (history.loader.loading) return;
+      if (force || !history.loader.data || Date.now() - history.loader.loadedAt > HISTORY_STALE_MS) {
+        history.loader.load({ refresh: force, silent: true });
       }
     }
 
@@ -210,6 +219,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
         overview.refresh();
       } else if (tab === 'quota') {
         quota.loader.open();
+        ensureHistoryForQuota(false);
       } else {
         history.loader.open();
         ensureQuotaForHistory(false);
@@ -229,8 +239,10 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
 
     function autoRefreshActive() {
       if (document.hidden) return;
-      if (tab === 'quota' && quota.loader.data) quota.loader.load({ refresh: false, silent: true });
-      else if (tab === 'history' && history.loader.data) {
+      if (tab === 'quota' && quota.loader.data) {
+        quota.loader.load({ refresh: false, silent: true });
+        ensureHistoryForQuota(false);
+      } else if (tab === 'history' && history.loader.data) {
         history.loader.load({ refresh: false, silent: true });
         ensureQuotaForHistory(false);
       }
@@ -242,6 +254,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
       if (tab === 'quota') {
         quota.tickCountdowns();
         if (quota.loader.data && Date.now() - quota.loader.loadedAt > QUOTA_STALE_MS) quota.loader.load({ refresh: false, silent: true });
+        ensureHistoryForQuota(false);
       } else if (tab === 'history') {
         if (history.loader.data && Date.now() - history.loader.loadedAt > HISTORY_STALE_MS) history.loader.load({ refresh: false, silent: true });
         ensureQuotaForHistory(false);
@@ -263,8 +276,10 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
 
     $('refresh').addEventListener('click', () => {
       if (tab === 'overview') overview.refresh({ force: true });
-      else if (tab === 'quota') quota.loader.load({ refresh: true, silent: false });
-      else {
+      else if (tab === 'quota') {
+        quota.loader.load({ refresh: true, silent: false });
+        ensureHistoryForQuota(true);
+      } else {
         history.clearPricingNotice();
         history.loader.load({ refresh: true, silent: false });
         ensureQuotaForHistory(true);

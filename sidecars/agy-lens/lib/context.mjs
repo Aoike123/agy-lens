@@ -22,7 +22,7 @@ import {
   modelPool,
   requestBudget,
 } from './catalog.mjs';
-import { DISPLAY_PREFIX, parseDb as parseHistoryDb } from './history.mjs';
+import { DISPLAY_PREFIX, ENUM_PREFIX, parseDb as parseHistoryDb } from './history.mjs';
 import {
   Msg,
   cmpCode,
@@ -34,7 +34,7 @@ import {
   openReadOnlyDb,
   roundN,
 } from './pb.mjs';
-import { callCostInfo, loadPricingFile } from './pricing.mjs';
+import { costOf, loadPricingFile, priceInfo } from './pricing.mjs';
 
 const UTF8_ENC = new TextEncoder();
 
@@ -957,31 +957,40 @@ export function collectSpeed(gens) {
 }
 
 /**
- * Usage of one conversation. With `subagentDbPaths` (its descendants'
- * databases) the result covers the whole tree, with the conversation's own part
- * in `self` and the number of subagent conversations in `subagents`.
+ * Usage of one conversation. With `subagentDbPaths` / `archivedSubagents`
+ * (its descendants' live databases and archived cache entries) the result
+ * covers the whole tree, with the conversation's own part in `self` and the
+ * number of subagent conversations in `subagents`.
  */
-export async function collectSession(dbPath, { pricingFile = null, modelCatalogPath = null, subagentDbPaths = null } = {}) {
+export async function collectSession(dbPath, { pricingFile = null, modelCatalogPath = null, subagentDbPaths = null, archivedSubagents = null, enumMap = null } = {}) {
   const subs = Array.isArray(subagentDbPaths) ? subagentDbPaths.filter(Boolean) : [];
-  if (subs.length) {
-    const opts = { pricingFile, modelCatalogPath };
+  const archived = Array.isArray(archivedSubagents) ? archivedSubagents.filter((e) => e && Array.isArray(e.calls) && e.calls.length) : [];
+  if (subs.length || archived.length) {
+    const opts = { pricingFile, modelCatalogPath, enumMap };
     const self = await collectSession(dbPath, opts);
-    const tree = await collectSessionCalls([dbPath, ...subs], opts);
+    const tree = await collectSessionCalls([dbPath, ...subs], { ...opts, archivedSubagents: archived });
     if (!tree) return self;
+    const { _dbsWithCalls, ...treeRest } = tree;
     const pick = (x) => (x ? {
       input: x.input, output: x.output, cache_read: x.cache_read, thinking: x.thinking, calls: x.calls,
       est_cost_usd: x.est_cost_usd, cost_estimated: x.cost_estimated, cost_partial: x.cost_partial,
     } : { input: 0, output: 0, cache_read: 0, thinking: 0, calls: 0, est_cost_usd: null, cost_estimated: false, cost_partial: false });
-    return { ...tree, self: pick(self), subagents: tree._dbsWithCalls - (self ? 1 : 0) };
+    return { ...treeRest, self: pick(self), subagents: Math.max(0, _dbsWithCalls - (self ? 1 : 0)) };
   }
-  const out = await collectSessionCalls([dbPath], { pricingFile, modelCatalogPath });
+  const out = await collectSessionCalls([dbPath], { pricingFile, modelCatalogPath, enumMap });
   if (out) delete out._dbsWithCalls;
   return out;
 }
 
-async function collectSessionCalls(dbPaths, { pricingFile = null, modelCatalogPath = null } = {}) {
+async function collectSessionCalls(dbPaths, { pricingFile = null, modelCatalogPath = null, archivedSubagents = [], enumMap = null } = {}) {
   const calls = [];
   const names = {};
+  const enums = new Map();
+  if (enumMap && typeof enumMap === 'object') {
+    for (const [k, v] of Object.entries(enumMap)) {
+      if (typeof v === 'string' && v && !v.startsWith(ENUM_PREFIX)) enums.set(String(k), v);
+    }
+  }
   let dbsWithCalls = 0;
   for (const [i, dbPath] of dbPaths.entries()) {
     let parsed;
@@ -996,6 +1005,18 @@ async function collectSessionCalls(dbPaths, { pricingFile = null, modelCatalogPa
       calls.push(...parsed.calls);
     }
     for (const [k, v] of Object.entries(parsed.names || {})) if (!(k in names)) names[k] = v;
+    for (const [k, v] of Object.entries(parsed.enums || {})) {
+      if (typeof v === 'string' && v && !v.startsWith(ENUM_PREFIX)) enums.set(String(k), v);
+    }
+  }
+  for (const entry of archivedSubagents) {
+    if (!entry || !Array.isArray(entry.calls) || !entry.calls.length) continue;
+    dbsWithCalls += 1;
+    calls.push(...entry.calls);
+    for (const [k, v] of Object.entries(entry.names || {})) if (!(k in names)) names[k] = v;
+    for (const [k, v] of Object.entries(entry.enums || {})) {
+      if (typeof v === 'string' && v && !v.startsWith(ENUM_PREFIX)) enums.set(String(k), v);
+    }
   }
   if (!calls.length) return null;
 
@@ -1016,6 +1037,7 @@ async function collectSessionCalls(dbPaths, { pricingFile = null, modelCatalogPa
   let outputSum = 0;
   let cacheSum = 0;
   let thinkingSum = 0;
+  let totalCalls = 0;
   let d7Tokens = 0;
   const d7ByPool = {};
   const costByPool = {};
@@ -1030,19 +1052,27 @@ async function collectSessionCalls(dbPaths, { pricingFile = null, modelCatalogPa
   let maxTs = -Infinity;
   const byModel = new Map();
 
-  for (const [ts, rawModel, inp, out, cache, think] of calls) {
+  for (const row of calls) {
+    const [ts, rawModel, inp, out, cache, think] = row;
+    const n = row.length >= 8 ? row[6] : 1;
+    const longCtx = row.length >= 8 ? Boolean(row[7]) : null;
     let model = rawModel;
+    if (model.startsWith(ENUM_PREFIX)) {
+      model = enums.get(model.slice(ENUM_PREFIX.length)) || 'unknown';
+    }
     let display = Object.prototype.hasOwnProperty.call(names, model) ? names[model] : null;
     if (model.startsWith(DISPLAY_PREFIX)) {
       display = model.slice(DISPLAY_PREFIX.length);
       model = byDisplay.has(display) ? byDisplay.get(display) : display;
     }
-    const [cost, isEst] = callCostInfo(model, inp, out, cache, customPrices);
+    const [p, isEst] = priceInfo(model, customPrices);
+    const cost = p !== null ? costOf(p, inp, out, cache, longCtx) : null;
     const pool = modelPool(model, catalog);
     inputSum += inp;
     outputSum += out;
     cacheSum += cache;
     thinkingSum += think;
+    totalCalls += n;
     if (ts < minTs) minTs = ts;
     if (ts > maxTs) maxTs = ts;
 
@@ -1085,7 +1115,7 @@ async function collectSessionCalls(dbPaths, { pricingFile = null, modelCatalogPa
     bm.input += inp;
     bm.output += out;
     bm.cache_read += cache;
-    bm.calls += 1;
+    bm.calls += n;
     if (cost !== null) {
       bm.est_cost_usd = (bm.est_cost_usd ?? 0) + cost;
       if (isEst) bm.cost_estimated = true;
@@ -1148,7 +1178,7 @@ async function collectSessionCalls(dbPaths, { pricingFile = null, modelCatalogPa
     output: outputSum,
     cache_read: cacheSum,
     thinking: thinkingSum,
-    calls: calls.length,
+    calls: totalCalls,
     total_tokens: inputSum + outputSum,
     cache_hit_pct: prompt > 0 ? roundN((cacheSum / prompt) * 100, 1) : null,
     est_cost_usd: costSum !== null ? roundN(costSum, 4) : null,
@@ -1179,6 +1209,8 @@ export async function buildReport({
   modelCatalogPath = null,
   pricingFile = null,
   subagentDbPaths = null,
+  archivedSubagents = null,
+  enumMap = null,
 } = {}) {
   const effectiveGemini = geminiDir || (process.env.ANTIGRAVITY_GEMINI_DIR ? defaultGeminiDir() : null);
   let resolvedDb = dbPath;
@@ -1204,7 +1236,7 @@ export async function buildReport({
   const ws = workspace && String(workspace).startsWith('file:') ? workspacePath(workspace) : (workspace || null);
   const systemFiles = detectSystemFiles(homedir(), ws, appDir, effectiveGemini);
   const speed = collectSpeed(await loadGenerations(p));
-  const session = await collectSession(p, { pricingFile, modelCatalogPath, subagentDbPaths });
+  const session = await collectSession(p, { pricingFile, modelCatalogPath, subagentDbPaths, archivedSubagents, enumMap });
 
   const categories = [];
   for (const [icon, cname, key, always] of CATEGORIES) {

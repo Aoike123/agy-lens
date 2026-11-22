@@ -6,7 +6,7 @@
 
 import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, basename, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
@@ -28,7 +28,12 @@ import {
   render,
   workspacePath,
 } from '../sidecars/agy-lens/lib/context.mjs';
-import { defaultRoots, scan } from '../sidecars/agy-lens/lib/history.mjs';
+import {
+  defaultRoots,
+  findLegacyHistoryCaches,
+  findSubagentSources,
+  scan,
+} from '../sidecars/agy-lens/lib/history.mjs';
 import {
   defaultDataDir,
   defaultGeminiDir,
@@ -37,7 +42,7 @@ import {
   roundN,
 } from '../sidecars/agy-lens/lib/pb.mjs';
 import { readPricingMeta } from '../sidecars/agy-lens/lib/pricing.mjs';
-import { fetchQuota } from '../sidecars/agy-lens/lib/quota.mjs';
+import { fetchQuota, loadQuotaCycles, mergeQuotaObservation } from '../sidecars/agy-lens/lib/quota.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, '..');
@@ -212,7 +217,7 @@ function formatSummaryText({ version, geminiDir, pricingMeta, days, history, rep
     if (quota.pools?.length) {
       out.push(c('1', 'Quota'));
       for (const p of quota.pools) {
-        out.push(`  ${p.label}: ${fmtPct(p.remaining_fraction)} remaining${p.reset_at ? ` (resets ${p.reset_at})` : ''}`);
+        out.push(`  ${p.label}: ${fmtPct(p.remaining_fraction)} remaining${p.reset_time ? ` (resets ${p.reset_time})` : ''}`);
       }
     } else {
       out.push(`Quota: ${c('90', quota.message || 'offline (language server not running)')}`);
@@ -256,7 +261,7 @@ function formatSummaryText({ version, geminiDir, pricingMeta, days, history, rep
   if (quota.pools?.length) {
     out.push(c('1', `Quota${quota.plan ? ` (${quota.plan})` : ''}`));
     for (const p of quota.pools) {
-      out.push(`  ${p.label.padEnd(24)} ${fmtPct(p.remaining_fraction).padStart(7)} remaining${p.reset_at ? ` · resets ${p.reset_at}` : ''}`);
+      out.push(`  ${p.label.padEnd(24)} ${fmtPct(p.remaining_fraction).padStart(7)} remaining${p.reset_time ? ` · resets ${p.reset_time}` : ''}`);
     }
   } else {
     out.push(`Quota: ${c('90', quota.message || 'offline (language server not running)')}`);
@@ -304,8 +309,10 @@ export async function runCliMain(argv = process.argv.slice(2)) {
 
   const geminiDir = defaultGeminiDir();
   const dataDir = defaultDataDir();
+  const roots = defaultRoots(geminiDir);
   const catalogPath = join(dataDir, 'model-catalog.json');
   const quotaRawPath = join(dataDir, 'quota-raw.json');
+  const quotaCyclesPath = join(dataDir, 'quota-cycles.json');
   const historyCachePath = join(dataDir, 'history-cache.json');
   const pricingPath = join(dataDir, 'pricing-cache.json');
   const pricingFile = existsSync(pricingPath) ? pricingPath : null;
@@ -325,6 +332,16 @@ export async function runCliMain(argv = process.argv.slice(2)) {
       return 1;
     }
 
+    let subagentDbPaths = [];
+    let archivedSubagents = [];
+    let enumMap = null;
+    try {
+      const found = await findSubagentSources(roots, basename(dbPath, '.db'), historyCachePath);
+      subagentDbPaths = found.dbPaths;
+      archivedSubagents = found.archivedEntries;
+      enumMap = found.enums;
+    } catch { /* summaries unavailable */ }
+
     let report;
     try {
       report = await buildReport({
@@ -333,6 +350,9 @@ export async function runCliMain(argv = process.argv.slice(2)) {
         width,
         modelCatalogPath,
         pricingFile,
+        subagentDbPaths,
+        archivedSubagents,
+        enumMap,
       });
     } catch (err) {
       process.stderr.write(`Error: Failed to inspect database: ${err?.message || err}\n`);
@@ -362,38 +382,12 @@ export async function runCliMain(argv = process.argv.slice(2)) {
     return 0;
   }
 
-  const history = await scan(defaultRoots(geminiDir), {
-    cachePath: historyCachePath,
-    days: args.days,
-    pricingFile,
-    modelCatalogPath,
-  });
-
-  const latestDb = findLatestDb([
-    defaultConversationsDir('antigravity', geminiDir),
-    defaultConversationsDir('antigravity-cli', geminiDir),
-  ]);
-  let latestReport = null;
-  if (latestDb) {
-    try {
-      latestReport = await buildReport({
-        dbPath: latestDb,
-        workspace: args.workspace,
-        width,
-        modelCatalogPath,
-        pricingFile,
-      });
-    } catch {
-      latestReport = null;
-    }
-  }
-
   const hasLsEnv = Boolean((process.env.ANTIGRAVITY_LS_ADDRESS || '').trim())
     && Boolean((process.env.ANTIGRAVITY_CSRF_TOKEN || '').trim());
   let quota;
   if (hasLsEnv) {
     try {
-      quota = await fetchQuota({ catalogPath, quotaRawPath });
+      quota = await fetchQuota({ catalogPath, quotaRawPath, quotaCyclesPath });
     } catch (err) {
       quota = {
         pools: [],
@@ -415,6 +409,51 @@ export async function runCliMain(argv = process.argv.slice(2)) {
       error: 'unavailable',
       message: 'Antigravity language server offline',
     };
+  }
+
+  let quotaCycles = loadQuotaCycles(quotaCyclesPath, quotaRawPath);
+  if (quota && !quota.error) {
+    quotaCycles = mergeQuotaObservation(quotaCycles, quota).ledger;
+  }
+
+  const history = await scan(roots, {
+    cachePath: historyCachePath,
+    days: args.days,
+    pricingFile,
+    modelCatalogPath,
+    quotaCycles,
+    legacyCachePaths: findLegacyHistoryCaches(geminiDir),
+  });
+
+  const latestDb = findLatestDb([
+    defaultConversationsDir('antigravity', geminiDir),
+    defaultConversationsDir('antigravity-cli', geminiDir),
+  ]);
+  let latestReport = null;
+  if (latestDb) {
+    let subagentDbPaths = [];
+    let archivedSubagents = [];
+    let enumMap = null;
+    try {
+      const found = await findSubagentSources(roots, basename(latestDb, '.db'), historyCachePath);
+      subagentDbPaths = found.dbPaths;
+      archivedSubagents = found.archivedEntries;
+      enumMap = found.enums;
+    } catch { /* summaries unavailable */ }
+    try {
+      latestReport = await buildReport({
+        dbPath: latestDb,
+        workspace: args.workspace,
+        width,
+        modelCatalogPath,
+        pricingFile,
+        subagentDbPaths,
+        archivedSubagents,
+        enumMap,
+      });
+    } catch {
+      latestReport = null;
+    }
   }
 
   if (args.json) {

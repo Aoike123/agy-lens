@@ -1011,8 +1011,12 @@ test('ScannerTest: windows/totals, contract shape, by_model, display-only resolu
       'cache_read', 'calls', 'cost_estimated', 'd7_tokens', 'display_name', 'est_cost_usd', 'input', 'model', 'output', 'periods', 'pool', 'thinking',
     ]);
     assert.deepEqual(Object.keys(r.by_model[0].periods).sort(), ['all', 'd30', 'd7', 'today']);
-    assert.deepEqual(Object.keys(r.by_model[0].periods.all).sort(), ['cache_read', 'calls', 'input', 'output']);
+    assert.deepEqual(Object.keys(r.by_model[0].periods.all).sort(), [
+      'cache_read', 'calls', 'cost_estimated', 'cost_partial', 'est_cost_usd', 'input', 'output', 'thinking',
+    ]);
     assert.equal(r.by_model[0].periods.all.input, r.by_model[0].input);
+    assert.equal(r.by_model[0].periods.all.est_cost_usd, r.by_model[0].est_cost_usd);
+    assert.ok(r.by_model[0].periods.today.est_cost_usd < r.by_model[0].periods.all.est_cost_usd);
     assert.deepEqual(Object.keys(r.daily[0]).sort(), ['calls', 'date', 'tokens']);
     assert.equal(r.hourly_today.length, 24);
     assert.deepEqual(Object.keys(r.hourly_today[0]).sort(), ['calls', 'hour', 'tokens']);
@@ -1103,8 +1107,8 @@ test('ScannerTest: by_model, display-only resolution, by_conversation details, d
     assert.deepEqual([stats.hits, stats.misses], [6, 0]);
     assert.deepEqual(rC2.by_conversation, convs);
 
-    // 3. d7_tokens spanning window & CACHE_VERSION === 5
-    assert.equal(CACHE_VERSION, 5);
+    // 3. d7_tokens spanning window & CACHE_VERSION === 6
+    assert.equal(CACHE_VERSION, 6);
     const dSpan = join(dir, 'span');
     mkdirSync(dSpan);
     makeHistoryDb(join(dSpan, 'span.db'), [
@@ -1929,6 +1933,20 @@ test('QuotaCycles: cycle ledger persists, deduplicates jitter, locks saturation 
     assert.equal(ledger.pools.gemini[0].used_fraction, 0.95);
     assert.equal(ledger.pools.gemini[0].peak_unsaturated.observed_at, '2026-11-22T09:00:00.000Z');
 
+    // Downward jitter or flat repeated reading must not overwrite peak_unsaturated.
+    ledger = recordQuotaCycles(cyclesPath, {
+      fetched_at: '2026-11-22T09:15:00.000Z',
+      weekly: { gemini: { remaining_fraction: 0.2, reset_time: resetIso } },
+    });
+    assert.equal(ledger.pools.gemini[0].peak_unsaturated.used_fraction, 0.95);
+    assert.equal(ledger.pools.gemini[0].peak_unsaturated.observed_at, '2026-11-22T09:00:00.000Z');
+    ledger = recordQuotaCycles(cyclesPath, {
+      fetched_at: '2026-11-22T09:30:00.000Z',
+      weekly: { gemini: { remaining_fraction: 0.05, reset_time: resetIso } },
+    });
+    assert.equal(ledger.pools.gemini[0].peak_unsaturated.used_fraction, 0.95);
+    assert.equal(ledger.pools.gemini[0].peak_unsaturated.observed_at, '2026-11-22T09:00:00.000Z');
+
     // 3. Saturation (0% left) locks observed_at on first saturation and keeps peak_unsaturated.
     ledger = recordQuotaCycles(cyclesPath, {
       fetched_at: '2026-11-22T10:00:00.000Z',
@@ -2067,12 +2085,12 @@ test('WeeklyValuation: exact cycle alignment, shrinkage change_pct, <1% & satura
     assert.equal(r.weekly_value_usd.gemini, curVal);
     assert.equal(r.by_conversation[0].cost_by_pool.gemini, roundN(cPrev + cPrevPost + cCur + cCurPost, 6));
 
-    // Fresh reset (<1% used in current cycle): current value null, pool benchmark falls back to last valid week!
+    // Fresh reset (<5% used in current cycle): current value null, pool benchmark falls back to last valid week!
     const resetCycles = {
       version: 1,
       pools: {
         gemini: [
-          { ...quotaCycles.pools.gemini[0], remaining_fraction: 0.995, used_fraction: 0.005 },
+          { ...quotaCycles.pools.gemini[0], remaining_fraction: 0.97, used_fraction: 0.03 },
           quotaCycles.pools.gemini[1],
         ],
       },
@@ -2081,7 +2099,19 @@ test('WeeklyValuation: exact cycle alignment, shrinkage change_pct, <1% & satura
     assert.equal(rLow.weekly_cycles.gemini[0].weekly_value_usd, null);
     assert.equal(rLow.weekly_value_usd.gemini, prevVal);
 
-    // Saturation guard: saturated cycle evaluates using peak_unsaturated instead of post-limit AI credit spend!
+    const floorCycles = {
+      version: 1,
+      pools: {
+        gemini: [
+          { ...quotaCycles.pools.gemini[0], remaining_fraction: 0.95, used_fraction: 0.05 },
+          quotaCycles.pools.gemini[1],
+        ],
+      },
+    };
+    const rFloor = await scan([[root, 'desktop']], { now: H_NOW, quotaCycles: floorCycles });
+    assert.equal(rFloor.weekly_cycles.gemini[0].weekly_value_usd, roundN(cCur / 0.05, 2));
+
+    // Saturation guard: saturated cycle evaluates using peak_unsaturated (>=20% prior peak) instead of post-limit AI credit spend!
     const satCycles = {
       version: 1,
       pools: {
@@ -2092,14 +2122,14 @@ test('WeeklyValuation: exact cycle alignment, shrinkage change_pct, <1% & satura
           remaining_fraction: 0,
           used_fraction: 1,
           saturated: true,
-          peak_unsaturated: { observed_at: curObsIso, remaining_fraction: 0.2, used_fraction: 0.8 },
+          peak_unsaturated: { observed_at: curObsIso, remaining_fraction: 0.7, used_fraction: 0.3 },
         }],
       },
     };
     const rSat = await scan([[root, 'desktop']], { now: H_NOW, quotaCycles: satCycles });
-    assert.equal(rSat.weekly_cycles.gemini[0].eval_used_fraction, 0.8);
+    assert.equal(rSat.weekly_cycles.gemini[0].eval_used_fraction, 0.3);
     assert.equal(rSat.weekly_cycles.gemini[0].observed_cost_usd, roundN(cCur, 4));
-    assert.equal(rSat.weekly_value_usd.gemini, roundN(cCur / 0.8, 2));
+    assert.equal(rSat.weekly_value_usd.gemini, roundN(cCur / 0.3, 2));
 
     // Without quotaCycles: NO rolling 7-day fallback!
     const rNoCycles = await scan([[root, 'desktop']], { now: H_NOW });
@@ -2137,7 +2167,7 @@ test('WeeklyValuation: exact cycle alignment, shrinkage change_pct, <1% & satura
 });
 
 test('TreeFix: subagent usage rolls up to parents (multi-level, placeholders, cycles, cap)', async () => {
-  const { buildConversationTree, findSubagentDbs } = await import('../sidecars/agy-lens/lib/history.mjs');
+  const { buildConversationTree, findSubagentDbs, findSubagentSources } = await import('../sidecars/agy-lens/lib/history.mjs');
   const dir = mkdtempSync(join(tmpdir(), 'agy-unit-tree-'));
   try {
     const root = join(dir, 'conversations');
@@ -2182,8 +2212,9 @@ test('TreeFix: subagent usage rolls up to parents (multi-level, placeholders, cy
     assert.equal(by.ghost.calls, 0);
     assert.equal(by.ghost.total.input, 70);
     assert.equal(by.ghost.model, 'gemini-2.5-pro'); // taken from its subtree
-    // Window totals count every call once, never per tree level.
+    // Window totals count every call once, never per tree level; conversation count reflects top-level trees.
     assert.equal(r.totals.all.input, 1620);
+    assert.equal(r.totals.all.conversations, 2);
     // The link survives in the cache once the subagent's database is deleted.
     unlinkSync(join(root, 'grand.db'));
     const ra = await scan([[root, 'desktop']], { now: H_NOW, cachePath });
@@ -2192,16 +2223,30 @@ test('TreeFix: subagent usage rolls up to parents (multi-level, placeholders, cy
     assert.equal(byA.grand.parent_id, 'sub1');
     assert.equal(byA.main.total.input, 1550);
 
-    // Live session of `main` includes subagent databases still on disk.
+    // Live session of `main` includes subagent databases still on disk AND archived subagent entries.
     const subs = await findSubagentDbs([[root, 'desktop']], 'main');
     assert.deepEqual(subs.map((p) => p.slice(root.length + 1)).sort(), ['sub1.db', 'sub2.db']);
-    const ses = await collectSession(join(root, 'main.db'), { subagentDbPaths: subs });
-    assert.equal(ses.input, 1500);
-    assert.equal(ses.calls, 3);
-    assert.equal(ses.subagents, 2);
-    assert.equal(ses.self.input, 1000);
-    assert.ok(ses.cost_by_pool.gemini > 0);
+    const sesLiveOnly = await collectSession(join(root, 'main.db'), { subagentDbPaths: subs });
+    assert.equal(sesLiveOnly.input, 1500);
+    assert.equal(sesLiveOnly.calls, 3);
+    assert.equal(sesLiveOnly.subagents, 2);
+    assert.equal(sesLiveOnly.self.input, 1000);
+    assert.ok(sesLiveOnly.cost_by_pool.gemini > 0);
     assert.equal((await collectSession(join(root, 'main.db'))).self, undefined);
+
+    const sources = await findSubagentSources([[root, 'desktop']], 'main', cachePath);
+    assert.deepEqual(sources.dbPaths.map((p) => p.slice(root.length + 1)).sort(), ['sub1.db', 'sub2.db']);
+    assert.equal(sources.archivedEntries.length, 1);
+    const ses = await collectSession(join(root, 'main.db'), {
+      subagentDbPaths: sources.dbPaths,
+      archivedSubagents: sources.archivedEntries,
+      enumMap: sources.enums,
+    });
+    assert.equal(ses.input, 1550);
+    assert.equal(ses.calls, 4);
+    assert.equal(ses.subagents, 3);
+    assert.equal(ses.self.input, 1000);
+    assert.equal(ses.est_cost_usd, mainTreeCost);
 
     // Cycles are broken; the cap keeps every top-level conversation first.
     const mk = (id, last) => ({ id, input: 1, output: 0, cache_read: 0, thinking: 0, calls: 1, d7_tokens: 0, est_cost_usd: 1, d7_by_pool: {}, cost_by_pool: {}, _last: last, _models: new Map() });
@@ -2262,4 +2307,83 @@ test('FrontendWeekly: weekly_value_usd sizing (incl. >100% & historical items), 
   assert.equal(v.pool, 'claude_gpt');
   assert.equal(v.self, raw);
   assert.equal(f.withSubtree({ id: 'x', total: { subagents: 0 } }).self, undefined);
+});
+
+test('AccuracyFix: stepUsageTimestamps binds gen_metadata calls by response/message ID across retries', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'agy-unit-idts-'));
+  try {
+    const dbPath = join(dir, 'retries.db');
+    const conn = new DatabaseSync(dbPath);
+    conn.exec('CREATE TABLE steps (idx integer PRIMARY KEY, step_type integer, metadata blob)');
+    conn.exec('CREATE TABLE gen_metadata (idx integer PRIMARY KEY, data blob)');
+
+    const tDay10 = Math.trunc(hTs(10, 12));
+    const tDay0 = Math.trunc(hTs(0, 12));
+    // Step 0 has retry usage at day 0 and primary usage at day 10; positional PLANNER_RESPONSE only has day 0!
+    const uDay10 = pbMsg(pbField(1, 1530), pbField(2, 1000), pbField(3, 100), pbField(5, 0), pbField(11, 'resp-day10'));
+    const uDay0 = pbMsg(pbField(1, 1530), pbField(2, 500), pbField(3, 50), pbField(5, 0), pbField(11, 'resp-day0'));
+    conn.prepare('INSERT INTO steps VALUES (0, 15, ?)').run(pbMsg(pbField(1, pbField(1, tDay0)), pbField(9, uDay0)));
+    conn.prepare('INSERT INTO steps VALUES (1, 15, ?)').run(pbMsg(pbField(1, pbField(1, tDay10)), pbField(9, uDay10)));
+
+    // Put the day-10 generation at idx 0 (positional stamp would wrongly give it tDay0) and day-0 retry at idx 1.
+    conn.prepare('INSERT INTO gen_metadata VALUES (0, ?)').run(
+      pbMsg(pbField(1, pbMsg(pbField(4, uDay10), pbField(21, 'Gemini 2.5 Pro'))), pbField(3, pbField(28, 'gemini-2.5-pro'))),
+    );
+    conn.prepare('INSERT INTO gen_metadata VALUES (1, ?)').run(
+      pbMsg(pbField(1, pbMsg(pbField(4, uDay0), pbField(21, 'Gemini 2.5 Pro'))), pbField(3, pbField(28, 'gemini-2.5-pro'))),
+    );
+    conn.close();
+
+    const r = await scan([[dir, 'desktop']], { now: H_NOW });
+    assert.equal(r.totals.today.calls, 1);
+    assert.equal(r.totals.today.input, 500);
+    assert.equal(r.totals.d7.calls, 1);
+    assert.equal(r.totals.d30.calls, 2);
+    assert.equal(r.totals.d30.input, 1500);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('AccuracyFix: cross-DB compaction enum resolution avoids misbilling under mainModel', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'agy-unit-enum-'));
+  try {
+    const dbB = join(dir, 'b-gemini.db');
+    makeHistoryDb(dbB, [hCall(0, { model: 'gemini-2.5-pro', input: 100, output: 10, cache: 0 })]);
+    const cB = new DatabaseSync(dbB);
+    const uB = pbMsg(pbField(1, 1530), pbField(2, 100), pbField(3, 10), pbField(5, 0), pbField(11, 'resp-b'));
+    cB.prepare('UPDATE gen_metadata SET data = ? WHERE idx = 0').run(
+      pbMsg(pbField(1, pbMsg(pbField(4, uB), pbField(21, 'Gemini 2.5 Pro'))), pbField(3, pbField(28, 'gemini-2.5-pro'))),
+    );
+    cB.close();
+
+    const dbA = join(dir, 'a-claude.db');
+    makeHistoryDb(dbA, [hCall(0, { model: 'claude-opus-5-5-medium', input: 1000, output: 100, cache: 0 })]);
+    const cA = new DatabaseSync(dbA);
+    const uA = pbMsg(pbField(1, 2001), pbField(2, 1000), pbField(3, 100), pbField(5, 0), pbField(11, 'resp-a'));
+    cA.prepare('UPDATE gen_metadata SET data = ? WHERE idx = 0').run(
+      pbMsg(pbField(1, pbMsg(pbField(4, uA), pbField(21, 'Claude Opus 5.5'))), pbField(3, pbField(28, 'claude-opus-5-5-medium'))),
+    );
+    const ts = Math.trunc(hTs(0, 11));
+    // Compaction step using enum 1530 (only defined in dbB) and another with unseen enum 9999.
+    const uCompact = pbMsg(pbField(1, 1530), pbField(2, 4000), pbField(3, 400), pbField(5, 0), pbField(11, 'resp-comp-1530'));
+    const uUnknown = pbMsg(pbField(1, 9999), pbField(2, 200), pbField(3, 20), pbField(5, 0), pbField(11, 'resp-comp-9999'));
+    cA.prepare('INSERT INTO steps (idx, step_type, metadata) VALUES (100, 23, ?)').run(pbMsg(pbField(1, pbField(1, ts)), pbField(9, uCompact)));
+    cA.prepare('INSERT INTO steps (idx, step_type, metadata) VALUES (101, 23, ?)').run(pbMsg(pbField(1, pbField(1, ts)), pbField(9, uUnknown)));
+    cA.close();
+
+    const cachePath = join(dir, 'cache.json');
+    const r = await scan([[dir, 'desktop']], { now: H_NOW, cachePath });
+    const bm = Object.fromEntries(r.by_model.map((m) => [m.model, m]));
+    assert.equal(bm['gemini-2.5-pro'].input, 4100);
+    assert.equal(bm['gemini-2.5-pro'].pool, 'gemini');
+    assert.equal(bm['claude-opus-5-5-medium'].input, 1000);
+    assert.equal(bm.unknown.input, 200);
+    assert.equal(bm.unknown.est_cost_usd, null);
+    const convA = r.by_conversation.find((c) => c.id === 'a-claude');
+    assert.equal(convA.cost_partial, true);
+    assert.equal(JSON.parse(readFileSync(cachePath, 'utf8')).enums['1530'], 'gemini-2.5-pro');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

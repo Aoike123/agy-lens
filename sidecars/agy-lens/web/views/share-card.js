@@ -316,6 +316,15 @@ function sanitizeModels(rawList, fallbackName, periodKey = null) {
   const map = new Map();
   for (const m of Array.isArray(rawList) ? rawList : []) {
     if (!m || typeof m !== 'object') continue;
+    // Prefer the per-period slice when the scanner provides one, so the card matches its period.
+    const hasSlice = Boolean(periodKey && m.periods && typeof m.periods === 'object' && m.periods[periodKey] && typeof m.periods[periodKey] === 'object');
+    const slice = hasSlice ? m.periods[periodKey] : m;
+    const inp = safeNum(slice.input);
+    const out = safeNum(slice.output);
+    const cacheRead = safeNum(slice.cache_read);
+    const calls = safeNum(slice.calls);
+    if (hasSlice && calls <= 0 && inp + out + cacheRead <= 0) continue;
+
     const rawName = m.display_name || m.model || fallbackName;
     const cleaned = truncateLabel(scrubSensitiveText(rawName) || fallbackName, 30);
     let g = map.get(cleaned);
@@ -332,20 +341,21 @@ function sanitizeModels(rawList, fallbackName, periodKey = null) {
       };
       map.set(cleaned, g);
     }
-    // Prefer the per-period slice when the scanner provides one, so the card matches its period.
-    const slice = periodKey && m.periods && typeof m.periods === 'object' && m.periods[periodKey] && typeof m.periods[periodKey] === 'object'
-      ? m.periods[periodKey]
-      : m;
-    g.input += safeNum(slice.input);
-    g.output += safeNum(slice.output);
-    g.cache_read += safeNum(slice.cache_read);
-    g.calls += safeNum(slice.calls);
-    if (isNum(m.est_cost_usd) && m.est_cost_usd >= 0) {
-      g.est_cost_usd = (g.est_cost_usd || 0) + m.est_cost_usd;
-    } else if (safeNum(m.calls) > 0) {
+    g.input += inp;
+    g.output += out;
+    g.cache_read += cacheRead;
+    g.calls += calls;
+    const hasSliceCost = Object.prototype.hasOwnProperty.call(slice, 'est_cost_usd');
+    const costVal = hasSliceCost ? slice.est_cost_usd : ((!hasSlice || periodKey === 'all') ? m.est_cost_usd : null);
+    if (isNum(costVal) && costVal >= 0) {
+      g.est_cost_usd = (g.est_cost_usd || 0) + costVal;
+    } else if (calls > 0) {
       g.cost_partial = true;
     }
-    if (m.cost_estimated) g.cost_estimated = true;
+    const estFlag = Object.prototype.hasOwnProperty.call(slice, 'cost_estimated') ? slice.cost_estimated : m.cost_estimated;
+    const partFlag = Object.prototype.hasOwnProperty.call(slice, 'cost_partial') ? slice.cost_partial : m.cost_partial;
+    if (estFlag) g.cost_estimated = true;
+    if (partFlag) g.cost_partial = true;
   }
   return [...map.values()].sort((a, b) => (
     (b.input + b.output + b.cache_read) - (a.input + a.output + a.cache_read)

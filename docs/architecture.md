@@ -55,7 +55,8 @@ They are opened with `node:sqlite` in read-only mode. Two tables matter:
 - **Usage** (`gen_metadata` → chat → usage): input, output, cache read, thinking and response tokens.
 - **Timing**: time to first token and streaming duration, which give TTFT, streaming tok/s and end-to-end tok/s. Short or buffered replies are filtered out of the streaming median.
 - **Context window message**: a list of top-level token groups (system prompt, tools, rules, MCP tools, skills, subagents, chat messages, workflows, plugins). Chat message children are named `N: STEP_TYPE`, so they can be mapped back to user / agent / tool categories. This is the same accounting as the agy CLI's `/context`.
-- **Planner response timestamps** in `steps.metadata` give each model call its date for history.
+- **Planner & step usage timestamps**: `gen_metadata` calls bind directly to `steps.metadata` (`created_at`) via `usage.response_id` / `message_id`, falling back to `PLANNER_RESPONSE` step order only when an ID is absent so retries or cancelled calls never skew day/cycle boundaries.
+- **Cross-DB enum resolution**: compaction/checkpoint calls recorded only in `steps.metadata` resolve their model enum across all local conversations and cached `enums` (leaving unseen non-zero enums as `unknown` rather than misbilling under the main model).
 
 Conversation titles come from the app's own summaries database and are only shown in the History list, never in the share card.
 
@@ -92,19 +93,21 @@ The source in `web/` is split into ES modules for readability and tests. Antigra
 
 ## Caching and refresh
 
-- Overview polls `/api/report` every 3 s while visible; results are cached per conversation and invalidated by the database, WAL and descendant subagent database stamps.
-- Quota and History refresh silently every 65 s while visible and on focus when older than 60 s.
-- The model catalog refreshes every 10 minutes. History parsing is cached per database file fingerprint in `history-cache.json` (v5), which also archives conversations deleted by Antigravity and preserves parent-child subagent links.
+- Overview polls `/api/report` every 3 s while visible; results are cached per conversation and invalidated by the database, WAL, descendant subagent database stamps, and archived subagent cache state.
+- Quota and History refresh silently every 65 s while visible and on focus when older than 60 s; the sidecar also polls `/api/quota` in the background every 10 minutes so `quota-cycles.json` captures pre-saturation watermarks even while staying on Overview.
+- The model catalog refreshes every 10 minutes. History parsing is cached per database file fingerprint in `history-cache.json` (v6), which also archives conversations deleted by Antigravity and preserves parent-child subagent links and model enum mappings.
 - Official weekly quota snapshots are persisted per pool cycle in `quota-cycles.json` (up to 52 cycles per pool) so historical weeks remain available across resets.
 - Public prices are cached for 24 hours in `pricing-cache.json`.
 
-## Weekly quota valuation and attribution
+## Weekly quota valuation, UI division, and attribution
+
+To avoid duplicate widgets across tabs, **Quota** owns live 5h/weekly meters, implied 100% weekly dollar values, and weekly cycle shrinkage history, while **History** shows period totals, period-scoped model rankings, project trees, and share cards, and both **Overview** and **History** display per-project `≈ X% weekly` consumption.
 
 `RetrieveUserQuotaSummary` returns per-pool (`gemini`, `claude_gpt`) remaining fractions and exact `reset_time` timestamps, explicitly consuming quota proportionally to token cost inside each fixed 7-day cycle `[reset_time - 7d, reset_time)`.
 
-- **Cycle ledger & time alignment**: Every live `/api/quota` fetch records/updates `(cycle_start, reset_time, observed_at, remaining_fraction)` in `quota-cycles.json`. During `scan()`, each cycle sums local spend strictly over `[cycle_start, min(eval_obs_at, reset_time)]`. When a cycle hits `0%` remaining, `observed_at` locks at first saturation and uses `peak_unsaturated` (when peak usage >= 50%) so subsequent paid AI-credit spend after exhaustion does not inflate the baseline.
-- **Implied 100% weekly value & shrinkage detection**: Whenever at least 1% of a cycle has been consumed (`eval_used_fraction >= 0.01`), `weekly_value_usd = observed_cost_usd / eval_used_fraction` yields the pool's implied 100% weekly dollar allowance, compared against prior cycles (`change_pct`) to surface week-over-week quota changes. After a fresh reset (<1% used), sizing temporarily references the most recent completed cycle's `weekly_value_usd`.
-- **Per-project & per-model sizing**: Models and conversations (including subagent rollups) size against the pool's benchmark via `cost_by_pool[pool] / weekly_value_usd[pool]` (`≈ X% weekly`, unclamped so multi-week items remain comparable). There is no rolling 7-day token fallback or manual calibration when no official cycle has been recorded yet.
+- **Cycle ledger & time alignment**: Every live `/api/quota` fetch (plus 10-minute background polling) records/updates `(cycle_start, reset_time, observed_at, remaining_fraction)` in `quota-cycles.json`, keeping `peak_unsaturated` strictly monotonic. During `scan()`, each cycle sums local spend strictly over `[cycle_start, min(eval_obs_at, reset_time)]`. When a cycle hits `0%` remaining, `observed_at` locks at first saturation and uses `peak_unsaturated` (when peak usage >= 20%) so subsequent paid AI-credit spend after exhaustion does not inflate the baseline.
+- **Implied 100% weekly value & shrinkage detection**: Whenever at least 5% of a cycle has been consumed (`eval_used_fraction >= 0.05`), `weekly_value_usd = observed_cost_usd / eval_used_fraction` yields the pool's implied 100% weekly dollar allowance, compared against prior cycles (`change_pct`) to surface week-over-week quota changes. After a fresh reset (<5% used), sizing temporarily references the most recent completed cycle's `weekly_value_usd`.
+- **Per-project & per-model sizing**: Models (`by_model[].periods` matching the active period pill) and conversations (including live + archived subagent rollups) size against the pool's benchmark via `cost_by_pool[pool] / weekly_value_usd[pool]` (`≈ X% weekly`, unclamped so multi-week items remain comparable). There is no rolling 7-day token fallback or manual calibration when no official cycle has been recorded yet.
 
 ## Share card
 

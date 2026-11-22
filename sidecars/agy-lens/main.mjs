@@ -17,7 +17,7 @@ import { dirname, extname, join, posix, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildModelCatalog, writeModelCatalog } from './lib/catalog.mjs';
 import { buildReport, workspacePath } from './lib/context.mjs';
-import { defaultRoots, findLegacyHistoryCaches, findSubagentDbs, scan as scanHistoryNative } from './lib/history.mjs';
+import { defaultRoots, findLegacyHistoryCaches, findSubagentSources, scan as scanHistoryNative } from './lib/history.mjs';
 import { defaultDataDir, defaultGeminiDir, fileStamp, hasNodeSqlite } from './lib/pb.mjs';
 import {
   parseLiteLLMPricing,
@@ -210,11 +210,17 @@ async function report(conversationId, workspaceUri) {
   await refreshCatalog();
   const workspace = workspacePath(workspaceUri);
   let subagentDbPaths = [];
+  let archivedSubagents = [];
+  let enumMap = null;
   try {
-    subagentDbPaths = await findSubagentDbs(defaultRoots(defaultGeminiDir()), conversationId);
+    const found = await findSubagentSources(defaultRoots(defaultGeminiDir()), conversationId, HISTORY_CACHE_PATH);
+    subagentDbPaths = found.dbPaths;
+    archivedSubagents = found.archivedEntries;
+    enumMap = found.enums;
   } catch { /* summaries unavailable: own usage only */ }
   const subStamps = subagentDbPaths.map((p) => `${fileStamp(p)}/${fileStamp(`${p}-wal`)}`).join(',');
-  const key = [fileStamp(db), fileStamp(`${db}-wal`), workspace, fileStamp(CATALOG_PATH), fileStamp(PRICING_PATH), subStamps].join('|');
+  const archStamp = archivedSubagents.length ? fileStamp(HISTORY_CACHE_PATH) : '';
+  const key = [fileStamp(db), fileStamp(`${db}-wal`), workspace, fileStamp(CATALOG_PATH), fileStamp(PRICING_PATH), subStamps, archStamp].join('|');
   const cached = cache.get(conversationId);
   if (cached && cached.key === key) return cached.report;
 
@@ -230,6 +236,8 @@ async function report(conversationId, workspaceUri) {
     modelCatalogPath,
     pricingFile,
     subagentDbPaths,
+    archivedSubagents,
+    enumMap,
   });
   const result = { ...parsed, updatedAt: new Date().toISOString() };
   cache.set(conversationId, { key, report: result });
@@ -384,4 +392,8 @@ if (!truthy(process.env.CONTEXT_PANEL_NO_SERVER)) {
 
   app.run();
   refreshCatalog();
+  const QUOTA_BG_POLL_MS = 10 * 60 * 1000;
+  quota(false).catch(() => {});
+  const quotaBgTimer = setInterval(() => { quota(false).catch(() => {}); }, QUOTA_BG_POLL_MS);
+  quotaBgTimer.unref?.();
 }

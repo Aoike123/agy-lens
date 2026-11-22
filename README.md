@@ -4,32 +4,33 @@
 
 # Agy Lens
 
-**The all-in-one local cockpit for Antigravity 2.0.**<br>
-Context window, live tok/s, 5-hour & weekly quotas, and token spend in one zero-dependency side panel.
+**The all-in-one local cockpit & CLI for Antigravity 2.0.**<br>
+Exact context window, live tok/s, 5-hour & weekly quotas, implied weekly quota value tracking, and subagent token spend — in one zero-dependency side panel.
 
 [![CI](https://github.com/Aoike123/agy-lens/actions/workflows/ci.yml/badge.svg)](https://github.com/Aoike123/agy-lens/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/Aoike123/agy-lens?label=release)](https://github.com/Aoike123/agy-lens/releases/latest)
+[![GitHub Stars](https://img.shields.io/github/stars/Aoike123/agy-lens?style=social)](https://github.com/Aoike123/agy-lens/stargazers)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![Zero dependencies](https://img.shields.io/badge/dependencies-0-brightgreen)
 
-**English** · [简体中文](README.zh-CN.md)
+**English** · [简体中文](README.zh-CN.md) · [Install](#install-30-seconds) · [What you get](#what-you-get) · [Terminal CLI](#terminal-cli) · [Architecture](docs/architecture.md)
 
 <img src="docs/img/hero-en.png" alt="Agy Lens: Overview, Quota and History tabs" width="100%">
 
 </div>
 
-Never get surprised by a 5-hour rate limit or a silently trimmed context again. Agy Lens reads the data Antigravity already keeps on your machine and shows it live, next to your conversation. Refreshing costs zero tokens and nothing leaves your computer.
+Never get blindsided by a 5-hour wall, silent context trimming, or quiet weekly quota shrinkage again. Agy Lens reads the databases Antigravity already stores on your machine and pairs them with your local language server — zero tokens per refresh, read-only, nothing leaves your computer.
 
 ## Why Agy Lens?
 
 | | Agy Lens | [desktop-context](https://github.com/dimitr-io/antigravity-desktop-context) | [agy-context](https://github.com/ahmetdotsh/agy-context) + [agy-usage](https://github.com/ahmetdotsh/agy-usage) | Quota-only extensions |
 | --- | :---: | :---: | :---: | :---: |
-| Context window by category | ✅ | ✅ | ✅ | — |
-| Streaming tok/s, TTFT, cache hit | ✅ | — | partial | — |
+| Context window by category (exact `/context` parity) | ✅ | ✅ | ✅ | — |
+| Streaming tok/s, TTFT, cache hit per model | ✅ | — | partial | — |
 | Official 5-hour **and** weekly quotas with countdowns | ✅ | — | — | ✅ |
-| Desktop + CLI history, cost estimate, per-pool weekly attribution | ✅ | — | partial | — |
-| Sanitized share card (SVG / PNG) | ✅ | — | — | — |
-| Terminal summary CLI | ✅ | — | — | — |
+| Weekly quota implied `$` value & week-over-week shrinkage tracker | ✅ | — | — | — |
+| Subagent tree rollups, pruned history archive & per-project `% weekly` | ✅ | — | partial | — |
+| Sanitized share card (SVG / PNG) & terminal CLI | ✅ | — | — | — |
 | Plugins to install | **1** | 1 | 2 | 1 |
 | Runtime dependencies | **0** (built-in Node 24) | Python | 0 | IDE extension host |
 
@@ -77,32 +78,30 @@ The installers replace the files atomically and clean up folders left by older v
 
 ## What you get
 
-<details>
-<summary>Full-size screenshots</summary>
+Each tab owns a distinct view without duplicating controls across pages:
 
 | Overview | Quota | History |
 | --- | --- | --- |
 | ![Overview](docs/img/en/overview.png) | ![Quota](docs/img/en/quota.png) | ![History](docs/img/en/history.png) |
-
-</details>
 
 ### Overview: the open conversation
 
 - **Context window**, counted the same way as the agy CLI's `/context` from the token data Antigravity records for each model call, not estimated from characters. A 100-dot grid shows the breakdown: user messages, agent replies, tool calls, system prompt, rules, skills, MCP tools and more.
 - **Request budget** warning before Antigravity starts trimming older history.
 - **Output speed**: streaming tok/s (outliers filtered), end-to-end speed, time to first token, cache hit rate, recent-call trend, split by model.
-- **This conversation**: input, output, cache-read and thinking tokens, estimated public-price cost, and its share of your weekly quota.
+- **This conversation**: input, output, cache-read and thinking tokens (including live & archived subagents), estimated public-price cost, and its share of your weekly quota (`≈ X% weekly`).
 
-### Quota: before you hit the wall
+### Quota: before you hit the wall (and track shrinkage)
 
-- Official **weekly** and **5-hour** limits for each model pool (Claude / GPT-OSS, Gemini, Tab completion), read from the app's local language server.
-- 20-dot meters, used / remaining percentage and live reset countdowns.
+- Official **weekly** and **5-hour** limits for each model pool (Claude / GPT-OSS, Gemini, Tab completion), read from the app's local language server, with 20-dot meters and live reset countdowns.
+- **Implied 100% weekly quota dollar value**: aligns local spend strictly to each official 7-day cycle `[reset_time - 7d, reset_time)` (with a 5% usage floor and pre-saturation high-water lock so post-limit AI credits don't skew the baseline).
+- **Weekly quota value history**: archives every completed cycle and shows week-over-week `%` change so you can spot quota cuts across resets.
 
 ### History: where your tokens went
 
-- Desktop **and** CLI conversations (including archived usage from pruned conversations and multi-level subagent trees), with `Today / 7d / 30d / All` totals, an activity heatmap and a model leaderboard.
-- Each model's and project's size expressed in units of your official weekly quota (`cost ÷ implied 100% weekly value`), plus a week-over-week weekly quota value history to spot quota shrinkage across reset cycles.
-- Top-level conversation tree rankings (subagent spend rolled up by level) and a searchable session list.
+- Desktop **and** CLI conversations across `Today / 7d / 30d / All`, with an adaptive activity heatmap and **period-scoped model leaderboard** (`By model` updates tokens, cost, and `≈ X% weekly` to match the selected window).
+- **Pruned conversation recovery & compaction accounting**: keeps usage after Antigravity deletes old conversation databases (importing older local caches once), resolves checkpoint/compaction model enums across databases, and matches generation timestamps by response ID.
+- **By session (project trees)**: top-level conversations ranked with multi-level subagent rollups, usage-by-level split (`self` vs `subagents`), per-pool dollar breakdown, and **per-project `≈ X% weekly` sizing** (`cost ÷ implied 100% weekly value`, unclamped past 100% for multi-week projects).
 - **Share card**: export an aggregate usage card as SVG or PNG. Conversation titles and file paths are never included.
 
 <img src="docs/img/en/share-card.png" alt="Agy Lens share card: 30-day tokens, cost, model mix as a 100-dot grid, daily activity" width="100%">
@@ -112,7 +111,7 @@ The installers replace the files atomically and clean up folders left by older v
 Get the same numbers in your terminal (requires Node.js 24+):
 
 ```bash
-npx github:Aoike123/agy-lens          # summary of the latest conversation + history
+npx github:Aoike123/agy-lens          # summary of the latest conversation + history + quota
 npx github:Aoike123/agy-lens --json   # machine-readable output
 ```
 
@@ -146,9 +145,9 @@ No. It never calls a model. It only reads local databases and asks the local lan
 </details>
 
 <details>
-<summary>Are the dollar amounts my bill?</summary>
+<summary>Are the dollar amounts or weekly % estimates my exact bill?</summary>
 
-No. They are estimates at public API list prices, useful for comparing models and sessions. Preview models are estimated from their released siblings and marked `≈`.
+No. Dollar figures use public API list prices (`≈` marks same-family preview estimates), and implied weekly quota values assume official quota burn scales roughly with local public-price spend — shifts in model mix or usage on other devices can affect the weekly dollar benchmark.
 
 </details>
 
@@ -162,7 +161,7 @@ node tests/e2e/run.mjs           # end-to-end suite
 node scripts/build-release.mjs   # build dist/agy-lens.zip
 ```
 
-If Agy Lens saves you from a rate-limit surprise, a ⭐ helps other Antigravity users find it.
+If Agy Lens saves you from a rate-limit surprise or helps you size your projects, **give it a ⭐ on GitHub** — it helps other Antigravity users discover it!
 
 ## License
 

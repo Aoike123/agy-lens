@@ -292,6 +292,7 @@ summary.spd-row:hover .chev { color: var(--fg); }
 .wbudget-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 12px; line-height: 16px; color: var(--dim); }
 .wbudget-head > span:first-child { color: var(--fg); }
 .wbudget-val { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-top: 5px; font-size: 11.5px; line-height: 16px; color: var(--dim); }
+.limit .wbudget-val { margin-top: 6px; }
 .wdelta { display: inline-block; margin-left: 6px; padding: 0 4px; border-radius: 4px; font-size: 11px; line-height: 15px; font-weight: 500; background: var(--raise); color: var(--dim); }
 .wdelta.ok { color: var(--ok); }
 .wdelta.warn { color: var(--warn); }
@@ -301,6 +302,7 @@ summary.spd-row:hover .chev { color: var(--fg); }
 .wbar.warn > span { background: var(--warn); }
 .wbar.crit > span { background: var(--crit); }
 .wcycles { margin-top: 4px; padding-top: 8px; border-top: 1px solid var(--line); }
+#quota .wcycles { margin-top: 16px; }
 .wcycles > summary { display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 12px; line-height: 16px; color: var(--dim); list-style: none; }
 .wcycles > summary::-webkit-details-marker { display: none; }
 .wcycles > summary:hover { color: var(--fg); }

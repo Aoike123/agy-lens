@@ -205,7 +205,7 @@ function sessionWithSubagents(s, hd, conversationId) {
     d7_by_pool: tot.d7_by_pool,
     cost_by_pool: tot.cost_by_pool,
     subagents: tot.subagents,
-    self: s.self || { input: hc.input, output: hc.output, cache_read: hc.cache_read, calls: hc.calls, est_cost_usd: hc.est_cost_usd, cost_estimated: hc.cost_estimated },
+    self: { input: hc.input, output: hc.output, cache_read: hc.cache_read, calls: hc.calls, est_cost_usd: hc.est_cost_usd, cost_estimated: hc.cost_estimated },
   };
 }
 
@@ -274,11 +274,12 @@ function subagentsHtml(s, t, lang) {
   if (!n || !s.self) return '';
   const own = s.self;
   const ownCost = fmtCost(own.est_cost_usd, { estimated: !!own.cost_estimated });
-  const subCostVal = isNum(s.est_cost_usd) ? s.est_cost_usd - num(own.est_cost_usd) : null;
+  const subCostVal = isNum(s.est_cost_usd) ? Math.max(0, s.est_cost_usd - num(own.est_cost_usd)) : null;
   const subCost = fmtCost(subCostVal, { estimated: !!s.cost_estimated });
+  const subTok = Math.max(0, newTok(s) - newTok(own));
   return `<div class="session-pools"><div class="lbl">${esc(t('usageLevels'))}</div><ul class="mini">
     <li><span class="dim">${esc(t('selfUsage'))}</span><span class="num dim">${fmtTok(newTok(own))}${ownCost ? ` · ${esc(ownCost)}` : ''}</span></li>
-    <li><span class="dim">${esc(t('subagentsUsage', fmtInt(n, lang)))}</span><span class="num dim">${fmtTok(newTok(s) - newTok(own))}${subCost ? ` · ${esc(subCost)}` : ''}</span></li>
+    <li><span class="dim">${esc(t('subagentsUsage', fmtInt(n, lang)))}</span><span class="num dim">${fmtTok(subTok)}${subCost ? ` · ${esc(subCost)}` : ''}</span></li>
   </ul></div>`;
 }
 
