@@ -19,7 +19,7 @@ What it gives you without leaving your editor:
 **3/**
 Antigravity prunes older conversation DBs over time, so Agy Lens archives deleted sessions locally and recovers subagent totals too.
 
-You can also export a sanitized Share Card (SVG / PNG) — aggregate numbers only, zero conversation titles or file paths. My 30d snapshot 👇
+You can also one-click copy a sanitized Share Card (PNG / SVG) to your clipboard — aggregate numbers only, zero conversation titles or file paths. My 30d snapshot 👇
 
 **4/**
 100% local, read-only, zero tokens per refresh. It runs directly on the Node.js 24 bundled inside Antigravity — zero npm packages, zero Python.

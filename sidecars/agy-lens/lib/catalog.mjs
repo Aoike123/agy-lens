@@ -7,6 +7,10 @@ import { defaultDataDir, expandHome, writeJsonAtomic } from './pb.mjs';
 
 export const POOLS = ['gemini', 'claude_gpt', 'other'];
 
+export function isValidPoolSlug(p) {
+  return typeof p === 'string' && /^[a-z0-9_]+$/.test(p);
+}
+
 export const NATIVE_CONTEXT_WINDOWS = [
   ['claude-opus-4-6', 250_000],
   ['claude-sonnet-4-6', 250_000],
@@ -94,7 +98,14 @@ export function modelCatalogPool(m) {
 
 // --- live model catalog -----------------------------------------------------
 
-export function buildModelCatalog(modelsResp, statusResp = null) {
+export function buildModelCatalog(modelsResp, statusResp = null, poolOverrides = null) {
+  const overridePool = (id) => {
+    if (!poolOverrides || !id) return null;
+    const val = poolOverrides instanceof Map
+      ? poolOverrides.get(id)
+      : (Object.prototype.hasOwnProperty.call(poolOverrides, id) ? poolOverrides[id] : null);
+    return isValidPoolSlug(val) && val !== 'tab' ? val : null;
+  };
   const catalog = {};
   const root = rootOf(modelsResp);
   for (const [id, m] of asList(root?.models)) {
@@ -102,7 +113,7 @@ export function buildModelCatalog(modelsResp, statusResp = null) {
     const displayName = String(pick(m, 'displayName', 'display_name') || '');
     const provider = String(pick(m, 'modelProvider', 'model_provider') || '');
     const maxTokens = Number(pick(m, 'maxTokens', 'max_tokens')) || 0;
-    const pool = modelCatalogPool({ id, display_name: displayName, provider });
+    const pool = overridePool(id) || modelCatalogPool({ id, display_name: displayName, provider });
     catalog[id] = { maxTokens, displayName, provider, pool };
   }
   for (const [, c] of asList(pick(modelConfigData(statusResp), 'clientModelConfigs', 'client_model_configs'))) {
@@ -112,31 +123,34 @@ export function buildModelCatalog(modelsResp, statusResp = null) {
     const displayName = String(pick(c, 'label', 'displayName', 'display_name') || '');
     const prev = catalog[id];
     if (!prev) {
-      const pool = modelCatalogPool({ id, display_name: displayName, provider: '' });
+      const pool = overridePool(id) || modelCatalogPool({ id, display_name: displayName, provider: '' });
       catalog[id] = { maxTokens: 0, displayName, provider: '', pool };
     } else if (!prev.displayName && displayName) {
       prev.displayName = displayName;
-      prev.pool = modelCatalogPool({ id, display_name: prev.displayName, provider: prev.provider });
+      prev.pool = overridePool(id) || modelCatalogPool({ id, display_name: prev.displayName, provider: prev.provider });
     }
   }
   return catalog;
 }
 
-export function writeModelCatalog(catalogPathOrModelsResp, modelsRespOrStatusResp = null, statusRespMaybe = null) {
+export function writeModelCatalog(catalogPathOrModelsResp, modelsRespOrStatusResp = null, statusRespMaybe = null, poolOverridesMaybe = null) {
   let catalogPath;
   let modelsResp;
   let statusResp;
+  let poolOverrides;
   if (typeof catalogPathOrModelsResp === 'string') {
     catalogPath = catalogPathOrModelsResp;
     modelsResp = modelsRespOrStatusResp;
     statusResp = statusRespMaybe;
+    poolOverrides = poolOverridesMaybe;
   } else {
     catalogPath = join(defaultDataDir(), 'model-catalog.json');
     modelsResp = catalogPathOrModelsResp;
     statusResp = modelsRespOrStatusResp;
+    poolOverrides = statusRespMaybe;
   }
   try {
-    const catalog = buildModelCatalog(modelsResp, statusResp);
+    const catalog = buildModelCatalog(modelsResp, statusResp, poolOverrides);
     if (Object.keys(catalog).length) {
       writeJsonAtomic(catalogPath, catalog);
       return catalog;
@@ -187,7 +201,7 @@ export function catalogDisplay(id, catalog) {
 export function modelPool(id, catalog = null) {
   const entry = catalogEntry(id, catalog);
   if (entry && typeof entry === 'object') {
-    if (typeof entry.pool === 'string' && POOLS.includes(entry.pool) && (entry.pool !== 'other' || entry.provider)) {
+    if (isValidPoolSlug(entry.pool) && (entry.pool !== 'other' || entry.provider)) {
       return entry.pool;
     }
     if (typeof entry.provider === 'string' && entry.provider) {

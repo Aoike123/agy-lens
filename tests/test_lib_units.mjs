@@ -2264,6 +2264,127 @@ test('TreeFix: subagent usage rolls up to parents (multi-level, placeholders, cy
   }
 });
 
+test('MultiPoolWeekly: mixed-pool conversations lead with highest quota-% impact and support dynamic pools', async () => {
+  const f = await import('../sidecars/agy-lens/web/format.js');
+  const { createTranslator } = await import('../sidecars/agy-lens/web/i18n.js');
+  const { renderQuotaHtml } = await import('../sidecars/agy-lens/web/views/quota.js');
+  const { renderOverviewHtml } = await import('../sidecars/agy-lens/web/views/overview.js');
+
+  const tZh = createTranslator('zh');
+  const tEn = createTranslator('en');
+  const weeklyValueUsd = { gemini: 1272.15, claude_gpt: 45.63, claude_opus: 30 };
+
+  // Mixed-pool session: Gemini spent more USD ($103.36 = 8.1%) than Claude ($19.08 = 41.8%).
+  const mixed = {
+    pool: 'gemini',
+    cost_by_pool: { gemini: 103.36, claude_gpt: 19.08, other: 0 },
+    est_cost_usd: 122.44,
+  };
+  assert.equal(f.convWeeklyLabel(mixed, { compact: true, weeklyValueUsd, t: tZh }), '≈ Claude/GPT 周额度 41.8%');
+  assert.equal(f.convWeeklyLabel(mixed, { compact: true, weeklyValueUsd, t: tEn }), '≈ 41.8% Claude/GPT weekly');
+  assert.equal(f.convWeeklyLabel(mixed, { compact: false, weeklyValueUsd, t: tEn }), 'Claude/GPT 41.8% · Gemini 8.1%');
+  assert.deepEqual(f.sortActivePools(mixed, weeklyValueUsd), ['claude_gpt', 'gemini']);
+
+  // Single-pool session retains concise phrasing.
+  const single = { pool: 'claude_gpt', cost_by_pool: { gemini: 0, claude_gpt: 19.08 }, est_cost_usd: 19.08 };
+  assert.equal(f.convWeeklyLabel(single, { compact: true, weeklyValueUsd, t: tZh }), '≈ 周额度 41.8%');
+  assert.equal(f.convWeeklyLabel(single, { compact: true, weeklyValueUsd, t: tEn }), '≈ 41.8% weekly');
+
+  // Dynamic 3rd pool (claude_opus) flows through scan(), quota.js, and overview.js without NaN.
+  const dir = mkdtempSync(join(tmpdir(), 'agy-unit-dynpool-'));
+  try {
+    const root = join(dir, 'conversations');
+    mkdirSync(root);
+    const catalogPath = join(dir, 'model-catalog.json');
+    writeFileSync(catalogPath, JSON.stringify({
+      'claude-opus-5-5-medium': { maxTokens: 1000000, displayName: 'Claude Opus 5.5 (Medium)', provider: 'MODEL_PROVIDER_ANTHROPIC', pool: 'claude_opus' },
+      'gemini-2.5-pro': { maxTokens: 1048576, displayName: 'Gemini 2.5 Pro', provider: 'MODEL_PROVIDER_GOOGLE', pool: 'gemini' },
+    }));
+    const tCur = hTs(1);
+    makeHistoryDb(join(root, 'mix.db'), [
+      hCall(1, { ts: tCur, model: 'claude-opus-5-5-medium', input: 1_000_000, output: 100_000, cache: 0 }),
+      hCall(1, { ts: tCur + 60, model: 'gemini-2.5-pro', input: 4_000_000, output: 200_000, cache: 0 }),
+    ]);
+    const quotaCycles = {
+      version: 1,
+      pools: {
+        claude_opus: [{
+          cycle_start: new Date((hTs(4)) * 1000).toISOString(),
+          reset_time: new Date((hTs(-3)) * 1000).toISOString(),
+          observed_at: new Date((tCur + 120) * 1000).toISOString(),
+          remaining_fraction: 0.6,
+          used_fraction: 0.4,
+          saturated: false,
+        }],
+        gemini: [{
+          cycle_start: new Date((hTs(4)) * 1000).toISOString(),
+          reset_time: new Date((hTs(-3)) * 1000).toISOString(),
+          observed_at: new Date((tCur + 120) * 1000).toISOString(),
+          remaining_fraction: 0.9,
+          used_fraction: 0.1,
+          saturated: false,
+        }],
+      },
+    };
+    const r = await scan([[root, 'desktop']], { now: H_NOW, modelCatalogPath: catalogPath, quotaCycles });
+    assert.equal(Number.isFinite(r.d7_by_pool.claude_opus), true);
+    assert.ok(r.d7_by_pool.claude_opus > 0);
+    assert.equal(r.weekly_cycles.claude_opus.length, 1);
+    assert.ok(r.weekly_value_usd.claude_opus > 0);
+    assert.ok(r.by_conversation[0].cost_by_pool.claude_opus > 0);
+
+    const quotaHtml = renderQuotaHtml({
+      data: {
+        plan: 'Pro',
+        fetched_at: new Date().toISOString(),
+        weekly: { claude_opus: { remaining_fraction: 0.6, reset_time: quotaCycles.pools.claude_opus[0].reset_time } },
+        pools: [{
+          id: 'claude_opus',
+          category: 'claude_opus',
+          limits: [{ kind: 'weekly', remaining_fraction: 0.6, reset_time: quotaCycles.pools.claude_opus[0].reset_time }],
+          models: [{ id: 'claude-opus-5-5-medium', display_name: 'Claude Opus 5.5 (Medium)' }],
+        }],
+      },
+      historyData: r,
+      openKeys: new Set(['weekly-cycles']),
+      t: tEn,
+      lang: 'en',
+    });
+    assert.ok(quotaHtml.includes('Claude Opus models'));
+    assert.ok(quotaHtml.includes('Claude Opus'));
+
+    const overviewHtml = renderOverviewHtml({
+      model: 'Claude Opus 5.5 (Medium)',
+      used_tokens: 10000,
+      limit_tokens: 1000000,
+      used_pct: 1,
+      free_tokens: 990000,
+      heading: 'Token usage by category',
+      grid_segments: [10000],
+      categories: [],
+      session: {
+        calls: 2,
+        input: 5_000_000,
+        output: 300_000,
+        cache_read: 0,
+        est_cost_usd: r.by_conversation[0].est_cost_usd,
+        cost_by_pool: r.by_conversation[0].cost_by_pool,
+        pool: r.by_conversation[0].pool,
+      },
+      updatedAt: new Date().toISOString(),
+    }, {
+      historyData: r,
+      openKeys: new Set(),
+      t: tEn,
+      lang: 'en',
+    });
+    assert.ok(overviewHtml.includes('Claude Opus'));
+    assert.ok(overviewHtml.includes('40%'));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('FrontendWeekly: weekly_value_usd sizing (incl. >100% & historical items), no d7 fallback, delta helpers & subtree swap', async () => {
   const f = await import('../sidecars/agy-lens/web/format.js');
   const weeklyValueUsd = { gemini: 200, claude_gpt: 100 };

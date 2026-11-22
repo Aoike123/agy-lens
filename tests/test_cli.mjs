@@ -440,7 +440,10 @@ test('CLI renders quota reset_time, loads quota-cycles weekly_value_usd, and rol
           payload = {
             groups: [{
               displayName: 'Gemini Models',
-              buckets: [{ bucketId: 'gemini-weekly', window: 'weekly', remainingFraction: 0.75, resetTime: weeklyReset }],
+              buckets: [
+                { bucketId: 'gemini-weekly', window: 'weekly', remainingFraction: 0.75, resetTime: weeklyReset },
+                { bucketId: 'gemini-5h', window: '5h', remainingFraction: 1, resetTime: new Date(nowMs + 5 * 3600_000).toISOString() },
+              ],
             }],
           };
         } else {
@@ -468,6 +471,7 @@ test('CLI renders quota reset_time, loads quota-cycles weekly_value_usd, and rol
     process.stdout.write = origWrite;
     assert.equal(codeText, 0);
     assert.ok(textOut.includes(`resets ${weeklyReset}`), `Expected reset_time in CLI output:\n${textOut}`);
+    assert.ok(textOut.includes('weekly 75.0%') && textOut.includes('5h 100.0%'), `Expected both weekly and 5h limits in CLI output:\n${textOut}`);
 
     // Verify child-process CLI offline reads the persisted quota-cycles.json and rolls up subagents.
     const env = {

@@ -93,7 +93,7 @@ Each tab owns a distinct view without duplicating controls across pages:
 
 ### Quota: before you hit the wall (and track shrinkage)
 
-- Official **weekly** and **5-hour** limits for each model pool (Claude / GPT-OSS, Gemini, Tab completion), read from the app's local language server, with 20-dot meters and live reset countdowns.
+- Official **weekly** and **5-hour** limits for each model pool reported by your plan (such as Gemini, Claude / GPT-OSS, or separate Claude Opus / Sonnet buckets, plus Tab completion), read from the app's local language server, with 20-dot meters and live reset countdowns.
 - **Implied 100% weekly quota dollar value**: aligns local spend strictly to each official 7-day cycle `[reset_time - 7d, reset_time)` (with a 5% usage floor and pre-saturation high-water lock so post-limit AI credits don't skew the baseline).
 - **Weekly quota value history**: archives every completed cycle and shows week-over-week `%` change so you can spot quota cuts across resets.
 
@@ -102,7 +102,7 @@ Each tab owns a distinct view without duplicating controls across pages:
 - Desktop **and** CLI conversations across `Today / 7d / 30d / All`, with an adaptive activity heatmap and **period-scoped model leaderboard** (`By model` updates tokens, cost, and `≈ X% weekly` to match the selected window).
 - **Pruned conversation recovery & compaction accounting**: keeps usage after Antigravity deletes old conversation databases (importing older local caches once), resolves checkpoint/compaction model enums across databases, and matches generation timestamps by response ID.
 - **By session (project trees)**: top-level conversations ranked with multi-level subagent rollups, usage-by-level split (`self` vs `subagents`), per-pool dollar breakdown, and **per-project `≈ X% weekly` sizing** (`cost ÷ implied 100% weekly value`, unclamped past 100% for multi-week projects).
-- **Share card**: export an aggregate usage card as SVG or PNG. Conversation titles and file paths are never included.
+- **Share card**: copy a sanitized aggregate usage card (PNG image or SVG) straight to your clipboard for one-click pasting. Conversation titles and file paths are never included.
 
 <img src="docs/img/en/share-card.png" alt="Agy Lens share card: 30-day tokens, cost, model mix as a 100-dot grid, daily activity" width="100%">
 

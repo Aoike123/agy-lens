@@ -177,6 +177,18 @@ function fmtPct(frac) {
   return `${roundN(frac * 100, 1).toFixed(1)}%`;
 }
 
+function formatPoolQuotaLine(p, indent = '  ') {
+  const limits = Array.isArray(p.limits) ? p.limits : [];
+  if (limits.length > 1) {
+    const parts = limits.map((l) => {
+      const kind = l.kind || 'limit';
+      return `${kind} ${fmtPct(l.remaining_fraction)}${l.reset_time ? ` (resets ${l.reset_time})` : ''}`;
+    });
+    return `${indent}${String(p.label || p.id || '?').padEnd(24)} ${parts.join(' · ')}`;
+  }
+  return `${indent}${String(p.label || p.id || '?').padEnd(24)} ${fmtPct(p.remaining_fraction).padStart(7)} remaining${p.reset_time ? ` · resets ${p.reset_time}` : ''}`;
+}
+
 function makeStyler(useColor) {
   if (!useColor) return (_code, text) => String(text);
   return (code, text) => `\x1b[${code}m${text}\x1b[0m`;
@@ -217,7 +229,7 @@ function formatSummaryText({ version, geminiDir, pricingMeta, days, history, rep
     if (quota.pools?.length) {
       out.push(c('1', 'Quota'));
       for (const p of quota.pools) {
-        out.push(`  ${p.label}: ${fmtPct(p.remaining_fraction)} remaining${p.reset_time ? ` (resets ${p.reset_time})` : ''}`);
+        out.push(formatPoolQuotaLine(p));
       }
     } else {
       out.push(`Quota: ${c('90', quota.message || 'offline (language server not running)')}`);
@@ -261,7 +273,7 @@ function formatSummaryText({ version, geminiDir, pricingMeta, days, history, rep
   if (quota.pools?.length) {
     out.push(c('1', `Quota${quota.plan ? ` (${quota.plan})` : ''}`));
     for (const p of quota.pools) {
-      out.push(`  ${p.label.padEnd(24)} ${fmtPct(p.remaining_fraction).padStart(7)} remaining${p.reset_time ? ` · resets ${p.reset_time}` : ''}`);
+      out.push(formatPoolQuotaLine(p));
     }
   } else {
     out.push(`Quota: ${c('90', quota.message || 'offline (language server not running)')}`);

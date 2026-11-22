@@ -14,7 +14,7 @@ So I built **Agy Lens** — a free, MIT-licensed local side panel & CLI that run
 
 - **Context window by category** (Overview): exact `/context` accounting from Antigravity's recorded token groups, 100-dot map, request-budget trimming warning, live streaming `tok/s` / TTFT / cache hit per model, and this conversation's `≈ X% weekly` size (including subagents).
 - **Official 5h & weekly quotas + shrinkage tracking** (Quota): live 20-dot meters and reset countdowns per pool, plus an implied **100% weekly quota dollar value** anchored strictly to each official `[reset_time - 7d, reset_time)` cycle so you can compare week-over-week changes across resets.
-- **History & Share Card** (History): desktop + CLI totals (`Today / 7d / 30d / All`), adaptive heatmap, period-scoped model rankings, top-level conversation trees rolling up multi-level subagents & pruned DB archives, per-project `≈ X% weekly` sizing, and a sanitized SVG/PNG share card (zero titles or paths).
+- **History & Share Card** (History): desktop + CLI totals (`Today / 7d / 30d / All`), adaptive heatmap, period-scoped model rankings, top-level conversation trees rolling up multi-level subagents & pruned DB archives, per-project `≈ X% weekly` sizing, and one-click clipboard copy for a sanitized PNG/SVG share card (zero titles or paths).
 - **Terminal CLI**: `npx github:Aoike123/agy-lens` (or `--json`).
 
 Zero npm dependencies, zero Python, read-only SQLite, zero tokens per refresh, and no external network requests unless you click **Sync prices** (LiteLLM / OpenRouter).

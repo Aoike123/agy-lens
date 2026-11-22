@@ -268,6 +268,8 @@ const LIMIT_ORDER = { weekly: 0, '5h': 1, daily: 2, unknown: 3, none: 4 };
 const SUMMARY_POOL_LABELS = {
   gemini: ['Gemini models', 'Gemini 模型'],
   claude_gpt: ['Claude / GPT-OSS models', 'Claude / GPT-OSS 模型'],
+  claude_opus: ['Claude Opus models', 'Claude Opus 模型'],
+  claude_sonnet: ['Claude Sonnet models', 'Claude Sonnet 模型'],
   other: ['Other models', '其他模型'],
 };
 
@@ -289,13 +291,21 @@ export function inferLimit(remaining_fraction, reset_time, now = Date.now()) {
 }
 
 function summaryCategory(bucketId, groupName) {
+  let generic3p = false;
   for (const raw of [bucketId, groupName]) {
     const text = String(raw || '').toLowerCase();
     if (!text) continue;
     if (/gemini|google/.test(text)) return 'gemini';
-    if (/(?:^|[^a-z0-9])3p(?:$|[^a-z0-9])|claude|gpt|third/.test(text)) return 'claude_gpt';
+    const hasOpus = /(?:^|[^a-z0-9])opus(?:$|[^a-z0-9])/.test(text);
+    const hasSonnet = /(?:^|[^a-z0-9])sonnet(?:$|[^a-z0-9])/.test(text);
+    const hasGpt = /(?:^|[^a-z0-9])gpt(?:$|[^a-z0-9])/.test(text);
+    if (hasOpus && !hasSonnet && !hasGpt) return 'claude_opus';
+    if (hasSonnet && !hasOpus && !hasGpt) return 'claude_sonnet';
+    if (/(?:^|[^a-z0-9])3p(?:$|[^a-z0-9])|claude|third/.test(text) || hasGpt || hasOpus || hasSonnet) {
+      generic3p = true;
+    }
   }
-  return 'other';
+  return generic3p ? 'claude_gpt' : 'other';
 }
 
 function summaryLimitKind(bucketId, displayName, windowVal = '') {
@@ -341,20 +351,36 @@ export function parseQuotaSummary(summaryResp, now = Date.now()) {
 
   const bucketPairs = [];
   if (Array.isArray(groups)) {
-    for (const g of groups) {
+    for (let groupIdx = 0; groupIdx < groups.length; groupIdx += 1) {
+      const g = groups[groupIdx];
       if (!g || typeof g !== 'object') continue;
-      const gName = pick(g, 'displayName', 'display_name', 'name', 'groupId', 'group_id', 'id');
+      const gId = pick(g, 'groupId', 'group_id', 'id');
+      const gName = pick(g, 'displayName', 'display_name', 'name') || gId;
+      const gDesc = pick(g, 'description');
       const bs = pick(g, 'buckets', 'quotaBuckets', 'quota_buckets');
       if (Array.isArray(bs)) {
-        for (const b of bs) bucketPairs.push([b, gName ? String(gName) : '']);
+        for (const b of bs) {
+          bucketPairs.push({
+            b,
+            groupIdx,
+            groupName: gName ? String(gName) : '',
+            groupId: gId ? String(gId) : '',
+            groupDesc: gDesc ? String(gDesc) : '',
+          });
+        }
       }
     }
   }
   if (Array.isArray(topBuckets)) {
-    for (const b of topBuckets) bucketPairs.push([b, '']);
+    for (const b of topBuckets) {
+      bucketPairs.push({ b, groupIdx: -1, groupName: '', groupId: '', groupDesc: '' });
+    }
   }
 
-  for (const [b, groupName] of bucketPairs) {
+  const groupCategory = new Map();
+  const claimedByGroup = new Map();
+
+  for (const { b, groupIdx, groupName, groupId, groupDesc } of bucketPairs) {
     if (!b || typeof b !== 'object' || Array.isArray(b)) continue;
     const bucketId = pick(b, 'bucketId', 'bucket_id', 'id');
     const displayName = pick(b, 'displayName', 'display_name', 'label', 'name');
@@ -365,12 +391,30 @@ export function parseQuotaSummary(summaryResp, now = Date.now()) {
     if (frac === null && reset) frac = 0;
     if (frac === null && !reset) continue;
 
-    let category = summaryCategory(bucketId, groupName || displayName);
-    if (category === 'other' && groupName) {
-      const existingOther = byCategory.other;
-      if (existingOther && existingOther.label.toLowerCase() !== String(groupName).toLowerCase()) {
-        const customSlug = String(groupName).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'group';
-        category = `custom_${customSlug}`;
+    let category;
+    if (groupIdx >= 0 && groupCategory.has(groupIdx)) {
+      category = groupCategory.get(groupIdx);
+    } else {
+      category = summaryCategory(bucketId, groupName || groupId || displayName);
+      if (groupIdx >= 0) {
+        if (claimedByGroup.has(category) && claimedByGroup.get(category) !== groupIdx) {
+          const slugSrc = groupId || groupName || bucketId || `group_${groupIdx + 1}`;
+          const baseSlug = String(slugSrc).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || `group_${groupIdx + 1}`;
+          let candidate = category === 'other' ? `custom_${baseSlug}` : baseSlug;
+          let suffix = 2;
+          while (claimedByGroup.has(candidate) || byCategory[candidate]) {
+            candidate = `${category === 'other' ? `custom_${baseSlug}` : baseSlug}_${suffix++}`;
+          }
+          category = candidate;
+        }
+        groupCategory.set(groupIdx, category);
+        claimedByGroup.set(category, groupIdx);
+      } else if (category === 'other' && groupName) {
+        const existingOther = byCategory.other;
+        if (existingOther && existingOther.label.toLowerCase() !== String(groupName).toLowerCase()) {
+          const customSlug = String(groupName).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'group';
+          category = `custom_${customSlug}`;
+        }
       }
     }
     const explicitKind = summaryLimitKind(bucketId, displayName, windowVal);
@@ -386,11 +430,11 @@ export function parseQuotaSummary(summaryResp, now = Date.now()) {
       : { ...inferLimit(frac, reset, now), inferred: true };
 
     if (!byCategory[category]) {
-      const [defEn, defZh] = SUMMARY_POOL_LABELS[category] || SUMMARY_POOL_LABELS.other;
-      const isCustom = category === 'other' || category.startsWith('custom_');
-      const label = isCustom && groupName ? groupName : defEn;
-      const label_zh = isCustom && groupName ? groupName : defZh;
-      byCategory[category] = { category, label, label_zh, limits: [] };
+      const known = SUMMARY_POOL_LABELS[category];
+      const isCustom = category === 'other' || !known;
+      const label = isCustom && groupName ? groupName : (known ? known[0] : SUMMARY_POOL_LABELS.other[0]);
+      const label_zh = isCustom && groupName ? groupName : (known ? known[1] : SUMMARY_POOL_LABELS.other[1]);
+      byCategory[category] = { category, label, label_zh, ...(groupDesc ? { description: groupDesc } : {}), limits: [] };
     }
     byCategory[category].limits = mergeLimitLists(byCategory[category].limits, [limit]);
   }
@@ -479,6 +523,8 @@ export function parseQuota(statusResp, modelsResp, now = Date.now(), summaryResp
     }
   }
 
+  const summary = parseQuotaSummary(summaryResp, now);
+  const claudeGroupCount = [...groups.values()].filter((g) => g.bucket === 'claude_gpt').length;
   const usedIds = new Map();
   const provRank = (x) => { const i = PROVIDER_ORDER.indexOf(x); return i < 0 ? 999 : i; };
   const pools = [...groups.values()].map((g) => {
@@ -546,14 +592,37 @@ export function parseQuota(statusResp, modelsResp, now = Date.now(), summaryResp
       label_zh = 'Tab 补全';
       slug = 'tab';
     } else {
-      const provs = new Set((shown.length ? shown : members).map(providerName).filter(Boolean));
+      const activeMembers = shown.length ? shown : members;
+      const provs = new Set(activeMembers.map(providerName).filter(Boolean));
       const names = [...provs].sort((a, b) => provRank(a) - provRank(b) || a.localeCompare(b));
       if (names.length) {
-        label = `${names.join(' / ')} models`;
-        label_zh = `${names.join(' / ')} 模型`;
-        if (names.length === 1 && names[0] === 'Gemini') slug = 'gemini';
-        else if (names.every((x) => x === 'Claude' || x === 'GPT-OSS' || x === 'OpenAI')) slug = 'claude_gpt';
-        else slug = names.join('_').toLowerCase().replace(/[^a-z0-9_]/g, '');
+        if (names.length === 1 && names[0] === 'Gemini') {
+          slug = 'gemini';
+          label = `${names.join(' / ')} models`;
+          label_zh = `${names.join(' / ')} 模型`;
+        } else if (names.every((x) => x === 'Claude' || x === 'GPT-OSS' || x === 'OpenAI')) {
+          const allOpus = activeMembers.length > 0
+            && activeMembers.every((m) => /(?:^|[^a-z0-9])opus(?:$|[^a-z0-9])/i.test(`${m.id} ${m.display_name || ''}`));
+          const allSonnet = activeMembers.length > 0
+            && activeMembers.every((m) => /(?:^|[^a-z0-9])sonnet(?:$|[^a-z0-9])/i.test(`${m.id} ${m.display_name || ''}`));
+          if (allOpus && (claudeGroupCount > 1 || Boolean(summary.byCategory.claude_opus))) {
+            slug = 'claude_opus';
+            label = SUMMARY_POOL_LABELS.claude_opus[0];
+            label_zh = SUMMARY_POOL_LABELS.claude_opus[1];
+          } else if (allSonnet && (Boolean(summary.byCategory.claude_sonnet) || (claudeGroupCount > 1 && !summary.byCategory.claude_gpt))) {
+            slug = 'claude_sonnet';
+            label = SUMMARY_POOL_LABELS.claude_sonnet[0];
+            label_zh = SUMMARY_POOL_LABELS.claude_sonnet[1];
+          } else {
+            slug = 'claude_gpt';
+            label = `${names.join(' / ')} models`;
+            label_zh = `${names.join(' / ')} 模型`;
+          }
+        } else {
+          label = `${names.join(' / ')} models`;
+          label_zh = `${names.join(' / ')} 模型`;
+          slug = names.join('_').toLowerCase().replace(/[^a-z0-9_]/g, '');
+        }
       } else {
         const list = models.length ? models : hidden_models;
         label = list.length <= 2 ? list.map((m) => m.display_name).join(' / ') : `${list[0].display_name} +${list.length - 1}`;
@@ -578,9 +647,11 @@ export function parseQuota(statusResp, modelsResp, now = Date.now(), summaryResp
       hidden_models,
     };
   });
-  const summary = parseQuotaSummary(summaryResp, now);
   const matchedSummaryCats = new Set();
   const summaryTargets = new Map();
+  const limitMatches = (pl, sl) => sl.kind === pl.kind
+    && sl.remaining_fraction === pl.remaining_fraction
+    && (!pl.reset_time || !sl.reset_time || sl.reset_time === pl.reset_time);
   for (const pool of pools) {
     const sumEntry = summary.byCategory[pool.category];
     if (!sumEntry || pool.kind === 'tab') continue;
@@ -589,11 +660,12 @@ export function parseQuota(statusResp, modelsResp, now = Date.now(), summaryResp
     if (!prev) {
       summaryTargets.set(pool.category, pool);
     } else {
-      const prevMatches = prev.limits.some((pl) => sumEntry.limits.some((sl) => sl.kind === pl.kind && sl.remaining_fraction === pl.remaining_fraction));
-      const curMatches = pool.limits.some((pl) => sumEntry.limits.some((sl) => sl.kind === pl.kind && sl.remaining_fraction === pl.remaining_fraction));
+      const prevMatches = prev.limits.some((pl) => sumEntry.limits.some((sl) => limitMatches(pl, sl)));
+      const curMatches = pool.limits.some((pl) => sumEntry.limits.some((sl) => limitMatches(pl, sl)));
       if (!prevMatches && curMatches) summaryTargets.set(pool.category, pool);
     }
   }
+  const matchedPools = new Set(summaryTargets.values());
   for (const [cat, pool] of summaryTargets) {
     const sumEntry = summary.byCategory[cat];
     matchedSummaryCats.add(cat);
@@ -606,6 +678,30 @@ export function parseQuota(statusResp, modelsResp, now = Date.now(), summaryResp
   }
   for (const [cat, sumEntry] of Object.entries(summary.byCategory)) {
     if (matchedSummaryCats.has(cat) || !sumEntry.limits.length) continue;
+    const candidates = pools.filter((p) => !matchedPools.has(p) && p.kind !== 'tab' && p.limits.some((l) => l.kind !== 'none'));
+    const byLimit = candidates.find((p) => p.limits.some((pl) => sumEntry.limits.some((sl) => limitMatches(pl, sl))));
+    const descLow = String(sumEntry.description || '').toLowerCase();
+    const byDesc = !byLimit && descLow
+      ? candidates.find((p) => [...p.families, ...p.models].some((m) => m.display_name && descLow.includes(m.display_name.toLowerCase())))
+      : null;
+    const target = byLimit || byDesc;
+    if (target) {
+      matchedPools.add(target);
+      matchedSummaryCats.add(cat);
+      target.category = cat;
+      const n = (usedIds.get(cat) || 0) + 1;
+      usedIds.set(cat, n);
+      target.id = n > 1 ? `${cat}-${n}` : cat;
+      if (sumEntry.label) target.label = sumEntry.label;
+      if (sumEntry.label_zh) target.label_zh = sumEntry.label_zh;
+      target.limits = mergeLimitLists(target.limits, sumEntry.limits);
+      const primary = target.limits.find((l) => l.kind === '5h') || target.limits[0];
+      if (primary) {
+        target.remaining_fraction = primary.remaining_fraction;
+        target.reset_time = primary.reset_time;
+      }
+      continue;
+    }
     const n = (usedIds.get(cat) || 0) + 1;
     usedIds.set(cat, n);
     const primary = sumEntry.limits.find((l) => l.kind === '5h') || sumEntry.limits[0];
@@ -911,8 +1007,18 @@ export async function fetchQuota(optsOrForceRaw = {}) {
     const noLs = status.reason?.code === 'NO_LS';
     return { pools: [], weekly: {}, plan: null, tier: null, fetched_at, error: noLs ? 'unavailable' : 'failed', message: reason?.message || 'request failed' };
   }
+  const parsed = parseQuota(statusResp, modelsResp, Date.now(), summaryResp);
+  const poolOverrides = new Map();
+  for (const pool of parsed.pools) {
+    if (!pool || pool.kind === 'tab' || !pool.category || pool.category === 'tab') continue;
+    for (const m of [...(pool.models || []), ...(pool.hidden_models || [])]) {
+      if (m && m.id && !poolOverrides.has(m.id)) {
+        poolOverrides.set(m.id, pool.category);
+      }
+    }
+  }
   if ((modelsResp || statusResp) && catalogPath) {
-    const written = writeModelCatalog(catalogPath, modelsResp, statusResp);
+    const written = writeModelCatalog(catalogPath, modelsResp, statusResp, poolOverrides);
     if (written && onCatalogWritten) onCatalogWritten();
   }
   if (quotaRawPath && shouldWriteQuotaRaw(quotaRawPath, !!summaryResp, forceRaw)) {
@@ -931,7 +1037,6 @@ export async function fetchQuota(optsOrForceRaw = {}) {
       console.error('[agy-lens] could not write quota-raw.json:', err.message);
     }
   }
-  const parsed = parseQuota(statusResp, modelsResp, Date.now(), summaryResp);
   const result = { ...parsed, fetched_at };
   if (!parsed.pools.length) {
     result.error = 'unavailable';

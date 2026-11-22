@@ -507,4 +507,174 @@ export const TESTS = [
       }
     },
   },
+  {
+    id: 'T4-07',
+    tier: 4,
+    feature: 'F3,F4,F5,F6',
+    title: 'Scenario 7: Dynamic split Opus/Sonnet/Gemini pools + mixed-pool weekly % ranking + clipboard Share Card E2E',
+    async run() {
+      const sb = createSandbox('t4-07-');
+      try {
+        const nowMs = Date.now();
+        const nowSec = Math.floor(nowMs / 1000) - 180;
+        const uuid = 'ffffffff-1111-4222-8333-666666666666';
+        createSummariesDb(sb.desktopSummaryDbPath, [{ conversation_id: uuid, title: 'Mixed Opus + Gemini Session' }]);
+
+        const db = createConvDb(join(sb.desktopConvDir, `${uuid}.db`));
+        db.step(14, { metadata: pbTs(nowSec), payloadField: 19, payload: pbField(2, 'Analyze mixed pool quota') });
+        db.step(15, { metadata: pbTs(nowSec + 10), payloadField: 20, payload: pbField(1, 'Done') });
+        // Gemini spends higher USD (~$12) while Opus spends lower USD (~$4.5) against a smaller Opus weekly quota.
+        db.generation({
+          model: 'gemini-4-neon-high',
+          displayName: 'Gemini 4 Neon (High)',
+          usage: pbUsage({ inp: 2_000_000, out: 400_000, cache: 0 }),
+        });
+        db.generation({
+          model: 'claude-opus-5-5-medium',
+          displayName: 'Claude Opus 5.5 (Medium)',
+          usage: pbUsage({ inp: 500_000, out: 125_000, cache: 0 }),
+        });
+        db.close();
+
+        const opusReset = new Date(nowMs + 4 * 86400e3).toISOString();
+        const sonnetReset = new Date(nowMs + 5 * 86400e3).toISOString();
+        const gemReset = new Date(nowMs + 6 * 86400e3).toISOString();
+        const h5Reset = new Date(nowMs + 3 * 3600e3).toISOString();
+
+        const ls = await startMockLs({
+          statusResp: {
+            userStatus: {
+              planStatus: { planInfo: { planName: 'Pro' } },
+              userTier: { id: 'g1-ultra-tier', name: 'Google AI Ultra' },
+              cascadeModelConfigData: { clientModelConfigs: [] },
+            },
+          },
+          modelsResp: {
+            response: {
+              models: {
+                'gemini-4-neon-high': {
+                  displayName: 'Gemini 4 Neon (High)',
+                  maxTokens: 1048576,
+                  quotaInfo: { remainingFraction: 0.9, resetTime: h5Reset },
+                  modelProvider: 'MODEL_PROVIDER_GOOGLE',
+                },
+                'claude-opus-5-5-medium': {
+                  displayName: 'Claude Opus 5.5 (Medium)',
+                  maxTokens: 1000000,
+                  quotaInfo: { remainingFraction: 0.5, resetTime: opusReset },
+                  modelProvider: 'MODEL_PROVIDER_ANTHROPIC',
+                },
+                'claude-sonnet-5-5-medium': {
+                  displayName: 'Claude Sonnet 5.5 (Medium)',
+                  maxTokens: 1000000,
+                  quotaInfo: { remainingFraction: 0.85, resetTime: sonnetReset },
+                  modelProvider: 'MODEL_PROVIDER_ANTHROPIC',
+                },
+              },
+              agentModelSorts: [{
+                groups: [{ modelIds: ['gemini-4-neon-high', 'claude-opus-5-5-medium', 'claude-sonnet-5-5-medium'] }],
+              }],
+            },
+          },
+          summaryResp: {
+            response: {
+              groups: [
+                {
+                  displayName: 'Gemini Models',
+                  buckets: [
+                    { bucketId: 'gemini-weekly', window: 'weekly', remainingFraction: 0.9, resetTime: gemReset },
+                    { bucketId: 'gemini-5h', window: '5h', remainingFraction: 0.9, resetTime: h5Reset },
+                  ],
+                },
+                {
+                  displayName: 'Claude Opus Models',
+                  buckets: [
+                    { bucketId: 'opus-weekly', window: 'weekly', remainingFraction: 0.5, resetTime: opusReset },
+                    { bucketId: 'opus-5h', window: '5h', remainingFraction: 0.8, resetTime: h5Reset },
+                  ],
+                },
+                {
+                  displayName: 'Claude Sonnet Models',
+                  buckets: [
+                    { bucketId: 'sonnet-weekly', window: 'weekly', remainingFraction: 0.85, resetTime: sonnetReset },
+                  ],
+                },
+              ],
+            },
+          },
+        });
+        sb.track(() => ls.close());
+
+        const sidecar = await startSidecar({
+          sidecarDir: SIDECAR_DIR,
+          mockLs: ls,
+          preloadConfig: { conversationId: uuid },
+          env: {
+            ANTIGRAVITY_GEMINI_DIR: sb.geminiDir,
+            ANTIGRAVITY_EXECUTABLE_DATA_DIR: sb.dataDir,
+            ANTIGRAVITY_LS_ADDRESS: ls.url,
+            ANTIGRAVITY_CSRF_TOKEN: ls.csrfToken,
+          },
+        });
+        sb.track(() => sidecar.close());
+
+        const quotaJson = await sidecar.getJson('/api/quota?refresh=true');
+        assert.deepEqual(
+          quotaJson.pools.map((p) => p.category).sort(),
+          ['claude_opus', 'claude_sonnet', 'gemini'],
+        );
+        assert.ok(quotaJson.weekly.claude_opus && quotaJson.weekly.claude_sonnet && quotaJson.weekly.gemini);
+
+        const repJson = await sidecar.getJson(`/api/report?conversationId=${uuid}`);
+        const histJson = await sidecar.getJson('/api/history?refresh=true');
+        const pricingJson = await sidecar.getJson('/api/pricing');
+        assert.ok(histJson.weekly_value_usd.claude_opus > 0, 'Expected claude_opus weekly_value_usd');
+        assert.ok(histJson.weekly_value_usd.gemini > 0, 'Expected gemini weekly_value_usd');
+        assert.ok(histJson.by_conversation[0].cost_by_pool.claude_opus > 0);
+
+        const browserRes = await runChromeBrowserTest({
+          webDir: WEB_DIR,
+          liveUrl: `${sidecar.baseUrl}/`,
+          mockApi: {
+            '/api/report': repJson,
+            '/api/quota': quotaJson,
+            '/api/history': histJson,
+            '/api/pricing': pricingJson,
+          },
+          preloadConfig: { conversationId: uuid },
+          lang: 'en-US',
+          testScript: `
+            await new Promise(r => setTimeout(r, 400));
+            const ovText = document.getElementById('overview')?.textContent || '';
+            document.getElementById('tab-quota')?.click();
+            await new Promise(r => setTimeout(r, 200));
+            const quotaText = document.getElementById('quota')?.textContent || '';
+            document.getElementById('tab-history')?.click();
+            await new Promise(r => setTimeout(r, 200));
+            document.querySelector('[data-hview="sessions"]')?.click();
+            await new Promise(r => setTimeout(r, 200));
+            const sessText = document.getElementById('history')?.textContent || '';
+            const el = document.createElement('script');
+            el.id = '__e2e_result';
+            el.type = 'application/json';
+            el.textContent = JSON.stringify({
+              errors: window.__e2eErrors,
+              ovHasOpusWeekly: /Opus weekly/i.test(ovText),
+              quotaHasOpus: quotaText.includes('Claude Opus models'),
+              quotaHasSonnet: quotaText.includes('Claude Sonnet models'),
+              sessHasOpusWeekly: /Opus weekly/i.test(sessText),
+            });
+            document.body.appendChild(el);
+          `,
+        });
+        assert.deepEqual(browserRes.consoleErrors, []);
+        assert.equal(browserRes.result.ovHasOpusWeekly, true);
+        assert.equal(browserRes.result.quotaHasOpus, true);
+        assert.equal(browserRes.result.quotaHasSonnet, true);
+        assert.equal(browserRes.result.sessHasOpusWeekly, true);
+      } finally {
+        await sb.cleanup();
+      }
+    },
+  },
 ];

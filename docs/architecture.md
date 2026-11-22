@@ -70,7 +70,7 @@ The app passes the local language server address and a CSRF token to the sidecar
 | `GetAvailableModels` | model catalog: display names, context windows, providers, model ordering |
 | `RetrieveUserQuotaSummary` | official 5-hour and weekly buckets per pool |
 
-Pools are grouped by provider bucket (Claude / GPT-OSS, Gemini, Tab completion). If the summary RPC doesn't return explicit buckets, the limit kind is inferred from the reset time and marked `≈`. Raw responses are redacted (emails, names, tokens) before being cached.
+Pools are discovered dynamically from the language server (such as Gemini, Claude / GPT-OSS, or separate Claude Opus / Sonnet groups when a plan splits them, plus Tab completion), preventing summary bucket collisions and persisting each pool in `model-catalog.json`. If the summary RPC doesn't return explicit buckets, the limit kind is inferred from the reset time and marked `≈`. Raw responses are redacted (emails, names, tokens) before being cached.
 
 These RPCs are undocumented, so fields can change with app updates. Parsing is defensive and falls back to a built-in context window table when the catalog is missing.
 
@@ -103,15 +103,15 @@ The source in `web/` is split into ES modules for readability and tests. Antigra
 
 To avoid duplicate widgets across tabs, **Quota** owns live 5h/weekly meters, implied 100% weekly dollar values, and weekly cycle shrinkage history, while **History** shows period totals, period-scoped model rankings, project trees, and share cards, and both **Overview** and **History** display per-project `≈ X% weekly` consumption.
 
-`RetrieveUserQuotaSummary` returns per-pool (`gemini`, `claude_gpt`) remaining fractions and exact `reset_time` timestamps, explicitly consuming quota proportionally to token cost inside each fixed 7-day cycle `[reset_time - 7d, reset_time)`.
+`RetrieveUserQuotaSummary` returns per-pool remaining fractions and exact `reset_time` timestamps (e.g. `gemini`, `claude_gpt`, or plan-split pools such as `claude_opus` / `claude_sonnet`), explicitly consuming quota proportionally to token cost inside each fixed 7-day cycle `[reset_time - 7d, reset_time)`.
 
 - **Cycle ledger & time alignment**: Every live `/api/quota` fetch (plus 10-minute background polling) records/updates `(cycle_start, reset_time, observed_at, remaining_fraction)` in `quota-cycles.json`, keeping `peak_unsaturated` strictly monotonic. During `scan()`, each cycle sums local spend strictly over `[cycle_start, min(eval_obs_at, reset_time)]`. When a cycle hits `0%` remaining, `observed_at` locks at first saturation and uses `peak_unsaturated` (when peak usage >= 20%) so subsequent paid AI-credit spend after exhaustion does not inflate the baseline.
 - **Implied 100% weekly value & shrinkage detection**: Whenever at least 5% of a cycle has been consumed (`eval_used_fraction >= 0.05`), `weekly_value_usd = observed_cost_usd / eval_used_fraction` yields the pool's implied 100% weekly dollar allowance, compared against prior cycles (`change_pct`) to surface week-over-week quota changes. After a fresh reset (<5% used), sizing temporarily references the most recent completed cycle's `weekly_value_usd`.
-- **Per-project & per-model sizing**: Models (`by_model[].periods` matching the active period pill) and conversations (including live + archived subagent rollups) size against the pool's benchmark via `cost_by_pool[pool] / weekly_value_usd[pool]` (`≈ X% weekly`, unclamped so multi-week items remain comparable). There is no rolling 7-day token fallback or manual calibration when no official cycle has been recorded yet.
+- **Per-project & per-model sizing**: Models (`by_model[].periods` matching the active period pill) and conversations (including live + archived subagent rollups) size against each pool's benchmark via `cost_by_pool[pool] / weekly_value_usd[pool]` (`≈ X% weekly`, unclamped so multi-week items remain comparable). For mixed-pool conversations, `convWeeklyBreakdown` / `convWeeklyLabel` ranks pools by highest `%` quota impact (`sortActivePools`) so a heavy burn in a tighter pool (e.g. `Claude/GPT`) is never masked by a larger-USD spend in another pool (e.g. `Gemini`). There is no rolling 7-day token fallback or manual calibration when no official cycle has been recorded yet.
 
 ## Share card
 
-`web/views/share-card.js` builds the card from an allowlist: period totals, per-model token counts for that period, and daily totals. Model names are scrubbed for paths and emails, all text is XML-escaped, and conversation titles are never read. PNG export draws the SVG onto a canvas locally.
+`web/views/share-card.js` builds the card from an allowlist: period totals, per-model token counts for that period, and daily totals. Model names are scrubbed for paths and emails, all text is XML-escaped, and conversation titles are never read. Users can copy the card directly to the clipboard as a 2x Canvas PNG (`ClipboardItem`) or as SVG text, with a clear fallback hint to Copy SVG if a sandboxed WebView blocks clipboard images.
 
 ## Privacy boundaries
 

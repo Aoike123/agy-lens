@@ -4,7 +4,6 @@ import { localeFor } from '../i18n.js';
 import {
   allTok,
   budgetLevel,
-  CAL_POOLS,
   CHEV,
   CONV_VISIBLE,
   convWeeklyLabel,
@@ -17,11 +16,13 @@ import {
   fmtTime,
   fmtTok,
   fmtUsd,
+  formatPoolName,
   hasAnyWeeklyValue,
   HISTORY_STALE_MS,
   HISTORY_VIEWS,
   isNum,
   isSubagent,
+  knownQuotaPools,
   LIST_SORTS,
   liveWeeklyEntry,
   makeHeatScale,
@@ -39,6 +40,7 @@ import {
   pricingTip,
   SESSION_PERIODS,
   sliceModelsForPeriod,
+  sortActivePools,
   SOURCE_FILTERS,
   tsOf,
   withSubtree,
@@ -166,10 +168,11 @@ export function createHistoryController({
     const costStr = fmtCost(p.est_cost_usd, { estimated: !!p.cost_estimated, partial: costPartial && isNum(p.est_cost_usd) });
     const costTip = pricingTip(data.pricing_source, data.pricing_fetched_at, { partial: costPartial }, t, lang);
     const pc = t('poolCompact');
-    const liveEntries = CAL_POOLS.map((k) => ({ k, eff: liveWeeklyEntry(quotaData, k) })).filter((x) => x.eff != null);
     const weeklyValueUsd = data.weekly_value_usd || {};
+    const poolList = knownQuotaPools(quotaData && !quotaData.error ? quotaData.weekly : null, weeklyValueUsd);
+    const liveEntries = poolList.map((k) => ({ k, eff: liveWeeklyEntry(quotaData, k) })).filter((x) => x.eff != null);
     const hasVal = hasAnyWeeklyValue(weeklyValueUsd);
-    const valParts = CAL_POOLS.filter((k) => num(weeklyValueUsd[k]) > 0).map((k) => `${pc[k]} ${fmtUsd(num(weeklyValueUsd[k]))}`);
+    const valParts = poolList.filter((k) => num(weeklyValueUsd[k]) > 0).map((k) => `${formatPoolName(k, pc)} ${fmtUsd(num(weeklyValueUsd[k]))}`);
 
     let quotaVal;
     if (liveEntries.length) {
@@ -460,13 +463,13 @@ export function createHistoryController({
       : '';
     const wVal = convWeeklyLabel(c, { compact: false, weeklyValueUsd, t });
     const cPools = c.cost_by_pool || {};
-    const activePools = Object.keys(cPools).filter((k) => num(cPools[k]) > 0);
+    const activePools = sortActivePools(c, weeklyValueUsd);
     const pn = t('poolShort');
     const poolRows = activePools.length > 1
       ? `<div class="conv-models"><ul class="mini">${activePools.map((pk) => {
         const cost = num(cPools[pk]);
         const lbl = poolRowLabel(c, pk, { weeklyValueUsd, t });
-        return `<li><span class="dim">${esc(pn[pk] || pk)}</span><span class="num dim">${esc(fmtUsd(cost))}${lbl ? ` · ${esc(lbl)}` : ''}</span></li>`;
+        return `<li><span class="dim">${esc(formatPoolName(pk, pn))}</span><span class="num dim">${esc(fmtUsd(cost))}${lbl ? ` · ${esc(lbl)}` : ''}</span></li>`;
       }).join('')}</ul></div>`
       : '';
     // Hierarchy: this conversation's own usage vs. its subagents (all levels).
@@ -750,12 +753,13 @@ export function createHistoryController({
   function syncFromQuota() {
     const quotaData = getQuotaData();
     const w = (quotaData && !quotaData.error && quotaData.weekly) || {};
-    const sig = JSON.stringify(CAL_POOLS.map((k) => w[k] || null));
+    const cycles = (loader.data && !loader.data.error && loader.data.weekly_cycles) || {};
+    const poolList = knownQuotaPools(w, cycles);
+    const sig = JSON.stringify(poolList.map((k) => [k, w[k] || null]));
     if (sig === lastQuotaWeeklySig) return;
     lastQuotaWeeklySig = sig;
     if (loader.data && !loader.data.error && !loader.loading) {
-      const cycles = loader.data.weekly_cycles || {};
-      const staleCycle = CAL_POOLS.some((k) => {
+      const staleCycle = poolList.some((k) => {
         const lk = w[k];
         if (!lk || !lk.reset_time) return false;
         const latest = Array.isArray(cycles[k]) && cycles[k][0];

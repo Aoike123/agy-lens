@@ -754,17 +754,18 @@ const emptyPools = () => ({ gemini: 0, claude_gpt: 0, other: 0 });
 function dominantPool(primaryPool, ...maps) {
   for (const m of maps) {
     if (!m || typeof m !== 'object') continue;
-    const maxVal = Math.max(m.gemini || 0, m.claude_gpt || 0, m.other || 0);
-    if (maxVal <= 0) continue;
-    let bestP = POOLS[0];
-    for (let i = 1; i < POOLS.length; i += 1) {
-      const p = POOLS[i];
-      const diff = (m[p] || 0) - (m[bestP] || 0);
-      if (diff > 0 || (diff === 0 && p === primaryPool && bestP !== primaryPool)) {
+    const keys = [...POOLS, ...Object.keys(m).filter((k) => !POOLS.includes(k)).sort()];
+    let bestP = null;
+    let bestVal = 0;
+    for (const p of keys) {
+      const val = m[p] || 0;
+      if (val <= 0) continue;
+      if (bestP === null || val > bestVal || (val === bestVal && p === primaryPool && bestP !== primaryPool)) {
         bestP = p;
+        bestVal = val;
       }
     }
-    return bestP;
+    if (bestP !== null) return bestP;
   }
   return primaryPool;
 }
@@ -1064,8 +1065,8 @@ export async function scan(roots, {
       if (inD7) {
         const d7Tok = inp + out;
         conv.d7_tokens += d7Tok;
-        conv.d7_by_pool[pool] += d7Tok;
-        d7ByPool[pool] += d7Tok;
+        conv.d7_by_pool[pool] = (conv.d7_by_pool[pool] ?? 0) + d7Tok;
+        d7ByPool[pool] = (d7ByPool[pool] ?? 0) + d7Tok;
       }
       if (cost !== null) {
         conv.cost_by_pool[pool] = (conv.cost_by_pool[pool] ?? 0) + cost;

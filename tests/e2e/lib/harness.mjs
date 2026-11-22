@@ -1040,7 +1040,8 @@ ELECTRON_RUN_AS_NODE=1 "${process.execPath.replace(/\\/g, '/')}" "${helperPath.r
     writeFileSync(join(mockBin, 'unzip'), unzipShim, { mode: 0o755 });
   }
 
-  const r = spawnSync(bash.bashPath, [shPath, ...args], {
+  const launchCmd = 'M="$(cygpath -u "$1" 2>/dev/null || printf "%s" "$1")"; shift; export PATH="$M:$PATH"; exec "$BASH" "$@"';
+  const r = spawnSync(bash.bashPath, ['-c', launchCmd, '--', mockBin, shPath, ...args], {
     env: makeChildEnv({
       HOME: homeDir,
       PATH: `${mockBin}${process.platform === 'win32' ? ';' : ':'}${process.env.PATH || ''}`,

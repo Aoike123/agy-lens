@@ -42,7 +42,10 @@ function findChromeBinary() {
     process.env.CHROME_PATH,
     'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
     'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+    'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+    'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
     '/usr/bin/google-chrome',
+    '/usr/bin/google-chrome-stable',
     '/usr/bin/chromium',
     '/usr/bin/chromium-browser',
     '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
@@ -1140,26 +1143,112 @@ function createMockResponseHandler(bundledAppJs) {
   return handler;
 }
 
-async function launchChromeCdp(chromePath, onFetchRequest) {
-  const userDataDir = mkdtempSync(join(tmpdir(), 'agy-lens-cdp-'));
-  const proc = spawn(chromePath, [
-    '--headless=new',
-    '--disable-gpu',
-    '--no-sandbox',
-    '--no-first-run',
-    '--no-default-browser-check',
-    '--disable-background-networking',
-    '--remote-debugging-pipe',
-    `--user-data-dir=${userDataDir}`,
-    'about:blank',
-  ], { stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
+const CHROME_BASE_FLAGS = [
+  '--headless=new',
+  '--disable-gpu',
+  '--no-sandbox',
+  '--disable-dev-shm-usage',
+  '--disable-extensions',
+  '--disable-background-networking',
+  '--disable-background-timer-throttling',
+  '--disable-renderer-backgrounding',
+  '--disable-backgrounding-occluded-windows',
+  '--password-store=basic',
+  '--use-mock-keychain',
+  '--mute-audio',
+  '--no-first-run',
+  '--no-default-browser-check',
+];
+const CDP_HANDSHAKE_TIMEOUT_MS = 25000;
 
-  const writePipe = proc.stdio[3];
-  const readPipe = proc.stdio[4];
+function createCdpDispatcher({ sendRaw, isClosed, onFetchRequest }) {
+  let nextId = 1;
+  const pending = new Map();
+  const events = [];
+  let autoAttachFetchPattern = null;
+  let onChildFetchReady = null;
 
-  const killChromeTree = () => {
-    try { writePipe?.destroy(); } catch { /* ignore */ }
-    try { readPipe?.destroy(); } catch { /* ignore */ }
+  const send = (method, params = {}, sessionId) => new Promise((resolve, reject) => {
+    if (isClosed()) {
+      reject(new Error('Chrome CDP is closed'));
+      return;
+    }
+    const id = nextId++;
+    pending.set(id, { resolve, reject });
+    const payload = sessionId ? { id, method, params, sessionId } : { id, method, params };
+    try {
+      sendRaw(JSON.stringify(payload));
+    } catch (err) {
+      pending.delete(id);
+      reject(err);
+    }
+  });
+
+  const handleMessage = (raw) => {
+    if (!raw) return;
+    const msg = JSON.parse(raw);
+    if (msg.id && pending.has(msg.id)) {
+      const { resolve, reject } = pending.get(msg.id);
+      pending.delete(msg.id);
+      if (msg.error) reject(new Error(`${msg.error.message} (${msg.error.code})`));
+      else resolve(msg.result);
+    } else if (msg.method === 'Target.attachedToTarget' && autoAttachFetchPattern && msg.params && msg.params.sessionId) {
+      const childSid = msg.params.sessionId;
+      events.push(msg);
+      Promise.all([
+        send('Runtime.enable', {}, childSid).catch(() => {}),
+        send('Fetch.enable', { patterns: [{ urlPattern: autoAttachFetchPattern }] }, childSid).catch(() => {}),
+      ]).finally(() => {
+        if (msg.params.waitingForDebugger) {
+          send('Runtime.runIfWaitingForDebugger', {}, childSid).catch(() => {});
+        }
+        if (onChildFetchReady) {
+          const cb = onChildFetchReady;
+          onChildFetchReady = null;
+          cb(childSid);
+        }
+      });
+    } else if (msg.method === 'Fetch.requestPaused' && onFetchRequest) {
+      const { requestId, request } = msg.params;
+      const resp = onFetchRequest(request.url);
+      const fulfill = {
+        requestId,
+        responseCode: resp.status,
+        responseHeaders: [
+          { name: 'Content-Type', value: resp.contentType },
+          { name: 'Cache-Control', value: 'no-store' },
+          { name: 'Access-Control-Allow-Origin', value: '*' },
+        ],
+      };
+      if (resp.body) fulfill.body = Buffer.from(resp.body, 'utf8').toString('base64');
+      send('Fetch.fulfillRequest', fulfill, msg.sessionId).catch(() => {});
+    } else if (msg.method) {
+      events.push(msg);
+    }
+  };
+
+  const rejectAll = (err) => {
+    for (const { reject } of pending.values()) reject(err);
+    pending.clear();
+  };
+
+  return {
+    send,
+    events,
+    handleMessage,
+    rejectAll,
+    setAutoAttachFetchPattern(pattern, onReady = null) {
+      autoAttachFetchPattern = pattern;
+      onChildFetchReady = onReady;
+    },
+  };
+}
+
+function makeChromeKiller(proc, userDataDir, extraDestroy = []) {
+  return () => {
+    for (const s of extraDestroy) {
+      try { s?.destroy(); } catch { /* ignore */ }
+    }
     if (process.platform === 'win32' && proc.pid) {
       try {
         execFileSync('taskkill', ['/F', '/T', '/PID', String(proc.pid)], { stdio: 'ignore' });
@@ -1172,95 +1261,99 @@ async function launchChromeCdp(chromePath, onFetchRequest) {
       rmSync(userDataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 80 });
     } catch { /* ignore transient Windows lock */ }
   };
+}
 
-  let nextId = 1;
-  const pending = new Map();
-  const events = [];
-  let rxBuf = Buffer.alloc(0);
-  let closed = false;
-  let autoAttachFetchPattern = null;
-  let onChildFetchReady = null;
+async function launchChromeCdpWs(chromePath, onFetchRequest) {
+  const userDataDir = mkdtempSync(join(tmpdir(), 'agy-lens-cdp-'));
+  const proc = spawn(chromePath, [
+    ...CHROME_BASE_FLAGS,
+    '--remote-debugging-port=0',
+    `--user-data-dir=${userDataDir}`,
+    'about:blank',
+  ], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
 
-  const onData = (chunk) => {
-    rxBuf = Buffer.concat([rxBuf, chunk]);
-    let idx;
-    while ((idx = rxBuf.indexOf(0)) !== -1) {
-      const raw = rxBuf.subarray(0, idx).toString('utf8');
-      rxBuf = rxBuf.subarray(idx + 1);
-      if (!raw) continue;
-      const msg = JSON.parse(raw);
-      if (msg.id && pending.has(msg.id)) {
-        const { resolve, reject } = pending.get(msg.id);
-        pending.delete(msg.id);
-        if (msg.error) reject(new Error(`${msg.error.message} (${msg.error.code})`));
-        else resolve(msg.result);
-      } else if (msg.method === 'Target.attachedToTarget' && autoAttachFetchPattern && msg.params && msg.params.sessionId) {
-        const childSid = msg.params.sessionId;
-        events.push(msg);
-        Promise.all([
-          send('Runtime.enable', {}, childSid).catch(() => {}),
-          send('Fetch.enable', { patterns: [{ urlPattern: autoAttachFetchPattern }] }, childSid).catch(() => {}),
-        ]).finally(() => {
-          if (msg.params.waitingForDebugger) {
-            send('Runtime.runIfWaitingForDebugger', {}, childSid).catch(() => {});
-          }
-          if (onChildFetchReady) {
-            const cb = onChildFetchReady;
-            onChildFetchReady = null;
-            cb(childSid);
-          }
-        });
-      } else if (msg.method === 'Fetch.requestPaused' && onFetchRequest) {
-        const { requestId, request } = msg.params;
-        const resp = onFetchRequest(request.url);
-        const fulfill = {
-          requestId,
-          responseCode: resp.status,
-          responseHeaders: [
-            { name: 'Content-Type', value: resp.contentType },
-            { name: 'Cache-Control', value: 'no-store' },
-            { name: 'Access-Control-Allow-Origin', value: '*' },
-          ],
-        };
-        if (resp.body) fulfill.body = Buffer.from(resp.body, 'utf8').toString('base64');
-        send('Fetch.fulfillRequest', fulfill, msg.sessionId).catch(() => {});
-      } else if (msg.method) {
-        events.push(msg);
-      }
-    }
+  let stderrTail = '';
+  const appendStderr = (chunk) => {
+    stderrTail = (stderrTail + chunk.toString('utf8')).slice(-8192);
   };
-  readPipe.on('data', onData);
+  proc.stdout?.resume();
+
+  const killChromeTree = makeChromeKiller(proc, userDataDir, [proc.stdout, proc.stderr]);
+
+  let ws = null;
+  let closed = false;
+  let dispatcher = null;
 
   const onExit = (code) => {
     if (closed) return;
-    for (const { reject } of pending.values()) {
-      reject(new Error(`Chrome exited prematurely (${code})`));
-    }
-    pending.clear();
+    dispatcher?.rejectAll(new Error(`Chrome exited prematurely (${code}). stderr:\n${stderrTail}`));
   };
   proc.once('exit', onExit);
 
-  const send = (method, params = {}, sessionId) => new Promise((resolve, reject) => {
-    if (closed || proc.exitCode !== null) {
-      reject(new Error('Chrome CDP is closed'));
-      return;
-    }
-    const id = nextId++;
-    pending.set(id, { resolve, reject });
-    const payload = sessionId ? { id, method, params, sessionId } : { id, method, params };
-    writePipe.write(`${JSON.stringify(payload)}\0`);
-  });
-
-  // Wait for CDP pipe handshake to confirm Chrome is alive
   try {
+    const browserWsUrl = await new Promise((resolveWs, rejectWs) => {
+      const timer = setTimeout(() => {
+        proc.stderr?.off('data', onStderr);
+        proc.off('exit', onEarlyExit);
+        rejectWs(new Error(`Chrome CDP WebSocket startup timeout (${CDP_HANDSHAKE_TIMEOUT_MS}ms).\nstderr:\n${stderrTail}`));
+      }, CDP_HANDSHAKE_TIMEOUT_MS);
+      timer.unref?.();
+
+      const onStderr = (chunk) => {
+        appendStderr(chunk);
+        const m = stderrTail.match(/DevTools listening on (ws:\/\/[^\s]+)/);
+        if (m) {
+          clearTimeout(timer);
+          proc.stderr?.off('data', onStderr);
+          proc.off('exit', onEarlyExit);
+          resolveWs(m[1]);
+        }
+      };
+      const onEarlyExit = (code) => {
+        clearTimeout(timer);
+        proc.stderr?.off('data', onStderr);
+        rejectWs(new Error(`Chrome exited before DevTools ready (code=${code}).\nstderr:\n${stderrTail}`));
+      };
+      proc.stderr?.on('data', onStderr);
+      proc.once('exit', onEarlyExit);
+    });
+
+    // Keep draining stderr after startup so Chrome never stalls on full pipe buffers.
+    proc.stderr?.on('data', appendStderr);
+
+    ws = new WebSocket(browserWsUrl);
+    await new Promise((res, rej) => {
+      const timer = setTimeout(() => rej(new Error(`Chrome CDP WebSocket open timeout.\nstderr:\n${stderrTail}`)), 10000);
+      timer.unref?.();
+      ws.addEventListener('open', () => { clearTimeout(timer); res(); }, { once: true });
+      ws.addEventListener('error', (ev) => {
+        clearTimeout(timer);
+        rej(new Error(`Chrome CDP WebSocket error: ${ev?.message || 'connection failed'}.\nstderr:\n${stderrTail}`));
+      }, { once: true });
+    });
+
+    dispatcher = createCdpDispatcher({
+      sendRaw: (text) => ws.send(text),
+      isClosed: () => closed || proc.exitCode !== null || ws.readyState !== WebSocket.OPEN,
+      onFetchRequest,
+    });
+    ws.addEventListener('message', (ev) => dispatcher.handleMessage(String(ev.data)));
+    ws.addEventListener('close', () => {
+      if (!closed) dispatcher.rejectAll(new Error('Chrome CDP WebSocket closed'));
+    });
+
     await Promise.race([
-      send('Browser.getVersion'),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('Chrome CDP pipe handshake timeout')), 8000).unref?.()),
+      dispatcher.send('Browser.getVersion'),
+      new Promise((_, reject) => setTimeout(
+        () => reject(new Error(`Chrome CDP WebSocket handshake timeout.\nstderr:\n${stderrTail}`)),
+        10000,
+      ).unref?.()),
     ]);
   } catch (err) {
     closed = true;
-    readPipe.off('data', onData);
     proc.off('exit', onExit);
+    proc.stderr?.off('data', appendStderr);
+    try { ws?.close(); } catch { /* ignore */ }
     killChromeTree();
     throw err;
   }
@@ -1270,26 +1363,119 @@ async function launchChromeCdp(chromePath, onFetchRequest) {
     closed = true;
     try {
       await Promise.race([
-        send('Browser.close').catch(() => {}),
+        dispatcher.send('Browser.close').catch(() => {}),
+        new Promise((r) => setTimeout(r, 600).unref?.()),
+      ]);
+    } catch { /* ignore */ }
+    proc.off('exit', onExit);
+    proc.stderr?.off('data', appendStderr);
+    dispatcher.rejectAll(new Error('CDP closed'));
+    try { ws?.close(); } catch { /* ignore */ }
+    killChromeTree();
+  };
+
+  return {
+    send: dispatcher.send,
+    events: dispatcher.events,
+    close,
+    setAutoAttachFetchPattern: dispatcher.setAutoAttachFetchPattern,
+  };
+}
+
+async function launchChromeCdpPipe(chromePath, onFetchRequest) {
+  const userDataDir = mkdtempSync(join(tmpdir(), 'agy-lens-cdp-'));
+  const proc = spawn(chromePath, [
+    ...CHROME_BASE_FLAGS,
+    '--remote-debugging-pipe',
+    `--user-data-dir=${userDataDir}`,
+    'about:blank',
+  ], { stdio: ['ignore', 'ignore', 'pipe', 'pipe', 'pipe'], windowsHide: true });
+
+  const writePipe = proc.stdio[3];
+  const readPipe = proc.stdio[4];
+  let stderrTail = '';
+  const appendStderr = (chunk) => {
+    stderrTail = (stderrTail + chunk.toString('utf8')).slice(-8192);
+  };
+  proc.stderr?.on('data', appendStderr);
+
+  const killChromeTree = makeChromeKiller(proc, userDataDir, [writePipe, readPipe, proc.stderr]);
+
+  let rxBuf = Buffer.alloc(0);
+  let closed = false;
+  const dispatcher = createCdpDispatcher({
+    sendRaw: (text) => writePipe.write(`${text}\0`),
+    isClosed: () => closed || proc.exitCode !== null,
+    onFetchRequest,
+  });
+
+  const onData = (chunk) => {
+    rxBuf = Buffer.concat([rxBuf, chunk]);
+    let idx;
+    while ((idx = rxBuf.indexOf(0)) !== -1) {
+      const raw = rxBuf.subarray(0, idx).toString('utf8');
+      rxBuf = rxBuf.subarray(idx + 1);
+      dispatcher.handleMessage(raw);
+    }
+  };
+  readPipe.on('data', onData);
+
+  const onExit = (code) => {
+    if (closed) return;
+    dispatcher.rejectAll(new Error(`Chrome exited prematurely (${code}).\nstderr:\n${stderrTail}`));
+  };
+  proc.once('exit', onExit);
+
+  try {
+    await Promise.race([
+      dispatcher.send('Browser.getVersion'),
+      new Promise((_, reject) => setTimeout(
+        () => reject(new Error(`Chrome CDP pipe handshake timeout (${CDP_HANDSHAKE_TIMEOUT_MS}ms).\nstderr:\n${stderrTail}`)),
+        CDP_HANDSHAKE_TIMEOUT_MS,
+      ).unref?.()),
+    ]);
+  } catch (err) {
+    closed = true;
+    readPipe.off('data', onData);
+    proc.off('exit', onExit);
+    proc.stderr?.off('data', appendStderr);
+    killChromeTree();
+    throw err;
+  }
+
+  const close = async () => {
+    if (closed) return;
+    closed = true;
+    try {
+      await Promise.race([
+        dispatcher.send('Browser.close').catch(() => {}),
         new Promise((r) => setTimeout(r, 600).unref?.()),
       ]);
     } catch { /* ignore */ }
     readPipe.off('data', onData);
     proc.off('exit', onExit);
-    for (const { reject } of pending.values()) reject(new Error('CDP closed'));
-    pending.clear();
+    proc.stderr?.off('data', appendStderr);
+    dispatcher.rejectAll(new Error('CDP closed'));
     killChromeTree();
   };
 
   return {
-    send,
-    events,
+    send: dispatcher.send,
+    events: dispatcher.events,
     close,
-    setAutoAttachFetchPattern(pattern, onReady = null) {
-      autoAttachFetchPattern = pattern;
-      onChildFetchReady = onReady;
-    },
+    setAutoAttachFetchPattern: dispatcher.setAutoAttachFetchPattern,
   };
+}
+
+async function launchChromeCdp(chromePath, onFetchRequest) {
+  try {
+    return await launchChromeCdpWs(chromePath, onFetchRequest);
+  } catch (err) {
+    const msg = String(err && err.message ? err.message : err);
+    const isSocketBlocked = /EACCES|EPERM|ECONNREFUSED|Cannot start http server|Operation not permitted/i.test(msg);
+    if (!isSocketBlocked) throw err;
+    return launchChromeCdpPipe(chromePath, onFetchRequest);
+  }
 }
 
 test('Headless Chrome CDP: classic /app.js bundle, auto-detected locales, opaque sandboxed iframe, boot error fallback, and Canvas PNG bytes', async (t) => {
@@ -1422,34 +1608,86 @@ test('Headless Chrome CDP: classic /app.js bundle, auto-detected locales, opaque
       assert.ok(!modalCheck.modalHtml.includes('/Users/canary'), 'Share modal leaked canary POSIX path');
       assert.ok(!modalCheck.modalHtml.includes('canary@secret.example'), 'Share modal leaked canary email');
 
-      // Toggle light theme and trigger real PNG export button inside Chrome
+      // Toggle light theme and verify Copy SVG & Copy image (PNG) clipboard actions inside Chrome
       await evalExpr('document.querySelector("[data-share-theme=\\"light\\"]").click()');
-      const pngBase64 = await evalExpr(`(async () => {
+      const copyRes = await evalExpr(`(async () => {
+        const svgBtn = document.querySelector('[data-share-svg]');
+        const pngBtn = document.querySelector('[data-share-png]');
+        const svgLabel = svgBtn ? svgBtn.textContent.trim() : '';
+        const pngLabel = pngBtn ? pngBtn.textContent.trim() : '';
+
+        let copiedSvg = null;
         let capturedBlob = null;
-        const origCreate = URL.createObjectURL.bind(URL);
-        URL.createObjectURL = (blob) => {
-          if (blob && blob.type === 'image/png') capturedBlob = blob;
-          return origCreate(blob);
+        let rejectNextWrite = false;
+        const fakeClip = {
+          writeText: async (text) => { copiedSvg = text; },
+          write: async (items) => {
+            if (rejectNextWrite) throw new DOMException('Denied', 'NotAllowedError');
+            const item = items && items[0];
+            if (!item || typeof item.getType !== 'function') throw new Error('Missing ClipboardItem');
+            capturedBlob = await item.getType('image/png');
+          },
         };
-        const origClick = HTMLAnchorElement.prototype.click;
-        HTMLAnchorElement.prototype.click = function() {};
+        const clipDesc = Object.getOwnPropertyDescriptor(Navigator.prototype, 'clipboard');
+        Object.defineProperty(navigator, 'clipboard', { configurable: true, get: () => fakeClip });
+        const OrigClipboardItem = window.ClipboardItem;
+        if (typeof window.ClipboardItem === 'undefined') {
+          window.ClipboardItem = class {
+            constructor(data) { this._data = data; }
+            async getType(type) { return await this._data[type]; }
+          };
+        }
         try {
-          document.querySelector('[data-share-png]').click();
-          const deadline = Date.now() + 8000;
-          while (!capturedBlob && Date.now() < deadline) {
+          svgBtn.click();
+          const deadlineSvg = Date.now() + 4000;
+          while ((!copiedSvg || document.querySelector('.share-status')?.hidden) && Date.now() < deadlineSvg) {
+            await new Promise((r) => setTimeout(r, 20));
+          }
+          const svgStatus = document.querySelector('.share-status')?.textContent?.trim() || '';
+
+          pngBtn.click();
+          const deadlinePng = Date.now() + 8000;
+          while ((!capturedBlob || !document.querySelector('.share-status')?.textContent?.includes('PNG')) && Date.now() < deadlinePng) {
             await new Promise((r) => setTimeout(r, 30));
           }
-          if (!capturedBlob) throw new Error('PNG blob was not created');
+          const pngStatus = document.querySelector('.share-status')?.textContent?.trim() || '';
+          if (!capturedBlob) throw new Error('PNG clipboard blob was not created');
           const buf = new Uint8Array(await capturedBlob.arrayBuffer());
           let bin = '';
           for (let i = 0; i < buf.length; i += 1) bin += String.fromCharCode(buf[i]);
-          return btoa(bin);
+
+          rejectNextWrite = true;
+          pngBtn.click();
+          const deadlineErr = Date.now() + 4000;
+          while (!document.querySelector('.share-status.err') && Date.now() < deadlineErr) {
+            await new Promise((r) => setTimeout(r, 20));
+          }
+          const errEl = document.querySelector('.share-status.err');
+          const errStatus = errEl && !errEl.hidden ? errEl.textContent.trim() : '';
+
+          return {
+            svgLabel,
+            pngLabel,
+            copiedSvg,
+            svgStatus,
+            pngStatus,
+            errStatus,
+            pngBase64: btoa(bin),
+          };
         } finally {
-          URL.createObjectURL = origCreate;
-          HTMLAnchorElement.prototype.click = origClick;
+          if (clipDesc) Object.defineProperty(Navigator.prototype, 'clipboard', clipDesc);
+          delete navigator.clipboard;
+          if (OrigClipboardItem === undefined) delete window.ClipboardItem;
+          else window.ClipboardItem = OrigClipboardItem;
         }
       })()`);
-      const pngBytes = Buffer.from(pngBase64, 'base64');
+      assert.equal(copyRes.svgLabel, navLang === 'zh-CN' ? '复制 SVG' : 'Copy SVG');
+      assert.equal(copyRes.pngLabel, navLang === 'zh-CN' ? '复制图片' : 'Copy image');
+      assert.ok(copyRes.copiedSvg && copyRes.copiedSvg.trim().startsWith('<svg') && copyRes.copiedSvg.trim().endsWith('</svg>'), 'Copied SVG invalid');
+      assert.equal(copyRes.svgStatus, navLang === 'zh-CN' ? '已复制 SVG' : 'Copied SVG');
+      assert.equal(copyRes.pngStatus, navLang === 'zh-CN' ? '已复制 PNG' : 'Copied PNG');
+      assert.ok(copyRes.errStatus.includes(navLang === 'zh-CN' ? '复制 SVG' : 'Copy SVG'), `Expected clipboard fallback hint, got: ${copyRes.errStatus}`);
+      const pngBytes = Buffer.from(copyRes.pngBase64, 'base64');
       assert.ok(pngBytes.length > 1000, `PNG unexpectedly small: ${pngBytes.length} bytes`);
       assert.deepEqual([...pngBytes.subarray(0, 8)], [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 'Invalid PNG magic signature');
 

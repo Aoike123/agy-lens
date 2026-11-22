@@ -5,6 +5,37 @@ import { createTranslator } from './i18n.js';
 
 export const CHEV = '<svg class="chev" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 2.5L8 6l-3.5 3.5"/></svg>';
 export const CAL_POOLS = ['gemini', 'claude_gpt'];
+const POOL_ORDER = ['gemini', 'claude_gpt', 'claude_opus', 'claude_sonnet'];
+
+export function knownQuotaPools(...maps) {
+  const extra = new Set();
+  let hasOther = false;
+  for (const m of maps) {
+    if (!m || typeof m !== 'object') continue;
+    for (const k of Object.keys(m)) {
+      if (!k) continue;
+      if (k === 'other') {
+        const v = m[k];
+        if (Array.isArray(v) ? v.length > 0 : Boolean(v)) hasOther = true;
+      } else if (!POOL_ORDER.includes(k)) {
+        extra.add(k);
+      }
+    }
+  }
+  const out = [...POOL_ORDER];
+  for (const k of [...extra].sort()) out.push(k);
+  if (hasOther) out.push('other');
+  return out;
+}
+
+export function formatPoolName(pk, dict) {
+  if (dict && typeof dict === 'object' && Object.hasOwn(dict, pk) && dict[pk]) {
+    return dict[pk];
+  }
+  const raw = String(pk || '').replace(/^custom_/, '');
+  if (!raw) return '';
+  return raw.split('_').filter(Boolean).map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+}
 export const TABS = ['overview', 'quota', 'history'];
 export const PERIODS = ['today', 'd7', 'd30', 'all'];
 export const HISTORY_VIEWS = ['totals', 'sessions', 'list'];
@@ -235,8 +266,15 @@ export function liveWeeklyEntry(quotaData, pool) {
 }
 
 export const effectiveWeekly = (quotaData, pool) => liveWeeklyEntry(quotaData, pool);
-export const hasAnyWeekly = (quotaData) => CAL_POOLS.some((k) => liveWeeklyEntry(quotaData, k) != null);
-export const hasAnyWeeklyValue = (weeklyValueUsd) => CAL_POOLS.some((k) => num(weeklyValueUsd && weeklyValueUsd[k]) > 0);
+export const hasAnyWeekly = (quotaData) => {
+  const w = quotaData && !quotaData.error && quotaData.weekly;
+  if (!w || typeof w !== 'object') return false;
+  return knownQuotaPools(w).some((k) => liveWeeklyEntry(quotaData, k) != null);
+};
+export const hasAnyWeeklyValue = (weeklyValueUsd) => (
+  Boolean(weeklyValueUsd && typeof weeklyValueUsd === 'object')
+  && knownQuotaPools(weeklyValueUsd).some((k) => num(weeklyValueUsd[k]) > 0)
+);
 
 /** Size an USD spend against a pool's implied 100% weekly quota value (unclamped). */
 export function costWeeklyPct(costUsd, pool, weeklyValueUsd) {
@@ -299,28 +337,72 @@ export function withSubtree(c) {
   };
 }
 
+/** Per-pool weekly quota share breakdown, sorted by highest % quota impact first. */
+export function convWeeklyBreakdown(c, weeklyValueUsd) {
+  const cPools = c && c.cost_by_pool;
+  if (!cPools || typeof cPools !== 'object') return [];
+  const primary = (c && c.pool) || '';
+  const items = [];
+  for (const [pk, rawCost] of Object.entries(cPools)) {
+    const pct = costWeeklyPct(rawCost, pk, weeklyValueUsd);
+    if (pct != null && pct > 0) {
+      items.push({ pool: pk, cost: num(rawCost), pct });
+    }
+  }
+  items.sort((a, b) => (
+    (b.pct - a.pct)
+    || (b.cost - a.cost)
+    || ((b.pool === primary ? 1 : 0) - (a.pool === primary ? 1 : 0))
+    || a.pool.localeCompare(b.pool)
+  ));
+  return items;
+}
+
+/** Active cost_by_pool keys ordered by highest weekly quota impact first, then USD cost. */
+export function sortActivePools(c, weeklyValueUsd) {
+  const cPools = (c && c.cost_by_pool) || {};
+  const primary = (c && c.pool) || '';
+  return Object.keys(cPools)
+    .filter((k) => num(cPools[k]) > 0)
+    .sort((a, b) => {
+      const pa = costWeeklyPct(cPools[a], a, weeklyValueUsd);
+      const pb = costWeeklyPct(cPools[b], b, weeklyValueUsd);
+      const wa = pa != null ? pa : -1;
+      const wb = pb != null ? pb : -1;
+      return (wb - wa)
+        || (num(cPools[b]) - num(cPools[a]))
+        || ((b === primary ? 1 : 0) - (a === primary ? 1 : 0))
+        || a.localeCompare(b);
+    });
+}
+
 /**
  * Estimate a conversation's (or subtree's) size relative to one official
- * weekly quota: `pool_cost / pool_weekly_value_usd`. Never falls back to 7-day
- * token share when official weekly valuation is unavailable.
+ * weekly quota: `pool_cost / pool_weekly_value_usd`. For mixed-pool sessions,
+ * leads with the pool consuming the largest share of its weekly quota (never
+ * hiding a 40% Claude burn behind a larger-USD 1% Gemini burn).
  */
 export function convWeeklyLabel(c, { compact = true, weeklyValueUsd = null, t = DEFAULT_T } = {}) {
   if (!c) return compact ? '' : t('weeklyPending');
-  const primary = (c && c.pool) || inferPool((c && c.model) || (c && c.display_name));
-  const cPools = c.cost_by_pool;
-  if (cPools && typeof cPools === 'object') {
-    const own = costWeeklyPct(cPools[primary], primary, weeklyValueUsd);
-    if (own != null) return t('ofPoolQuota', fmtPctNum(own));
-    let best = null;
-    for (const pk of CAL_POOLS) {
-      const pct = costWeeklyPct(cPools[pk], pk, weeklyValueUsd);
-      if (pct != null && (best === null || num(cPools[pk]) > num(cPools[best[0]]))) {
-        best = [pk, pct];
-      }
-    }
-    if (best) return t('ofPoolQuota', fmtPctNum(best[1]));
+  const items = convWeeklyBreakdown(c, weeklyValueUsd);
+  if (items.length === 1) {
+    return t('ofPoolQuota', fmtPctNum(items[0].pct));
   }
-  const direct = CAL_POOLS.includes(primary) ? costWeeklyPct(c.est_cost_usd, primary, weeklyValueUsd) : null;
+  if (items.length >= 2) {
+    const pc = t('poolCompact');
+    const hasDict = Boolean(pc && typeof pc === 'object');
+    if (!compact && hasDict) {
+      return items.map((x) => `${formatPoolName(x.pool, pc)} ${fmtPctNum(x.pct)}`).join(' · ');
+    }
+    const top = items[0];
+    if (hasDict) {
+      const named = t('ofNamedPoolQuota', formatPoolName(top.pool, pc), fmtPctNum(top.pct));
+      if (named && named !== 'ofNamedPoolQuota') return named;
+    }
+    return t('ofPoolQuota', fmtPctNum(top.pct));
+  }
+  const primary = (c && c.pool) || inferPool((c && c.model) || (c && c.display_name));
+  const direct = primary && primary !== 'other' ? costWeeklyPct(c.est_cost_usd, primary, weeklyValueUsd) : null;
   if (direct != null) return t('ofPoolQuota', fmtPctNum(direct));
   return compact ? '' : t('weeklyPending');
 }

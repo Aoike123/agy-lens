@@ -1570,3 +1570,99 @@ test('parseLiteLLMPricing keeps the above-200k long-context tier', () => {
   });
   assert.deepEqual(out['gemini/gemini-4-hydrogen'], { input: 1.5, output: 7.5, cache_read: 0.075 });
 });
+
+test('parseQuota keeps shared 3p pool unified when grouped and splits dynamic Opus/Sonnet pools when server separates them', async () => {
+  const { modelPool } = await import('../sidecars/agy-lens/lib/catalog.mjs');
+
+  // 1. Unified 3p shape (Claude Opus + Sonnet + GPT-OSS sharing 3p-weekly / 3p-5h).
+  const sharedModels = {
+    response: {
+      models: {
+        'claude-opus-5-5-high': { displayName: 'Claude Opus 5.5 (High)', maxTokens: 1000000, quotaInfo: C, modelProvider: 'MODEL_PROVIDER_ANTHROPIC' },
+        'claude-sonnet-5-5-high': { displayName: 'Claude Sonnet 5.5 (High)', maxTokens: 1000000, quotaInfo: C, modelProvider: 'MODEL_PROVIDER_ANTHROPIC' },
+        'gpt-oss-120b-medium': { displayName: 'GPT-OSS 120B (Medium)', maxTokens: 131072, quotaInfo: C, modelProvider: 'MODEL_PROVIDER_OPENAI' },
+      },
+      agentModelSorts: [{ groups: [{ modelIds: ['claude-opus-5-5-high', 'claude-sonnet-5-5-high', 'gpt-oss-120b-medium'] }] }],
+    },
+  };
+  const sharedSummary = {
+    response: {
+      groups: [
+        {
+          displayName: 'Claude and GPT models',
+          description: 'Models within this group: Claude Opus 5.5, Claude Sonnet 5.5, GPT-OSS 120B',
+          buckets: [
+            { bucketId: '3p-weekly', window: 'weekly', remainingFraction: 0.0068, resetTime: '2026-11-26T13:59:24Z' },
+            { bucketId: '3p-5h', window: '5h', remainingFraction: 1, resetTime: '2026-11-22T16:36:30Z' },
+          ],
+        },
+      ],
+    },
+  };
+  const unified = parseQuota(null, sharedModels, NOW, sharedSummary);
+  assert.deepEqual(unified.pools.map((p) => p.category), ['claude_gpt']);
+  assert.equal(unified.pools[0].limits.length, 2);
+
+  // 2. Server-split shape (Claude Opus separated from Claude Sonnet / GPT-OSS with distinct quotaInfo & summary groups).
+  const C_OPUS = { remainingFraction: 0.25, resetTime: '2026-11-25T10:00:00Z' };
+  const C_SONNET = { remainingFraction: 0.80, resetTime: '2026-11-26T10:00:00Z' };
+  const splitModels = {
+    response: {
+      models: {
+        'claude-opus-5-5-high': { displayName: 'Claude Opus 5.5 (High)', maxTokens: 1000000, quotaInfo: C_OPUS, modelProvider: 'MODEL_PROVIDER_ANTHROPIC' },
+        'claude-sonnet-5-5-high': { displayName: 'Claude Sonnet 5.5 (High)', maxTokens: 1000000, quotaInfo: C_SONNET, modelProvider: 'MODEL_PROVIDER_ANTHROPIC' },
+        'gpt-oss-120b-medium': { displayName: 'GPT-OSS 120B (Medium)', maxTokens: 131072, quotaInfo: C_SONNET, modelProvider: 'MODEL_PROVIDER_OPENAI' },
+      },
+      agentModelSorts: [{ groups: [{ modelIds: ['claude-opus-5-5-high', 'claude-sonnet-5-5-high', 'gpt-oss-120b-medium'] }] }],
+    },
+  };
+  const splitSummary = {
+    response: {
+      groups: [
+        {
+          displayName: 'Claude Opus models',
+          buckets: [
+            { bucketId: '3p-opus-weekly', window: 'weekly', remainingFraction: 0.25, resetTime: '2026-11-25T10:00:00Z' },
+            { bucketId: 'opus-5h', window: '5h', remainingFraction: 0.5, resetTime: '2026-11-20T14:00:00Z' },
+          ],
+        },
+        {
+          displayName: 'Claude Sonnet and GPT models',
+          buckets: [
+            { bucketId: '3p-weekly', window: 'weekly', remainingFraction: 0.80, resetTime: '2026-11-26T10:00:00Z' },
+            { bucketId: '3p-5h', window: '5h', remainingFraction: 0.95, resetTime: '2026-11-20T13:00:00Z' },
+          ],
+        },
+      ],
+    },
+  };
+  const split = parseQuota(null, splitModels, NOW, splitSummary);
+  assert.deepEqual(split.pools.map((p) => p.category), ['claude_opus', 'claude_gpt']);
+  assert.deepEqual(split.weekly, {
+    claude_opus: { remaining_fraction: 0.25, reset_time: '2026-11-25T10:00:00.000Z' },
+    claude_gpt: { remaining_fraction: 0.8, reset_time: '2026-11-26T10:00:00.000Z' },
+  });
+  assert.deepEqual(split.pools[0].limits.map((l) => [l.kind, l.remaining_fraction]), [['weekly', 0.25], ['5h', 0.5]]);
+  assert.deepEqual(split.pools[1].limits.map((l) => [l.kind, l.remaining_fraction]), [['weekly', 0.8], ['5h', 0.95]]);
+
+  // 3. Disambiguates two colliding generic Claude summary groups without dropping either group's limits.
+  const collidingSummary = parseQuotaSummary({
+    groups: [
+      { displayName: 'Claude Tier A', buckets: [{ bucketId: 'a-weekly', window: 'weekly', remainingFraction: 0.2, resetTime: '2026-11-27T00:00:00Z' }] },
+      { displayName: 'Claude Tier B', buckets: [{ bucketId: 'b-weekly', window: 'weekly', remainingFraction: 0.9, resetTime: '2026-11-28T00:00:00Z' }] },
+    ],
+  }, NOW);
+  assert.equal(Object.keys(collidingSummary.byCategory).length, 2);
+  assert.equal(collidingSummary.weekly.claude_gpt.remaining_fraction, 0.2);
+  assert.equal(collidingSummary.weekly.claude_tier_b.remaining_fraction, 0.9);
+
+  // 4. buildModelCatalog & modelPool preserve dynamic pool slugs via poolOverrides.
+  const cat = buildModelCatalog(splitModels, null, {
+    'claude-opus-5-5-high': 'claude_opus',
+    'claude-sonnet-5-5-high': 'claude_gpt',
+    'gpt-oss-120b-medium': 'claude_gpt',
+  });
+  assert.equal(cat['claude-opus-5-5-high'].pool, 'claude_opus');
+  assert.equal(modelPool('claude-opus-5-5-high', cat), 'claude_opus');
+  assert.equal(modelPool('claude-sonnet-5-5-high', cat), 'claude_gpt');
+});

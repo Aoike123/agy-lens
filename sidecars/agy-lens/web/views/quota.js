@@ -1,7 +1,6 @@
 // Quota tab renderer, countdown ticker, and loader controller for Agy Lens.
 
 import {
-  CAL_POOLS,
   CHEV,
   deltaLevel,
   errorBox,
@@ -13,9 +12,11 @@ import {
   fmtPctNum,
   fmtTime,
   fmtUsd,
+  formatPoolName,
   fraction,
   isNum,
   isUnlimited,
+  knownQuotaPools,
   levelOf,
   makeLoader,
   num,
@@ -116,7 +117,7 @@ export function weeklyCyclesHtml(historyData, openKeys, t, lang) {
   const pn = t('poolShort');
   const sections = [];
   let maxWeeks = 0;
-  for (const pk of CAL_POOLS) {
+  for (const pk of knownQuotaPools(cyclesMap)) {
     const list = Array.isArray(cyclesMap[pk]) ? cyclesMap[pk] : [];
     if (!list.length) continue;
     maxWeeks = Math.max(maxWeeks, list.length);
@@ -140,7 +141,7 @@ export function weeklyCyclesHtml(historyData, openKeys, t, lang) {
       const tip = t('cycleTip', fmtTime(cy.cycle_start, true, lang), fmtTime(cy.reset_time, true, lang), obsTxt);
       return `<li title="${esc(tip)}"><span>${esc(span)}${curBadge}</span><span class="num dim">${rightHtml}</span></li>`;
     }).join('');
-    sections.push(`<div class="wcycles-pool"><div class="lbl">${esc(pn[pk] || pk)}</div><ul class="mini">${rows}</ul></div>`);
+    sections.push(`<div class="wcycles-pool"><div class="lbl">${esc(formatPoolName(pk, pn))}</div><ul class="mini">${rows}</ul></div>`);
   }
   if (!sections.length) return '';
   return `<details class="wcycles" data-key="weekly-cycles"${openKeys && openKeys.has('weekly-cycles') ? ' open' : ''}>

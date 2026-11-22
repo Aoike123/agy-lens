@@ -1147,11 +1147,12 @@ async function collectSessionCalls(dbPaths, { pricingFile = null, modelCatalogPa
   const primaryPool = primaryModel ? modelPool(primaryModel.model, catalog) : 'other';
   let pool = primaryPool;
   for (const sourceMap of [costByPool, d7ByPool]) {
+    const keys = [...poolsList, ...Object.keys(sourceMap).filter((k) => !poolsList.includes(k)).sort()];
     let bestPoolVal = 0;
     let bestPoolIsPrimary = -1;
     let bestPoolRank = -Infinity;
     let chosen = null;
-    poolsList.forEach((pk, idx) => {
+    keys.forEach((pk, idx) => {
       const val = sourceMap[pk] ?? 0;
       if (val <= 0) return;
       const isPrim = pk === primaryPool ? 1 : 0;

@@ -1,7 +1,6 @@
 // Overview tab renderer and controller for Agy Lens.
 
 import {
-  CAL_POOLS,
   CHEV,
   convWeeklyLabel,
   esc,
@@ -13,15 +12,18 @@ import {
   fmtTok,
   fmtTps,
   fmtUsd,
+  formatPoolName,
   gridCells,
   hasAnyWeeklyValue,
   HISTORY_STALE_MS,
   isNum,
+  knownQuotaPools,
   newTok,
   num,
   poolRowLabel,
   pricingTip,
   QUOTA_STALE_MS,
+  sortActivePools,
 } from '../format.js';
 
 const SEGMENT_COLORS = ['var(--c-system)', 'var(--c-user)', 'var(--c-agent)', 'var(--c-tool)', 'var(--c-custom)'];
@@ -231,13 +233,13 @@ function sessionHtml(r, { historyData, conversationId = '', t, lang }) {
       weeklyHtml = `<div class="session-weekly dim num" title="${esc(t('weeklySizeTip'))}">${esc(wTag)}</div>`;
     }
     const cPools = s.cost_by_pool || {};
-    const activePools = Object.keys(cPools).filter((k) => num(cPools[k]) > 0);
+    const activePools = sortActivePools(s, weeklyValueUsd);
     const pn = t('poolShort');
     if (activePools.length > 1) {
       poolRows = `<div class="session-pools"><ul class="mini">${activePools.map((pk) => {
         const cost = num(cPools[pk]);
         const lbl = poolRowLabel(s, pk, { weeklyValueUsd, t });
-        return `<li><span class="dim">${esc(pn[pk] || pk)}</span><span class="num dim">${esc(fmtUsd(cost))}${lbl ? ` · ${esc(lbl)}` : ''}</span></li>`;
+        return `<li><span class="dim">${esc(formatPoolName(pk, pn))}</span><span class="num dim">${esc(fmtUsd(cost))}${lbl ? ` · ${esc(lbl)}` : ''}</span></li>`;
       }).join('')}</ul></div>`;
     }
   }
@@ -354,7 +356,7 @@ export function createOverviewController({
       ? hd.by_conversation.find((c) => c && c.id === conversationId)
       : null;
     const hcSig = hc ? `${num(hc.total && hc.total.calls)}:${num(hc.total && hc.total.est_cost_usd)}` : '';
-    const valSig = `${CAL_POOLS.map((k) => num(wv[k])).join(',')}|${hd && Array.isArray(hd.by_conversation) ? hd.by_conversation.length : 0}|${hcSig}`;
+    const valSig = `${knownQuotaPools(wv).map((k) => `${k}:${num(wv[k])}`).join(',')}|${hd && Array.isArray(hd.by_conversation) ? hd.by_conversation.length : 0}|${hcSig}`;
     const sesSig = report && report.session ? `${report.session.calls}:${num(report.session.est_cost_usd)}:${num(report.session.subagents)}` : '';
     return `${valSig}|${sesSig}`;
   }

@@ -646,13 +646,19 @@ export async function exportShareCardPng(svgString, filename = 'agy-lens-usage.p
     ctx.drawImage(img, 0, 0, SHARE_CARD_WIDTH, SHARE_CARD_HEIGHT);
 
     const dataUrl = canvas.toDataURL('image/png');
-    const pngBlob = await new Promise((resolve) => {
+    let pngBlob = await new Promise((resolve) => {
       if (typeof canvas.toBlob === 'function') {
         canvas.toBlob((b) => resolve(b), 'image/png');
       } else {
         resolve(null);
       }
     });
+    if (!pngBlob && dataUrl.startsWith('data:image/png;base64,')) {
+      const bin = atob(dataUrl.slice('data:image/png;base64,'.length));
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
+      pngBlob = new Blob([bytes], { type: 'image/png' });
+    }
     if (download) {
       if (pngBlob) {
         const pngUrl = URL.createObjectURL(pngBlob);
@@ -671,10 +677,84 @@ export async function exportShareCardPng(svgString, filename = 'agy-lens-usage.p
   }
 }
 
-function shareFilename(ext) {
-  const d = new Date();
-  const stamp = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  return `agy-lens-${modalState.period || 'd30'}-${stamp}.${ext}`;
+export function renderShareCardPng(svgString, { scale = 2 } = {}) {
+  return exportShareCardPng(svgString, 'agy-lens-usage.png', { scale, download: false });
+}
+
+export async function copyShareCardSvg(svgString) {
+  const text = String(svgString ?? '');
+  let writeErr = null;
+  if (typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+    try {
+      await navigator.clipboard.writeText(text);
+      return text;
+    } catch (err) {
+      writeErr = err;
+    }
+  }
+  if (typeof document !== 'undefined' && document.body) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    ta.style.pointerEvents = 'none';
+    document.body.appendChild(ta);
+    try {
+      ta.select();
+      const ok = typeof document.execCommand === 'function' && document.execCommand('copy');
+      if (ok) return text;
+    } finally {
+      ta.remove();
+    }
+  }
+  throw writeErr || new Error('Clipboard copy unavailable');
+}
+
+function makeClipboardError(code, cause, png = null) {
+  const err = new Error((cause && cause.message) || code);
+  err.code = code;
+  if (cause !== undefined) err.cause = cause;
+  if (png !== null) err.png = png;
+  return err;
+}
+
+export async function copyShareCardPng(svgString, { scale = 2 } = {}) {
+  const renderPromise = renderShareCardPng(svgString, { scale });
+  if (
+    typeof navigator === 'undefined'
+    || !navigator.clipboard
+    || typeof navigator.clipboard.write !== 'function'
+    || typeof ClipboardItem === 'undefined'
+  ) {
+    const png = await renderPromise;
+    throw makeClipboardError('CLIPBOARD_UNAVAILABLE', new Error('Clipboard image API unavailable'), png);
+  }
+  let png = null;
+  try {
+    const blobPromise = renderPromise.then((res) => {
+      png = res;
+      if (!res || !res.blob) throw new Error('PNG blob unavailable');
+      return res.blob;
+    });
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': blobPromise })]);
+    if (!png) png = await renderPromise;
+    return png;
+  } catch (firstErr) {
+    if (!png) {
+      png = await renderPromise;
+    }
+    const isPermErr = firstErr && (firstErr.name === 'NotAllowedError' || firstErr.name === 'SecurityError');
+    if (!isPermErr && png && png.blob) {
+      try {
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': png.blob })]);
+        return png;
+      } catch (secondErr) {
+        throw makeClipboardError('CLIPBOARD_DENIED', secondErr, png);
+      }
+    }
+    throw makeClipboardError('CLIPBOARD_DENIED', firstErr, png);
+  }
 }
 
 function currentSvg() {
@@ -720,8 +800,8 @@ function renderShareModal() {
       </div>
       <div class="share-actions">
         <span class="share-status" hidden></span>
-        <button type="button" data-share-svg>${esc(t('downloadSvg'))}</button>
-        <button type="button" class="share-primary" data-share-png>${esc(t('downloadPng'))}</button>
+        <button type="button" data-share-svg>${esc(t('copySvg'))}</button>
+        <button type="button" class="share-primary" data-share-png>${esc(t('copyPng'))}</button>
       </div>
     </div>
   </div>`;
@@ -744,15 +824,19 @@ function onShareModalClick(e) {
   }
   if (e.target.closest('[data-share-svg]')) {
     const t = modalState.t || createTranslator(modalState.lang);
-    exportShareCardSvg(currentSvg(), shareFilename('svg'));
-    setShareStatus(t('shareDownloaded', 'SVG'));
+    copyShareCardSvg(currentSvg())
+      .then(() => setShareStatus(t('shareCopied', 'SVG')))
+      .catch(() => setShareStatus(t('shareCopyFail'), true));
     return;
   }
   if (e.target.closest('[data-share-png]')) {
     const t = modalState.t || createTranslator(modalState.lang);
-    exportShareCardPng(currentSvg(), shareFilename('png'))
-      .then(() => setShareStatus(t('shareDownloaded', 'PNG')))
-      .catch(() => setShareStatus(t('sharePngFail'), true));
+    copyShareCardPng(currentSvg())
+      .then(() => setShareStatus(t('shareCopied', 'PNG')))
+      .catch((err) => {
+        const isClip = err && (err.code === 'CLIPBOARD_UNAVAILABLE' || err.code === 'CLIPBOARD_DENIED');
+        setShareStatus(t(isClip ? 'shareCopyPngFail' : 'sharePngFail'), true);
+      });
   }
 }
 
