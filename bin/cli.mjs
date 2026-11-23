@@ -43,6 +43,7 @@ import {
 } from '../sidecars/agy-lens/lib/pb.mjs';
 import { readPricingMeta } from '../sidecars/agy-lens/lib/pricing.mjs';
 import { fetchQuota, loadQuotaCycles, mergeQuotaObservation } from '../sidecars/agy-lens/lib/quota.mjs';
+import { readUpdateMeta } from '../sidecars/agy-lens/lib/updater.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, '..');
@@ -213,7 +214,7 @@ function formatDbText(report, colorText) {
   return `${lines.join('\n')}\n`;
 }
 
-function formatSummaryText({ version, geminiDir, pricingMeta, days, history, report, quota, useColor }) {
+function formatSummaryText({ version, geminiDir, pricingMeta, days, history, report, quota, updateMeta, useColor }) {
   const c = makeStyler(useColor);
   const out = [];
   out.push(c('1;36', `Agy Lens v${version}`) + c('90', ' — Antigravity Local Usage Summary'));
@@ -233,6 +234,10 @@ function formatSummaryText({ version, geminiDir, pricingMeta, days, history, rep
       }
     } else {
       out.push(`Quota: ${c('90', quota.message || 'offline (language server not running)')}`);
+    }
+    if (updateMeta?.update_available && updateMeta.latest_version) {
+      out.push('');
+      out.push(c('36', `Update available: v${version} -> v${updateMeta.latest_version} (${updateMeta.release_url})`));
     }
     return `${out.join('\n')}\n`;
   }
@@ -287,6 +292,11 @@ function formatSummaryText({ version, geminiDir, pricingMeta, days, history, rep
     if (report.speed?.avg_streaming_tps !== null && report.speed?.avg_streaming_tps !== undefined) {
       out.push(`  Speed: ${roundN(report.speed.avg_streaming_tps, 1)} tok/s avg (${report.speed.calls} gen(s))`);
     }
+  }
+
+  if (updateMeta?.update_available && updateMeta.latest_version) {
+    out.push('');
+    out.push(c('36', `Update available: v${version} -> v${updateMeta.latest_version} (${updateMeta.release_url})`));
   }
 
   return `${out.join('\n')}\n`;
@@ -474,6 +484,7 @@ export async function runCliMain(argv = process.argv.slice(2)) {
   }
 
   const pricingMeta = readPricingMeta(pricingPath);
+  const updateMeta = readUpdateMeta(join(dataDir, 'update-cache.json'), version);
   process.stdout.write(
     formatSummaryText({
       version,
@@ -483,6 +494,7 @@ export async function runCliMain(argv = process.argv.slice(2)) {
       history,
       report: latestReport,
       quota,
+      updateMeta,
       useColor,
     }),
   );

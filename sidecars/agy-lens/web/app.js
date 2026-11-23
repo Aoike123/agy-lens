@@ -7,6 +7,7 @@ import {
   normalizeLang,
 } from './i18n.js';
 import {
+  esc,
   getJson as fetchJson,
   HISTORY_VIEWS,
   PERIODS,
@@ -87,6 +88,76 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
     tab = TABS.includes(store.get('ctx.tab', 'overview')) ? store.get('ctx.tab', 'overview') : 'overview';
     let workspace = '';
     const openKeys = new Set();
+    let updateInfo = null;
+
+    function updateInstallCommand() {
+      const plat = typeof navigator !== 'undefined'
+        ? `${navigator.platform || ''} ${navigator.userAgent || ''}`
+        : '';
+      return /win/i.test(plat)
+        ? 'irm https://raw.githubusercontent.com/Aoike123/agy-lens/main/scripts/install.ps1 | iex'
+        : 'curl -fsSL https://raw.githubusercontent.com/Aoike123/agy-lens/main/scripts/install.sh | bash';
+    }
+
+    function renderUpdateBanner() {
+      const el = $('update-banner');
+      if (!el) return;
+      const latest = updateInfo && updateInfo.latest_version ? String(updateInfo.latest_version) : '';
+      const current = updateInfo && updateInfo.current_version ? String(updateInfo.current_version) : '';
+      const dismissed = store.get('ctx.dismissedUpdate', '');
+      if (!updateInfo || !updateInfo.update_available || !latest || dismissed === latest) {
+        el.hidden = true;
+        el.innerHTML = '';
+        return;
+      }
+      const rawUrl = String(updateInfo.release_url || '');
+      const safeUrl = /^https:\/\/github\.com\/Aoike123\/agy-lens(?:\/|$)/.test(rawUrl) ? rawUrl : '';
+      const linkHtml = safeUrl
+        ? `<a class="update-link" href="${esc(safeUrl)}" target="_blank" rel="noopener noreferrer">${esc(t('viewRelease'))}</a>`
+        : '';
+      el.innerHTML = `<span class="update-msg"><span class="update-dot" aria-hidden="true"></span><span>${esc(t('updateAvailable', latest, current))}</span></span>`
+        + `<span class="update-acts"><button type="button" class="update-cmd-btn" data-copy-update>${esc(t('copyUpdateCmd'))}</button>${linkHtml}`
+        + `<button type="button" class="update-dismiss" data-dismiss-update aria-label="${esc(t('dismissUpdate'))}" title="${esc(t('dismissUpdate'))}">&times;</button></span>`;
+      el.hidden = false;
+    }
+
+    async function copyUpdateCommand(btn) {
+      const cmd = updateInstallCommand();
+      try {
+        if (typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+          await navigator.clipboard.writeText(cmd);
+        } else {
+          throw new Error('no clipboard');
+        }
+      } catch {
+        const ta = document.createElement('textarea');
+        ta.value = cmd;
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        ta.remove();
+      }
+      if (btn) {
+        btn.textContent = t('copied');
+        setTimeout(() => {
+          const curBtn = $('update-banner')?.querySelector('[data-copy-update]');
+          if (curBtn) curBtn.textContent = t('copyUpdateCmd');
+        }, 1500);
+      }
+    }
+
+    async function checkUpdate() {
+      try {
+        const res = await getJson('/api/update');
+        if (res && typeof res === 'object' && !res.error && res.update_available && res.latest_version) {
+          updateInfo = res;
+          renderUpdateBanner();
+        }
+      } catch { /* update check is best-effort and never blocks panel startup */ }
+    }
 
     function keepScroll(fn) {
       const y = window.scrollY;
@@ -231,6 +302,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
       t = createTranslator(lang);
       store.set('ctx.lang', lang);
       applyStatic();
+      renderUpdateBanner();
       overview.paint();
       if (quota.loader.data || quota.loader.loading || quota.loader.error) quota.paint();
       if (history.loader.data || history.loader.loading || history.loader.error) history.paint();
@@ -292,6 +364,17 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
     });
 
     document.addEventListener('click', (e) => {
+      const copyUpd = e.target.closest('[data-copy-update]');
+      if (copyUpd) { copyUpdateCommand(copyUpd); return; }
+
+      if (e.target.closest('[data-dismiss-update]')) {
+        if (updateInfo && updateInfo.latest_version) {
+          store.set('ctx.dismissedUpdate', String(updateInfo.latest_version));
+        }
+        renderUpdateBanner();
+        return;
+      }
+
       const goTab = e.target.closest('[data-go-tab]');
       if (goTab) { setTab(goTab.dataset.goTab); return; }
 
@@ -389,6 +472,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
       }
       setTab(tab);
       booted = true;
+      checkUpdate();
       setInterval(() => overview.refresh(), POLL_MS);
       setInterval(() => quota.tickCountdowns(), 1000);
       setInterval(autoRefreshActive, AUTO_REFRESH_MS);

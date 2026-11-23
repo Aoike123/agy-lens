@@ -37,19 +37,33 @@ import {
   recordQuotaCycles,
   redact,
 } from './lib/quota.mjs';
+import {
+  checkForUpdate,
+  compareSemver,
+  parseGithubRelease,
+  parseManifestRelease,
+  readCurrentVersion,
+  readUpdateMeta,
+} from './lib/updater.mjs';
 import { bundleWebApp, computeWebJsStamp } from './lib/web-bundle.mjs';
 
 export {
   buildModelCatalog,
   bundleWebApp,
+  checkForUpdate,
+  compareSemver,
   computeWebJsStamp,
   inferLimit,
   loadQuotaCycles,
   mergeQuotaObservation,
+  parseGithubRelease,
   parseLiteLLMPricing,
+  parseManifestRelease,
   parseOpenRouterPricing,
   parseQuota,
   parseQuotaSummary,
+  readCurrentVersion,
+  readUpdateMeta,
   recordQuotaCycles,
   redact,
 };
@@ -65,6 +79,8 @@ const QUOTA_TTL_MS = 60 * 1000;
 const HISTORY_CACHE_PATH = join(DATA_DIR, 'history-cache.json');
 const HISTORY_TTL_MS = 60 * 1000;
 const PRICING_PATH = join(DATA_DIR, 'pricing-cache.json');
+const UPDATE_CACHE_PATH = join(DATA_DIR, 'update-cache.json');
+const CURRENT_VERSION = readCurrentVersion(resolve(HERE, '../..'));
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // GET query parameters arrive as strings; JSON bodies as booleans.
@@ -134,6 +150,27 @@ async function pricing({ refresh = false, sync = false } = {}) {
   return pricingInFlight;
 }
 
+// --- update check cache -------------------------------------------------------
+
+let updateInFlight = null;
+
+async function updateStatus({ refresh = false } = {}) {
+  if (!refresh) {
+    const meta = readUpdateMeta(UPDATE_CACHE_PATH, CURRENT_VERSION);
+    if (!meta.stale || truthy(process.env.AGY_LENS_NO_UPDATE_CHECK)) {
+      return truthy(process.env.AGY_LENS_NO_UPDATE_CHECK) ? { ...meta, disabled: true } : meta;
+    }
+  }
+  if (!updateInFlight) {
+    updateInFlight = checkForUpdate({
+      updateCachePath: UPDATE_CACHE_PATH,
+      currentVersion: CURRENT_VERSION,
+      force: Boolean(refresh),
+    }).finally(() => { updateInFlight = null; });
+  }
+  return updateInFlight;
+}
+
 // --- history cache ------------------------------------------------------------
 
 let historyCache = null; // { at, pricingStamp, catalogStamp, cSig, result }
@@ -158,10 +195,10 @@ async function scanHistory(quotaCycles = null) {
 
 // Persistent official weekly quota cycle ledger enriched with the current live
 // (or cached) quota response. Never waits long on the language server.
-async function currentQuotaCycles() {
+async function currentQuotaCycles(refresh = false) {
   let q = null;
   try {
-    q = await Promise.race([quota(false), new Promise((r) => { setTimeout(() => r(null), 3000).unref?.(); })]);
+    q = await Promise.race([quota(Boolean(refresh)), new Promise((r) => { setTimeout(() => r(null), 3000).unref?.(); })]);
   } catch { /* quota unavailable */ }
   const ledger = loadQuotaCycles(QUOTA_CYCLES_PATH, QUOTA_RAW_PATH);
   return q && !q.error ? mergeQuotaObservation(ledger, q).ledger : ledger;
@@ -171,14 +208,14 @@ const cyclesSig = (ledger) => {
   const pools = (ledger && ledger.pools) || {};
   return Object.keys(pools).sort().map((pk) => {
     const arr = Array.isArray(pools[pk]) ? pools[pk] : [];
-    return `${pk}=[${arr.map((c) => `${c.reset_time}@${c.observed_at}:${c.remaining_fraction}:${c.saturated ? 1 : 0}`).join(',')}]`;
+    return `${pk}=[${arr.map((c) => `${c.cycle_start || ''}:${c.cycle_start_source || ''}:${c.reset_time}@${c.observed_at}:${c.remaining_fraction}:${c.saturated ? 1 : 0}:${Array.isArray(c.observations) ? c.observations.length : 0}`).join(',')}]`;
   }).join('|');
 };
 
 async function history(refresh) {
   const pricingStamp = fileStamp(PRICING_PATH);
   const catalogStamp = fileStamp(CATALOG_PATH);
-  const quotaCycles = await currentQuotaCycles();
+  const quotaCycles = await currentQuotaCycles(refresh);
   const cSig = cyclesSig(quotaCycles);
   if (!refresh && historyCache && historyCache.pricingStamp === pricingStamp && historyCache.catalogStamp === catalogStamp && historyCache.cSig === cSig && Date.now() - historyCache.at < HISTORY_TTL_MS) {
     return historyCache.result;
@@ -390,9 +427,17 @@ if (!truthy(process.env.CONTEXT_PANEL_NO_SERVER)) {
     }
   }, 'GET');
 
+  app.api('/api/update', async (data) => {
+    try {
+      return await updateStatus({ refresh: truthy(data?.refresh) });
+    } catch (err) {
+      return { ...readUpdateMeta(UPDATE_CACHE_PATH, CURRENT_VERSION), error: 'failed', message: err.message };
+    }
+  }, 'GET');
+
   app.run();
   refreshCatalog();
-  const QUOTA_BG_POLL_MS = 10 * 60 * 1000;
+  const QUOTA_BG_POLL_MS = 5 * 60 * 1000;
   quota(false).catch(() => {});
   const quotaBgTimer = setInterval(() => { quota(false).catch(() => {}); }, QUOTA_BG_POLL_MS);
   quotaBgTimer.unref?.();

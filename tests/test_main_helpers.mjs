@@ -141,6 +141,7 @@ test('parseQuota infers limit kinds', () => {
   assert.equal(inferLimit(0.5, iso(4.9), NOW).kind, '5h');
   assert.equal(inferLimit(0.5, iso(12), NOW).kind, 'daily');
   assert.equal(inferLimit(0.5, iso(100), NOW).kind, 'weekly');
+  assert.equal(inferLimit(0.5, iso(336), NOW).kind, 'weekly');
   assert.equal(inferLimit(0.5, iso(1000), NOW).kind, 'unknown');
   assert.equal(inferLimit(0.5, iso(-1), NOW).kind, 'unknown');
   assert.equal(inferLimit(0.5, null, NOW).kind, 'unknown');
@@ -692,8 +693,10 @@ test('bundleWebApp(WEB_DIR) emits valid classic script with zero top-level impor
   vm.runInNewContext(code, sandbox, { filename: 'app.bundle.js' });
   assert.deepEqual(Object.keys(sandbox), []);
 
-  // Packaging script collects sidecars/agy-lens/lib/web-bundle.mjs automatically.
-  assert.ok(collectRuntimeFiles(ROOT).includes('sidecars/agy-lens/lib/web-bundle.mjs'));
+  // Packaging script collects sidecars/agy-lens/lib/web-bundle.mjs and updater.mjs automatically.
+  const runtime = collectRuntimeFiles(ROOT);
+  assert.ok(runtime.includes('sidecars/agy-lens/lib/web-bundle.mjs'));
+  assert.ok(runtime.includes('sidecars/agy-lens/lib/updater.mjs'));
 });
 
 // --- M2B Test Group 2: Synthetic ESM edge-case & symbol collision matrix -----
@@ -1076,6 +1079,7 @@ function createMockDomSandbox({ navigatorLanguage = 'en-US', brokenStorage = fal
   langPill.appendChild(langEn);
   langPill.appendChild(langZh);
 
+  const updateBanner = new MockElement('div', { class: 'update-banner', id: 'update-banner', hidden: '' });
   const paneOverview = new MockElement('main', { class: 'pane', id: 'overview' });
   paneOverview.innerHTML = '<p class="empty" data-i18n="loading">Loading…</p>';
   const paneQuota = new MockElement('main', { class: 'pane', id: 'quota', hidden: '' });
@@ -1084,6 +1088,7 @@ function createMockDomSandbox({ navigatorLanguage = 'en-US', brokenStorage = fal
   body.appendChild(tabsNav);
   body.appendChild(refreshBtn);
   body.appendChild(langPill);
+  body.appendChild(updateBanner);
   body.appendChild(paneOverview);
   body.appendChild(paneQuota);
   body.appendChild(paneHistory);
@@ -1186,7 +1191,7 @@ function createMockDomSandbox({ navigatorLanguage = 'en-US', brokenStorage = fal
     sandbox,
     documentMock,
     fetchedUrls,
-    elements: { tabOverview, tabQuota, tabHistory, langEn, langZh, paneOverview, paneQuota, paneHistory },
+    elements: { tabOverview, tabQuota, tabHistory, langEn, langZh, updateBanner, paneOverview, paneQuota, paneHistory },
     cleanup,
   };
 }
@@ -1248,6 +1253,7 @@ test('bundled /app.js executes in mocked browser VM (en-US & opaque zh-CN) witho
       scanned_at: '2026-11-22T04:00:00Z',
     },
     '/api/pricing': { source: 'builtin', count: 10 },
+    '/api/update': { current_version: '2.2.0', latest_version: '2.2.0', update_available: false },
   };
 
   const flush = () => new Promise((r) => setTimeout(r, 40));
@@ -1319,6 +1325,31 @@ test('bundled /app.js executes in mocked browser VM (en-US & opaque zh-CN) witho
     );
   } finally {
     vmZh.cleanup();
+  }
+
+  // Scenario C: update banner displays when update_available is true and stays dismissed after dismiss click.
+  const updateFixtures = {
+    ...fetchFixtures,
+    '/api/update': {
+      current_version: '2.2.0',
+      latest_version: '2.3.0',
+      update_available: true,
+      release_url: 'https://github.com/Aoike123/agy-lens/releases/tag/v2.3.0',
+    },
+  };
+  const vmUpd = createMockDomSandbox({ navigatorLanguage: 'en-US', brokenStorage: false, fetchFixtures: updateFixtures });
+  try {
+    vm.runInNewContext(bundled, vmUpd.sandbox, { filename: 'app.bundle.js' });
+    await flush();
+    assert.equal(vmUpd.elements.updateBanner.hidden, false);
+    assert.ok(vmUpd.elements.updateBanner.textContent.includes('2.3.0'));
+    const dismissBtn = vmUpd.elements.updateBanner.querySelector('[data-dismiss-update]');
+    assert.ok(dismissBtn);
+    dismissBtn.click();
+    assert.equal(vmUpd.elements.updateBanner.hidden, true);
+    assert.equal(vmUpd.sandbox.localStorage.getItem('ctx.dismissedUpdate'), '2.3.0');
+  } finally {
+    vmUpd.cleanup();
   }
 });
 

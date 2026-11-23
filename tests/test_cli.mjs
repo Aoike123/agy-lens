@@ -473,17 +473,51 @@ test('CLI renders quota reset_time, loads quota-cycles weekly_value_usd, and rol
     assert.ok(textOut.includes(`resets ${weeklyReset}`), `Expected reset_time in CLI output:\n${textOut}`);
     assert.ok(textOut.includes('weekly 75.0%') && textOut.includes('5h 100.0%'), `Expected both weekly and 5h limits in CLI output:\n${textOut}`);
 
-    // Verify child-process CLI offline reads the persisted quota-cycles.json and rolls up subagents.
+    // First single <=7d poll infers weekly_7d cycle_start and populates weekly_value_usd immediately.
     const env = {
       ANTIGRAVITY_GEMINI_DIR: geminiDir,
       ANTIGRAVITY_EXECUTABLE_DATA_DIR: dataDir,
     };
+    const rFirst = runCli(['--json'], env);
+    assert.equal(rFirst.status, 0, rFirst.stderr);
+    const parsedFirst = JSON.parse(rFirst.stdout);
+    assert.equal(parsedFirst.history.weekly_cycles.gemini[0].cycle_start_source, 'weekly_7d');
+    assert.ok(parsedFirst.history.weekly_value_usd.gemini > 0);
+
+    // Seed a prior reset cycle (so consecutive reset timestamps take precedence with prev_reset) + cached update notice.
+    const cyclesPath = join(dataDir, 'quota-cycles.json');
+    const cyclesJson = JSON.parse(readFileSync(cyclesPath, 'utf8'));
+    const prevResetIso = new Date(nowMs - 3 * 86400_000).toISOString();
+    cyclesJson.pools.gemini.push({
+      cycle_start: null,
+      cycle_start_source: 'unknown',
+      reset_time: prevResetIso,
+      first_seen_at: new Date(nowMs - 6 * 86400_000).toISOString(),
+      observed_at: new Date(nowMs - 4 * 86400_000).toISOString(),
+      remaining_fraction: 0.5,
+      used_fraction: 0.5,
+      saturated: false,
+      obs_count: 1,
+    });
+    writeFileSync(cyclesPath, JSON.stringify(cyclesJson));
+    writeFileSync(join(dataDir, 'update-cache.json'), JSON.stringify({
+      latest_version: '9.9.9',
+      release_url: 'https://github.com/Aoike123/agy-lens/releases/tag/v9.9.9',
+      checked_at: new Date().toISOString(),
+      source: 'github_release',
+    }));
 
     const rJson = runCli(['--json'], env);
     assert.equal(rJson.status, 0, rJson.stderr);
     const parsed = JSON.parse(rJson.stdout);
-    assert.ok(parsed.history.weekly_value_usd.gemini > 0, 'Expected CLI history to populate weekly_value_usd from quota-cycles');
+    assert.equal(parsed.history.weekly_cycles.gemini[0].cycle_start_source, 'prev_reset');
+    assert.ok(parsed.history.weekly_value_usd.gemini > 0, 'Expected CLI history to populate weekly_value_usd from consecutive reset cycle');
     assert.equal(parsed.history.totals.all.conversations, 1, 'Expected top-level conversation tree count = 1');
+    assert.deepEqual(Object.keys(parsed).sort(), ['history', 'quota', 'report']);
+
+    const rUpdText = runCli(['--no-color'], env);
+    assert.equal(rUpdText.status, 0, rUpdText.stderr);
+    assert.ok(rUpdText.stdout.includes('Update available:') && rUpdText.stdout.includes('v9.9.9'));
 
     const rDb = runCli(['--json', '--db', pDb], env);
     assert.equal(rDb.status, 0, rDb.stderr);
