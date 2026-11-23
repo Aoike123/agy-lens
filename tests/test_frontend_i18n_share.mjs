@@ -496,6 +496,7 @@ test('buildShareCardSvg uses per-period model slices and draws a 100-dot model g
   assert.equal((svg.match(/<circle [^>]*r="8.5"/g) || []).length, 100);
   const todaySvg = buildShareCardSvg({ period: 'today', totals, byModel, daily: [], lang: 'en', theme: 'dark' });
   assert.ok(todaySvg.includes('No model usage yet'), 'models with no usage in the period are dropped');
+  assert.ok(todaySvg.includes('00:00') && todaySvg.includes('23:00'), 'today card without hourly_today still renders 24h axis');
 
   // sliceModelsForPeriod filters unused models, projects period est_cost_usd, and falls back gracefully on legacy rows.
   const slicedD7 = formatMod.sliceModelsForPeriod(byModel, 'd7');
@@ -754,6 +755,84 @@ test('buildShareCardSvg enforces strict allowlist, path/email scrubbing, and XML
   for (const leaked of ['Smith', 'secret', 'repo', 'server', 'fileserver', 'share', 'dir', 'alice', 'Alice', 'bob', 'proj', 'vscode', 'settings.json', 'ssh-remote', 'local-file', 'app-file', 'Project', 'foo@bar', 'backup', 'file-root']) {
     assert.ok(!hostileModelsSvg.includes(leaked), `hostileModelsSvg leaked ${leaked}`);
   }
+});
+
+test('buildShareCardSvg adapts activity chart per period (today hourly, 7d labeled, 30d ticks, all heatmap) and ranks models by newTok', () => {
+  // 1. Model ranking uses non-cache input+output even when another model has larger cache_read.
+  const sortedSvg = buildShareCardSvg({
+    period: 'today',
+    totals: { today: { input: 10800, output: 1200, cache_read: 50_000_000, calls: 10, conversations: 2 } },
+    byModel: [
+      { model: 'high-cache', display_name: 'High Cache Model', input: 1500, output: 500, cache_read: 50_000_000, calls: 5 },
+      { model: 'high-new', display_name: 'High New Model', input: 8000, output: 2000, cache_read: 1000, calls: 5 },
+    ],
+    daily: [{ date: '2026-11-23', tokens: 50012000, calls: 10 }],
+    hourlyToday: [
+      { hour: 9, tokens: 12000, calls: 2 },
+      { hour: 14, tokens: 45000, calls: 5 },
+      { hour: 21, tokens: 8000, calls: 1 },
+    ],
+    lang: 'zh',
+    theme: 'dark',
+  });
+  assert.ok(sortedSvg.indexOf('High New Model') < sortedSvg.indexOf('High Cache Model'), 'models must sort by displayed input+output');
+  assert.ok(sortedSvg.includes('今日活跃 3 小时'), 'today card with hourlyToday uses activeHours summary');
+  assert.ok(sortedSvg.includes('00:00') && sortedSvg.includes('06:00') && sortedSvg.includes('12:00') && sortedSvg.includes('18:00') && sortedSvg.includes('23:00'));
+
+  // 2. d7 renders 7 labeled columns with weekday + day number.
+  const d7Daily = Array.from({ length: 7 }, (_, i) => ({
+    date: `2026-11-${String(17 + i).padStart(2, '0')}`,
+    tokens: (i + 1) * 1000,
+    calls: i + 1,
+  }));
+  const d7Svg = buildShareCardSvg({
+    period: 'd7',
+    totals: { d7: { input: 20000, output: 8000, cache_read: 0, calls: 28, conversations: 3 } },
+    byModel: [{ model: 'm1', display_name: 'Model One', input: 20000, output: 8000, calls: 28 }],
+    daily: d7Daily,
+    lang: 'en',
+    theme: 'dark',
+  });
+  assert.ok(d7Svg.includes('Tue 17') && d7Svg.includes('Mon 23'), 'd7 card must show weekday + day ticks');
+  assert.ok(d7Svg.includes('Active 7 / 7 days'));
+
+  // 3. d30 renders start/mid/end MM-DD date ticks.
+  const d30Daily = Array.from({ length: 30 }, (_, i) => {
+    const dt = new Date(2026, 9, 25 + i);
+    const y = dt.getFullYear();
+    const m = String(dt.getMonth() + 1).padStart(2, '0');
+    const d = String(dt.getDate()).padStart(2, '0');
+    return { date: `${y}-${m}-${d}`, tokens: i % 2 === 0 ? 2000 : 0, calls: i % 2 === 0 ? 2 : 0 };
+  });
+  const d30Svg = buildShareCardSvg({
+    period: 'd30',
+    totals: { d30: { input: 25000, output: 5000, cache_read: 0, calls: 30, conversations: 4 } },
+    byModel: [{ model: 'm1', display_name: 'Model One', input: 25000, output: 5000, calls: 30 }],
+    daily: d30Daily,
+    lang: 'en',
+    theme: 'light',
+  });
+  assert.ok(d30Svg.includes('10-25') && d30Svg.includes('11-23'), 'd30 card must include MM-DD boundary ticks');
+
+  // 4. all with >= 14 days renders a 7-row multi-week calendar heatmap grid.
+  const allDaily = Array.from({ length: 120 }, (_, i) => {
+    const dt = new Date(2026, 6, 27 + i);
+    const y = dt.getFullYear();
+    const m = String(dt.getMonth() + 1).padStart(2, '0');
+    const d = String(dt.getDate()).padStart(2, '0');
+    return { date: `${y}-${m}-${d}`, tokens: i % 3 === 0 ? 5000 : 0, calls: i % 3 === 0 ? 3 : 0 };
+  });
+  const allSvg = buildShareCardSvg({
+    period: 'all',
+    totals: { all: { input: 160000, output: 40000, cache_read: 0, calls: 120, conversations: 12 } },
+    byModel: [{ model: 'm1', display_name: 'Model One', input: 160000, output: 40000, calls: 120 }],
+    daily: allDaily,
+    lang: 'en',
+    theme: 'dark',
+  });
+  assert.match(allSvg, /Active \d+ days in 26w/);
+  assert.ok(allSvg.includes('>Less<') && allSvg.includes('>More<'));
+  assert.ok(!/\bNaN\b|\bInfinity\b|\bundefined\b/.test(allSvg));
 });
 
 test('splitPath escapes regex metacharacters in conversationId safely', () => {
@@ -1132,6 +1211,9 @@ function createMockResponseHandler(bundledAppJs) {
     }
     if (pathname === '/api/pricing') {
       return { status: 200, contentType: 'application/json; charset=utf-8', body: JSON.stringify({ source: 'builtin', count: 10 }) };
+    }
+    if (pathname === '/api/update') {
+      return { status: 200, contentType: 'application/json; charset=utf-8', body: JSON.stringify({ current_version: '2.2.0', latest_version: '2.2.0', update_available: false }) };
     }
     const route = routes.get(pathname);
     if (route) {

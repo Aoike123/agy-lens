@@ -2,7 +2,7 @@
 // buildShareCardSvg, escapeXml, and scrubSensitiveText are pure Node-runnable with zero DOM/browser globals.
 
 import { createTranslator, normalizeLang } from '../i18n.js';
-import { esc, fmtCost, fmtInt, fmtPctNum, fmtTok, isNum } from '../format.js';
+import { dayKey, esc, fmtCost, fmtInt, fmtPctNum, fmtTok, isNum, makeHeatScale, parseDay } from '../format.js';
 
 export const SHARE_CARD_WIDTH = 1200;
 export const SHARE_CARD_HEIGHT = 630;
@@ -358,8 +358,9 @@ function sanitizeModels(rawList, fallbackName, periodKey = null) {
     if (partFlag) g.cost_partial = true;
   }
   return [...map.values()].sort((a, b) => (
-    (b.input + b.output + b.cache_read) - (a.input + a.output + a.cache_read)
-    || (b.input + b.output) - (a.input + a.output)
+    (b.input + b.output) - (a.input + a.output)
+    || (b.cache_read - a.cache_read)
+    || (b.calls - a.calls)
   ));
 }
 
@@ -378,21 +379,254 @@ function sanitizeDaily(rawDaily) {
   return out;
 }
 
-function downsampleBars(items, maxBars = 30) {
-  if (items.length <= maxBars) return items;
-  const bucketSize = Math.ceil(items.length / maxBars);
-  const out = [];
-  for (let i = 0; i < items.length; i += bucketSize) {
-    const slice = items.slice(i, i + bucketSize);
-    let tokens = 0;
-    let calls = 0;
-    for (const s of slice) {
-      tokens += s.tokens;
-      calls += s.calls;
-    }
-    out.push({ date: slice[slice.length - 1].date, tokens, calls });
+function sanitizeHourly(rawHourly) {
+  if (!Array.isArray(rawHourly) || !rawHourly.length) return null;
+  const slots = Array.from({ length: 24 }, (_, hour) => ({ hour, tokens: 0, calls: 0 }));
+  let validCount = 0;
+  for (const h of rawHourly) {
+    if (!h || typeof h !== 'object') continue;
+    const hr = Number(h.hour);
+    if (!Number.isInteger(hr) || hr < 0 || hr > 23) continue;
+    slots[hr].tokens += safeNum(h.tokens);
+    slots[hr].calls += safeNum(h.calls);
+    validCount += 1;
   }
-  return out;
+  return validCount > 0 ? slots : null;
+}
+
+const MONTH_ABBR_EN = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function formatMonthLabel(dateObj, lang) {
+  const m = dateObj.getMonth();
+  return lang === 'zh' ? `${m + 1}月` : MONTH_ABBR_EN[m];
+}
+
+function formatDayTick(dateStr, t, lang) {
+  const dt = parseDay(dateStr);
+  if (Number.isNaN(dt.getTime())) return dateStr.slice(5);
+  const wd = t('weekdays');
+  const w = wd[dt.getDay()] || '';
+  return lang === 'zh' ? `周${w} ${dt.getDate()}` : `${w} ${dt.getDate()}`;
+}
+
+function renderActivitySection({ periodKey, dailySlice, hourly, pal, PAD, RIGHT, t, normLang, txt }) {
+  const chartW = RIGHT - PAD;
+  const activeDailyCount = dailySlice.filter((d) => d.tokens > 0 || d.calls > 0).length;
+
+  // 1. Today: 24-hour time-of-day activity bar chart (00:00 -> 23:00).
+  if (periodKey === 'today') {
+    const chartTop = 466;
+    const chartH = 58;
+    const baseY = chartTop + chartH;
+    const gap = 8;
+    const bw = (chartW - gap * 23) / 24;
+    let svg = `<line x1="${PAD}" y1="${baseY + 0.5}" x2="${RIGHT}" y2="${baseY + 0.5}" stroke="${pal.line}" stroke-width="1"/>`;
+    let activeSummary;
+    if (hourly) {
+      const activeHours = hourly.filter((h) => h.tokens > 0 || h.calls > 0).length;
+      activeSummary = t('activeHours', activeHours);
+      const maxTok = hourly.reduce((mx, h) => Math.max(mx, h.tokens), 0);
+      let peakHour = -1;
+      if (maxTok > 0) {
+        for (const h of hourly) {
+          if (h.tokens >= maxTok) peakHour = h.hour;
+        }
+      }
+      svg += hourly.map((h, i) => {
+        const x = PAD + i * (bw + gap);
+        let bh = 3;
+        let fill = pal.empty;
+        let rx = 1.5;
+        if (h.tokens > 0 && maxTok > 0) {
+          bh = Math.max(5, (h.tokens / maxTok) * chartH);
+          fill = h.hour === peakHour ? pal.accent : pal.bar;
+          rx = 3.5;
+        } else if (h.calls > 0) {
+          bh = 4;
+          fill = pal.bar;
+          rx = 2;
+        }
+        return `<rect x="${x.toFixed(1)}" y="${(baseY - bh).toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" rx="${rx}" fill="${fill}"/>`;
+      }).join('');
+    } else {
+      activeSummary = t('activeToday', activeDailyCount > 0);
+      svg += Array.from({ length: 24 }, (_, i) => {
+        const x = PAD + i * (bw + gap);
+        return `<rect x="${x.toFixed(1)}" y="${(baseY - 3).toFixed(1)}" width="${bw.toFixed(1)}" height="3" rx="1.5" fill="${pal.empty}"/>`;
+      }).join('');
+    }
+    for (const hr of [0, 6, 12, 18, 23]) {
+      const bx = PAD + hr * (bw + gap);
+      const tickX = hr === 0 ? bx : (hr === 23 ? bx + bw : bx + bw / 2);
+      const anchor = hr === 0 ? 'start' : (hr === 23 ? 'end' : 'middle');
+      const lbl = `${String(hr).padStart(2, '0')}:00`;
+      svg += `<line x1="${(bx + bw / 2).toFixed(1)}" y1="${baseY + 1}" x2="${(bx + bw / 2).toFixed(1)}" y2="${baseY + 4}" stroke="${pal.line}" stroke-width="1"/>`;
+      svg += txt(tickX.toFixed(1), 546, lbl, { size: 11.5, fill: pal.dim, anchor, num: true });
+    }
+    return `
+  ${txt(PAD, 452, t('activity'), { size: 15, fill: pal.secondary })}
+  ${txt(RIGHT, 452, activeSummary, { size: 15, anchor: 'end', num: true })}
+  ${svg}`;
+  }
+
+  // 2. Last 7 days: 7 wide columns with weekday + day-of-month labels.
+  if (periodKey === 'd7') {
+    const bars = dailySlice.slice(-7);
+    const activeSummary = t('activeDaysOf', activeDailyCount, Math.max(1, bars.length));
+    const chartTop = 466;
+    const chartH = 56;
+    const baseY = chartTop + chartH;
+    let svg = `<line x1="${PAD}" y1="${baseY + 0.5}" x2="${RIGHT}" y2="${baseY + 0.5}" stroke="${pal.line}" stroke-width="1"/>`;
+    if (bars.length) {
+      const maxTok = bars.reduce((mx, d) => Math.max(mx, d.tokens), 0);
+      const gap = 14;
+      const bw = Math.min(148, (chartW - gap * Math.max(0, bars.length - 1)) / bars.length);
+      const total = bars.length * bw + Math.max(0, bars.length - 1) * gap;
+      const x0 = RIGHT - total;
+      svg += bars.map((d, i) => {
+        const x = x0 + i * (bw + gap);
+        const isLast = i === bars.length - 1;
+        let bh = 3;
+        let fill = pal.empty;
+        let rx = 1.5;
+        if (d.tokens > 0 && maxTok > 0) {
+          bh = Math.max(5, (d.tokens / maxTok) * chartH);
+          fill = isLast ? pal.accent : pal.bar;
+          rx = 4;
+        } else if (d.calls > 0) {
+          bh = 4;
+          fill = isLast ? pal.accent : pal.bar;
+          rx = 2;
+        }
+        const lbl = formatDayTick(d.date, t, normLang);
+        const lblFill = isLast ? pal.fg : pal.dim;
+        const lblWeight = isLast ? 500 : 400;
+        return `<rect x="${x.toFixed(1)}" y="${(baseY - bh).toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" rx="${rx}" fill="${fill}"/>`
+          + txt((x + bw / 2).toFixed(1), 545, lbl, { size: 12, fill: lblFill, weight: lblWeight, anchor: 'middle', num: true });
+      }).join('');
+    }
+    return `
+  ${txt(PAD, 452, t('activity'), { size: 15, fill: pal.secondary })}
+  ${txt(RIGHT, 452, activeSummary, { size: 15, anchor: 'end', num: true })}
+  ${svg}`;
+  }
+
+  // 3. All time (with >= 14 days): multi-week 7-row GitHub-style calendar heatmap.
+  if (periodKey === 'all' && dailySlice.length >= 14) {
+    const end = parseDay(dailySlice[dailySlice.length - 1].date);
+    if (!Number.isNaN(end.getTime())) {
+      const byDay = new Map(dailySlice.map((d) => [d.date, d]));
+      const firstActive = dailySlice.find((d) => d.tokens > 0 || d.calls > 0);
+      let need = 0;
+      if (firstActive) {
+        const fa = parseDay(firstActive.date);
+        const endSun = new Date(end.getFullYear(), end.getMonth(), end.getDate() - end.getDay());
+        const firstSun = new Date(fa.getFullYear(), fa.getMonth(), fa.getDate() - fa.getDay());
+        need = Math.round((endSun - firstSun) / (7 * 86400000)) + 1;
+      }
+      const weeks = Math.min(52, Math.max(26, need));
+      const start = new Date(end.getFullYear(), end.getMonth(), end.getDate() - end.getDay() - 7 * (weeks - 1));
+      const days = [];
+      for (let i = 0; i < weeks * 7; i += 1) {
+        days.push(new Date(start.getFullYear(), start.getMonth(), start.getDate() + i));
+      }
+      const level = makeHeatScale(days.filter((d) => d <= end).map((d) => safeNum((byDay.get(dayKey(d)) || {}).tokens)));
+      const cell = 9;
+      const gap = 2;
+      const gridTop = 466;
+      const gridX0 = PAD + 28;
+      const wd = t('weekdays');
+      let svg = '';
+      for (const r of [1, 3, 5]) {
+        const cy = gridTop + r * (cell + gap) + cell - 1;
+        svg += txt(PAD, cy, wd[r] || '', { size: 10.5, fill: pal.dim });
+      }
+      const opacities = [0, 0.30, 0.52, 0.76, 1];
+      let activeDaysInGrid = 0;
+      days.forEach((d, i) => {
+        if (d > end) return;
+        const col = Math.floor(i / 7);
+        const row = i % 7;
+        const e = byDay.get(dayKey(d)) || { tokens: 0, calls: 0 };
+        if (e.tokens > 0 || e.calls > 0) activeDaysInGrid += 1;
+        const lv = level(e.tokens);
+        const x = gridX0 + col * (cell + gap);
+        const y = gridTop + row * (cell + gap);
+        if (lv === 0) {
+          svg += `<rect x="${x}" y="${y}" width="${cell}" height="${cell}" rx="2" fill="${pal.empty}"/>`;
+        } else {
+          svg += `<rect x="${x}" y="${y}" width="${cell}" height="${cell}" rx="2" fill="${pal.accent}" fill-opacity="${opacities[lv]}"/>`;
+        }
+      });
+      let lastLabelCol = -9;
+      const minGap = weeks > 36 ? 5 : 3;
+      for (let w = 0; w < weeks; w += 1) {
+        const first = days[w * 7];
+        const monthStart = days.slice(w * 7, w * 7 + 7).find((d) => d.getDate() === 1);
+        if ((w === 0 || monthStart) && w - lastLabelCol >= minGap && w <= weeks - 3) {
+          const mLbl = formatMonthLabel(monthStart || first, normLang);
+          svg += txt(gridX0 + w * (cell + gap), 555, mLbl, { size: 11, fill: pal.dim });
+          lastLabelCol = w;
+        }
+      }
+      // Compact Less -> More legend anchored cleanly at the bottom-right.
+      const legY = 546;
+      const legCell = 9;
+      const legGap = 3;
+      const moreTxt = t('more');
+      const lessTxt = t('less');
+      const scaleW = 5 * legCell + 4 * legGap;
+      const moreSpace = normLang === 'zh' ? 18 : 34;
+      const scaleStartX = RIGHT - moreSpace - scaleW;
+      svg += txt(scaleStartX - 6, 554.5, lessTxt, { size: 11, fill: pal.dim, anchor: 'end' });
+      for (let lv = 0; lv <= 4; lv += 1) {
+        const lx = scaleStartX + lv * (legCell + legGap);
+        if (lv === 0) svg += `<rect x="${lx}" y="${legY}" width="${legCell}" height="${legCell}" rx="2" fill="${pal.empty}"/>`;
+        else svg += `<rect x="${lx}" y="${legY}" width="${legCell}" height="${legCell}" rx="2" fill="${pal.accent}" fill-opacity="${opacities[lv]}"/>`;
+      }
+      svg += txt(RIGHT, 554.5, moreTxt, { size: 11, fill: pal.dim, anchor: 'end' });
+      return `
+  ${txt(PAD, 452, t('activity'), { size: 15, fill: pal.secondary })}
+  ${txt(RIGHT, 452, t('activeDays', activeDaysInGrid, weeks), { size: 15, anchor: 'end', num: true })}
+  ${svg}`;
+    }
+  }
+
+  // 4. Last 30 days (and sparse All-time fallback): full-width bar timeline with MM-DD ticks.
+  const bars = periodKey === 'd30' ? dailySlice.slice(-30) : dailySlice;
+  const activeSummary = t('activeDaysOf', activeDailyCount, Math.max(1, dailySlice.length));
+  const chartTop = 466;
+  const chartH = 58;
+  const baseY = chartTop + chartH;
+  let barsSvg = `<line x1="${PAD}" y1="${baseY + 0.5}" x2="${RIGHT}" y2="${baseY + 0.5}" stroke="${pal.line}" stroke-width="1"/>`;
+  if (bars.length) {
+    const maxDay = bars.reduce((mx, d) => Math.max(mx, d.tokens), 0);
+    const gap = bars.length > 40 ? 3 : 6;
+    const bw = Math.min(80, (chartW - gap * Math.max(0, bars.length - 1)) / bars.length);
+    const total = bars.length * bw + Math.max(0, bars.length - 1) * gap;
+    const x0 = RIGHT - total;
+    barsSvg += bars.map((d, i) => {
+      const ratio = maxDay > 0 ? d.tokens / maxDay : 0;
+      const bh = d.tokens > 0 ? Math.max(4, ratio * chartH) : 2.5;
+      const fill = i === bars.length - 1 && d.tokens > 0 ? pal.accent : (d.tokens > 0 ? pal.bar : pal.empty);
+      return `<rect x="${(x0 + i * (bw + gap)).toFixed(1)}" y="${(baseY - bh).toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" rx="2.5" fill="${fill}"/>`;
+    }).join('');
+    if (bars.length === 1) {
+      barsSvg += txt(RIGHT, 546, bars[0].date.slice(5), { size: 11.5, fill: pal.dim, anchor: 'end', num: true });
+    } else {
+      barsSvg += txt(x0.toFixed(1), 546, bars[0].date.slice(5), { size: 11.5, fill: pal.dim, anchor: 'start', num: true });
+      if (bars.length >= 7) {
+        const mid = Math.floor((bars.length - 1) / 2);
+        const midX = x0 + mid * (bw + gap) + bw / 2;
+        barsSvg += txt(midX.toFixed(1), 546, bars[mid].date.slice(5), { size: 11.5, fill: pal.dim, anchor: 'middle', num: true });
+      }
+      barsSvg += txt(RIGHT, 546, bars[bars.length - 1].date.slice(5), { size: 11.5, fill: pal.dim, anchor: 'end', num: true });
+    }
+  }
+  return `
+  ${txt(PAD, 452, t('activity'), { size: 15, fill: pal.secondary })}
+  ${txt(RIGHT, 452, activeSummary, { size: 15, anchor: 'end', num: true })}
+  ${barsSvg}`;
 }
 
 export function buildShareCardSvg(input = {}) {
@@ -529,33 +763,8 @@ export function buildShareCardSvg(input = {}) {
   ${txt(RIGHT, 264, t('shareDotNote'), { size: 13, fill: pal.dim, anchor: 'end' })}
   ${legend}`;
 
-  // Bottom: daily activity, neutral bars with the latest day in the accent.
-  const bars = periodKey === 'all' ? downsampleBars(dailySlice, 60) : dailySlice;
-  const activeCount = dailySlice.filter((d) => d.tokens > 0 || d.calls > 0).length;
-  const activeSummary = periodKey === 'today'
-    ? t('activeToday', activeCount > 0)
-    : t('activeDaysOf', activeCount, Math.max(1, dailySlice.length));
-  const chartTop = 470;
-  const chartH = 60;
-  const chartW = RIGHT - PAD;
-  let barsSvg = `<line x1="${PAD}" y1="${chartTop + chartH + 0.5}" x2="${RIGHT}" y2="${chartTop + chartH + 0.5}" stroke="${pal.line}" stroke-width="1"/>`;
-  if (bars.length) {
-    const maxDay = bars.reduce((mx, d) => Math.max(mx, d.tokens), 0);
-    const gap = bars.length > 40 ? 3 : 8;
-    const bw = Math.min((chartW - gap * 6) / 7, (chartW - gap * (bars.length - 1)) / bars.length);
-    const total = bars.length * bw + (bars.length - 1) * gap;
-    const x0 = RIGHT - total;
-    barsSvg += bars.map((d, i) => {
-      const ratio = maxDay > 0 ? d.tokens / maxDay : 0;
-      const bh = d.tokens > 0 ? Math.max(4, ratio * chartH) : 2;
-      const fill = i === bars.length - 1 && d.tokens > 0 ? pal.accent : (d.tokens > 0 ? pal.bar : pal.empty);
-      return `<rect x="${(x0 + i * (bw + gap)).toFixed(1)}" y="${(chartTop + chartH - bh).toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" rx="2" fill="${fill}"/>`;
-    }).join('');
-  }
-  const activity = `
-  ${txt(PAD, 452, t('activity'), { size: 15, fill: pal.secondary })}
-  ${txt(RIGHT, 452, activeSummary, { size: 15, anchor: 'end', num: true })}
-  ${barsSvg}`;
+  const hourly = sanitizeHourly(src.hourlyToday ?? src.hourly_today);
+  const activity = renderActivitySection({ periodKey, dailySlice, hourly, pal, PAD, RIGHT, t, normLang, txt });
 
   const footer = `<line x1="${PAD}" y1="566.5" x2="${RIGHT}" y2="566.5" stroke="${pal.line}" stroke-width="1"/>
   ${txt(PAD, 598, t('shareFooter'), { size: 13, fill: pal.dim })}
@@ -776,6 +985,7 @@ function currentSvg() {
     totals: d.totals,
     byModel: d.by_model,
     daily: d.daily,
+    hourlyToday: d.hourly_today,
     d7ByPool: d.d7_by_pool,
     lang: modalState.lang,
     theme: modalState.theme,

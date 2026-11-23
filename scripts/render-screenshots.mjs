@@ -536,13 +536,16 @@ async function main() {
     const catalogPath = join(work, 'model-catalog.json');
     writeModelCatalog(catalogPath, models, status);
     const weekMs = 7 * 24 * 3600 * 1000;
-    const quotaCycles = { version: 1, pools: {} };
+    const quotaCycles = { version: 2, pools: {} };
     for (const [pk, w] of Object.entries(quota.weekly || {})) {
       const rMs = Date.parse(w.reset_time);
       if (!Number.isFinite(rMs)) continue;
+      const prevResetIso = new Date(rMs - weekMs).toISOString();
       quotaCycles.pools[pk] = [
         {
-          cycle_start: new Date(rMs - weekMs).toISOString(),
+          cycle_start: prevResetIso,
+          cycle_start_source: 'prev_reset',
+          cycle_duration_ms: weekMs,
           reset_time: new Date(rMs).toISOString(),
           observed_at: now.toISOString(),
           remaining_fraction: w.remaining_fraction,
@@ -553,7 +556,9 @@ async function main() {
         },
         {
           cycle_start: new Date(rMs - 2 * weekMs).toISOString(),
-          reset_time: new Date(rMs - weekMs).toISOString(),
+          cycle_start_source: 'prev_reset',
+          cycle_duration_ms: weekMs,
+          reset_time: prevResetIso,
           observed_at: new Date(rMs - weekMs - 3600e3).toISOString(),
           remaining_fraction: pk === 'gemini' ? 0.15 : 0.08,
           used_fraction: pk === 'gemini' ? 0.85 : 0.92,
@@ -598,7 +603,7 @@ async function main() {
       }
 
       const cardSvg = buildShareCardSvg({
-        period: 'd30', totals: history.totals, byModel: history.by_model, daily: history.daily, lang, theme: 'dark',
+        period: 'd30', totals: history.totals, byModel: history.by_model, daily: history.daily, hourlyToday: history.hourly_today, lang, theme: 'dark',
       });
       const cardHtml = join(work, `share-${lang}.html`);
       writeFileSync(cardHtml, `<!doctype html><meta charset="utf-8"><style>html,body{margin:0;overflow:hidden}</style>${cardSvg}`, 'utf8');
