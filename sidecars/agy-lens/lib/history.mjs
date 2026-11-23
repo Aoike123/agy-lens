@@ -13,6 +13,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
 import { POOLS, catalogDisplay, loadModelCatalog, modelPool } from './catalog.mjs';
+import { calibratePoolWeights, calibratedCallCost, filterExternalSegments } from './calibration.mjs';
 import {
   Msg,
   cmpCode,
@@ -24,7 +25,7 @@ import {
   roundN,
   writeJsonAtomic,
 } from './pb.mjs';
-import { LONG_CONTEXT_THRESHOLD, costOf, loadPricingFile, priceInfo } from './pricing.mjs';
+import { LONG_CONTEXT_THRESHOLD, costOf, costPartsOf, loadPricingFile, priceInfo } from './pricing.mjs';
 
 export const CACHE_VERSION = 6;
 export const ENUM_PREFIX = 'enum:';
@@ -485,12 +486,80 @@ export function findLegacyHistoryCaches(geminiDir = defaultGeminiDir(), maxDepth
 
 export const WEEK_SEC = 7 * 24 * 3600;
 export const MIN_CYCLE_USED_FRACTION = 0.05;
+export const MIN_DELTA_FINE_FRACTION = 0.03;
+export const MIN_DELTA_COARSE_FRACTION = 0.05;
+const isFineFraction = (rem) => Math.abs(rem * 100 - Math.round(rem * 100)) > 1e-4;
+
+function normalizeCycleObsPoints(rawObs, resetMs, fallbackObs) {
+  const src = Array.isArray(rawObs) && rawObs.length ? rawObs : [fallbackObs];
+  const valid = [];
+  for (const item of src) {
+    if (!item || typeof item !== 'object') continue;
+    const ms = Date.parse(item.observed_at);
+    if (!Number.isFinite(ms)) continue;
+    const effMs = Math.min(ms, resetMs);
+    let rem = Number(item.remaining_fraction);
+    if (!Number.isFinite(rem)) {
+      const u = Number(item.used_fraction);
+      if (!Number.isFinite(u)) continue;
+      rem = 1 - u;
+    }
+    rem = Math.min(1, Math.max(0, rem));
+    valid.push({ ms: effMs, rem, used: roundN(1 - rem, 8) });
+  }
+  valid.sort((a, b) => a.ms - b.ms || a.used - b.used);
+  const out = [];
+  for (const pt of valid) {
+    const prev = out[out.length - 1];
+    if (prev && Math.abs(prev.rem - pt.rem) <= 1e-6) continue;
+    out.push(pt);
+  }
+  return out;
+}
+
+function pickBestDeltaPair(obsPoints, saturated) {
+  if (!Array.isArray(obsPoints) || obsPoints.length < 2) return null;
+  let bestUnsat = null;
+  for (let i = 0; i < obsPoints.length; i += 1) {
+    const a = obsPoints[i];
+    for (let j = i + 1; j < obsPoints.length; j += 1) {
+      const b = obsPoints[j];
+      if (b.ms <= a.ms || b.rem <= 0 || b.used <= a.used) continue;
+      const delta = roundN(b.used - a.used, 8);
+      if (delta <= 0) continue;
+      if (
+        !bestUnsat
+        || delta > bestUnsat.delta
+        || (delta === bestUnsat.delta && (a.ms < bestUnsat.start.ms || (a.ms === bestUnsat.start.ms && b.ms < bestUnsat.end.ms)))
+      ) {
+        bestUnsat = { start: a, end: b, delta };
+      }
+    }
+  }
+  if (!saturated || (bestUnsat && bestUnsat.delta >= 0.2)) return bestUnsat;
+  const firstSat = obsPoints.find((p) => p.rem <= 0);
+  if (!firstSat) return bestUnsat;
+  let minPre = null;
+  for (const p of obsPoints) {
+    if (p.ms >= firstSat.ms || p.used >= firstSat.used) continue;
+    if (!minPre || p.used < minPre.used || (p.used === minPre.used && p.ms < minPre.ms)) {
+      minPre = p;
+    }
+  }
+  if (!minPre) return bestUnsat;
+  const satDelta = roundN(1 - minPre.used, 8);
+  if (satDelta > 0 && (!bestUnsat || satDelta > bestUnsat.delta)) {
+    return { start: minPre, end: firstSat, delta: satDelta };
+  }
+  return bestUnsat;
+}
 
 /**
- * Prepares persistent per-pool weekly quota cycles for single-pass accumulation
- * inside `scan()`. Uses `[cycle_start, min(eval_obs_at, reset_time)]` for each
- * cycle, preferring `peak_unsaturated` when a cycle already hit 0% left and at
- * least 20% peak usage was observed prior to saturation.
+ * Prepares persistent per-pool quota cycles for single-pass accumulation
+ * inside `scan()`. Uses known `[cycle_start, min(eval_obs_at, reset_time)]`
+ * (preferring `peak_unsaturated` >= 20% on saturated cycles) when consecutive
+ * reset timestamps establish `cycle_start`; otherwise evaluates using the
+ * largest monotonic in-cycle sample delta `[eval_start_at, eval_obs_at]`.
  */
 export function prepareQuotaCycles(quotaCycles) {
   const map = new Map();
@@ -505,10 +574,6 @@ export function prepareQuotaCycles(quotaCycles) {
       if (!cy || typeof cy !== 'object') continue;
       const resetMs = Date.parse(cy.reset_time);
       if (!Number.isFinite(resetMs)) continue;
-      const startParsed = Date.parse(cy.cycle_start);
-      const startMs = Number.isFinite(startParsed) ? startParsed : resetMs - WEEK_SEC * 1000;
-      const obsParsed = Date.parse(cy.observed_at);
-      const obsMs = Number.isFinite(obsParsed) ? Math.min(obsParsed, resetMs) : resetMs;
       const rem = typeof cy.remaining_fraction === 'number' && Number.isFinite(cy.remaining_fraction)
         ? Math.min(1, Math.max(0, cy.remaining_fraction))
         : (typeof cy.used_fraction === 'number' && Number.isFinite(cy.used_fraction)
@@ -516,38 +581,141 @@ export function prepareQuotaCycles(quotaCycles) {
           : null);
       if (rem === null) continue;
       const used = roundN(1 - rem, 8);
+      const obsParsed = Date.parse(cy.observed_at);
+      const obsMs = Number.isFinite(obsParsed) ? Math.min(obsParsed, resetMs) : resetMs;
+      const firstParsed = Date.parse(cy.first_seen_at);
+      const firstMs = Number.isFinite(firstParsed) ? Math.min(firstParsed, obsMs) : obsMs;
       const sat = Boolean(cy.saturated) || rem <= 0;
 
-      let evalObsMs = obsMs;
-      let evalUsed = used;
-      const peak = cy.peak_unsaturated;
-      if (sat && peak && typeof peak === 'object') {
-        const pObsMs = Date.parse(peak.observed_at);
-        const pUsed = typeof peak.used_fraction === 'number' && Number.isFinite(peak.used_fraction)
-          ? Math.min(1, Math.max(0, peak.used_fraction))
-          : (typeof peak.remaining_fraction === 'number' && Number.isFinite(peak.remaining_fraction)
-            ? roundN(1 - Math.min(1, Math.max(0, peak.remaining_fraction)), 8)
-            : NaN);
-        if (Number.isFinite(pObsMs) && Number.isFinite(pUsed) && pUsed >= 0.2 && pUsed < 1) {
-          evalObsMs = Math.min(pObsMs, resetMs);
-          evalUsed = pUsed;
+      const startParsed = cy.cycle_start ? Date.parse(cy.cycle_start) : NaN;
+      const startSource = typeof cy.cycle_start_source === 'string'
+        ? cy.cycle_start_source
+        : (Number.isFinite(startParsed) ? 'explicit' : 'unknown');
+      const hasCycleStart = Number.isFinite(startParsed) && startParsed < resetMs && startSource !== 'unknown';
+      const cycleStartMs = hasCycleStart ? startParsed : null;
+      const cycleStartIso = hasCycleStart ? new Date(cycleStartMs).toISOString() : null;
+      const cycleDurationMs = hasCycleStart
+        ? (Number.isFinite(cy.cycle_duration_ms) && cy.cycle_duration_ms > 0 ? cy.cycle_duration_ms : (resetMs - cycleStartMs))
+        : null;
+
+      let valuationMethod;
+      let evalStartMs;
+      let evalObsMs;
+      let evalUsed;
+      let evalStartInclusive;
+      let cycleSpanStartSec;
+      let minUsedFraction = MIN_CYCLE_USED_FRACTION;
+
+      const rawObsSeed = Array.isArray(cy.observations) && cy.observations.length
+        ? cy.observations
+        : [
+            ...(cy.peak_unsaturated ? [cy.peak_unsaturated] : []),
+            { observed_at: new Date(obsMs).toISOString(), remaining_fraction: rem, used_fraction: used },
+          ];
+      const baseObsPoints = normalizeCycleObsPoints(rawObsSeed, resetMs, {
+        observed_at: new Date(obsMs).toISOString(),
+        remaining_fraction: rem,
+        used_fraction: used,
+      });
+
+      if (hasCycleStart) {
+        valuationMethod = 'cycle';
+        evalStartMs = cycleStartMs;
+        evalObsMs = obsMs;
+        evalUsed = used;
+        evalStartInclusive = true;
+        cycleSpanStartSec = cycleStartMs / 1000;
+        const peak = cy.peak_unsaturated;
+        if (sat && peak && typeof peak === 'object') {
+          const pObsMs = Date.parse(peak.observed_at);
+          const pUsed = typeof peak.used_fraction === 'number' && Number.isFinite(peak.used_fraction)
+            ? Math.min(1, Math.max(0, peak.used_fraction))
+            : (typeof peak.remaining_fraction === 'number' && Number.isFinite(peak.remaining_fraction)
+              ? roundN(1 - Math.min(1, Math.max(0, peak.remaining_fraction)), 8)
+              : NaN);
+          if (Number.isFinite(pObsMs) && Number.isFinite(pUsed) && pUsed >= 0.2 && pUsed < 1) {
+            evalObsMs = Math.min(pObsMs, resetMs);
+            evalUsed = pUsed;
+          }
+        }
+      } else {
+        valuationMethod = 'delta';
+        cycleSpanStartSec = firstMs / 1000;
+        const best = pickBestDeltaPair(baseObsPoints, sat);
+        if (best) {
+          evalStartMs = best.start.ms;
+          evalObsMs = best.end.ms;
+          evalUsed = best.delta;
+          evalStartInclusive = best.start.used <= 0;
+          minUsedFraction = (isFineFraction(best.start.rem) || isFineFraction(best.end.rem))
+            ? MIN_DELTA_FINE_FRACTION
+            : MIN_DELTA_COARSE_FRACTION;
+        } else {
+          evalStartMs = firstMs;
+          evalObsMs = obsMs;
+          evalUsed = 0;
+          evalStartInclusive = false;
+          minUsedFraction = MIN_DELTA_COARSE_FRACTION;
+        }
+      }
+
+      const segPoints = hasCycleStart && (!baseObsPoints.length || baseObsPoints[0].ms > cycleStartMs)
+        ? [{ ms: cycleStartMs, rem: 1, used: 0 }, ...baseObsPoints]
+        : baseObsPoints;
+      const segments = [];
+      if (segPoints.length >= 2) {
+        let anchor = segPoints[0];
+        for (let k = 1; k < segPoints.length; k += 1) {
+          const b = segPoints[k];
+          if (b.ms <= anchor.ms || b.rem <= 0 || b.used <= anchor.used) continue;
+          const delta = roundN(b.used - anchor.used, 8);
+          const isLast = k === segPoints.length - 1;
+          if (delta < 0.005 && !isLast) continue;
+          if (delta <= 0) continue;
+          segments.push({
+            startSec: anchor.ms / 1000,
+            endSec: b.ms / 1000,
+            startInclusive: anchor.used <= 0,
+            delta,
+            fine: isFineFraction(anchor.rem) || isFineFraction(b.rem),
+            inEvalWindow: anchor.ms >= evalStartMs - 1000 && b.ms <= evalObsMs + 1000,
+            calls: 0,
+            costUsd: 0,
+            costPartial: false,
+            costByModel: new Map(),
+          });
+          anchor = b;
         }
       }
 
       out.push({
-        cycle_start: new Date(startMs).toISOString(),
+        cycle_start: cycleStartIso,
+        cycle_start_source: hasCycleStart ? startSource : 'unknown',
+        cycle_duration_ms: cycleDurationMs,
         reset_time: new Date(resetMs).toISOString(),
+        ended_at: null,
+        first_seen_at: new Date(firstMs).toISOString(),
         observed_at: new Date(obsMs).toISOString(),
+        eval_start_at: new Date(evalStartMs).toISOString(),
         eval_obs_at: new Date(evalObsMs).toISOString(),
+        valuation_method: valuationMethod,
         remaining_fraction: rem,
         used_fraction: used,
         eval_used_fraction: evalUsed,
         saturated: sat,
         plan: typeof cy.plan === 'string' && cy.plan ? cy.plan : null,
         tier: typeof cy.tier === 'string' && cy.tier ? cy.tier : null,
-        _startSec: startMs / 1000,
+        _startSec: hasCycleStart ? cycleStartMs / 1000 : null,
+        _cycleSpanStartSec: cycleSpanStartSec,
         _resetSec: resetMs / 1000,
+        _endSec: resetMs / 1000,
+        _rawEndedAtMs: cy.ended_at ? Date.parse(cy.ended_at) : NaN,
+        _evalStartSec: evalStartMs / 1000,
+        _evalStartInclusive: evalStartInclusive,
         _evalObsSec: evalObsMs / 1000,
+        _minUsedFraction: minUsedFraction,
+        _evalCostByModel: new Map(),
+        _segments: segments,
         observed_cost_usd: 0,
         cycle_cost_usd: 0,
         observed_calls: 0,
@@ -558,6 +726,31 @@ export function prepareQuotaCycles(quotaCycles) {
     }
     if (out.length) {
       out.sort((a, b) => b._resetSec - a._resetSec);
+      for (let i = 0; i < out.length; i += 1) {
+        const cy = out[i];
+        let effEndMs = cy._resetSec * 1000;
+        if (Number.isFinite(cy._rawEndedAtMs) && cy._rawEndedAtMs < effEndMs && (cy._startSec === null || cy._rawEndedAtMs > cy._startSec * 1000)) {
+          effEndMs = cy._rawEndedAtMs;
+        } else if (i > 0) {
+          const newer = out[i - 1];
+          const newerBoundMs = newer._startSec !== null ? newer._startSec * 1000 : Date.parse(newer.first_seen_at);
+          const cyObsMs = Date.parse(cy.observed_at);
+          if (
+            Number.isFinite(newerBoundMs)
+            && newerBoundMs < effEndMs - 120_000
+            && (cy._startSec === null || newerBoundMs > cy._startSec * 1000)
+            && newerBoundMs >= cyObsMs - 120_000
+          ) {
+            effEndMs = newerBoundMs;
+          }
+        }
+        if (effEndMs < cy._resetSec * 1000) {
+          cy.ended_at = new Date(effEndMs).toISOString();
+          cy._endSec = effEndMs / 1000;
+          if (cy._startSec !== null) cy.cycle_duration_ms = Math.max(0, effEndMs - cy._startSec * 1000);
+        }
+        delete cy._rawEndedAtMs;
+      }
       map.set(pool, out);
     }
   }
@@ -651,6 +844,7 @@ export function buildConversationTree(convs, parentOf, cap, makePlaceholder) {
     kids.get(pid).push(id);
   }
 
+  const trackQuotaCost = convs.some((c) => Boolean(c && c._quotaCostByPool));
   const totals = new Map();
   const sumOf = (id) => {
     if (totals.has(id)) return totals.get(id);
@@ -659,6 +853,7 @@ export function buildConversationTree(convs, parentOf, cap, makePlaceholder) {
       input: 0, output: 0, cache_read: 0, thinking: 0, calls: 0, d7_tokens: 0,
       est_cost_usd: null, cost_estimated: false, cost_partial: false,
       d7_by_pool: {}, cost_by_pool: {}, subagents: 0, _last: -Infinity, _models: new Map(),
+      ...(trackQuotaCost ? { quota_cost_by_pool: {} } : {}),
     };
     const add = (x, models, n) => {
       for (const f of TREE_SUM_FIELDS) t[f] += x[f] || 0;
@@ -667,6 +862,10 @@ export function buildConversationTree(convs, parentOf, cap, makePlaceholder) {
       if (x.cost_partial) t.cost_partial = true;
       for (const [k, v] of Object.entries(x.d7_by_pool || {})) t.d7_by_pool[k] = (t.d7_by_pool[k] ?? 0) + v;
       for (const [k, v] of Object.entries(x.cost_by_pool || {})) t.cost_by_pool[k] = (t.cost_by_pool[k] ?? 0) + v;
+      if (trackQuotaCost) {
+        const qSrc = x._quotaCostByPool || x.quota_cost_by_pool || x.cost_by_pool || {};
+        for (const [k, v] of Object.entries(qSrc)) t.quota_cost_by_pool[k] = (t.quota_cost_by_pool[k] ?? 0) + v;
+      }
       t._last = Math.max(t._last, x._last ?? -Infinity);
       for (const [m, v] of models) t._models.set(m, (t._models.get(m) || 0) + v);
       t.subagents += n;
@@ -700,7 +899,13 @@ export function buildConversationTree(convs, parentOf, cap, makePlaceholder) {
     c.depth = depth;
     c.children = order([...(kids.get(id) || [])]);
     const { _models, ...rest } = t;
-    c.total = { ...rest, d7_by_pool: { ...t.d7_by_pool }, cost_by_pool: { ...t.cost_by_pool }, model };
+    c.total = {
+      ...rest,
+      d7_by_pool: { ...t.d7_by_pool },
+      cost_by_pool: { ...t.cost_by_pool },
+      ...(trackQuotaCost ? { quota_cost_by_pool: { ...t.quota_cost_by_pool } } : {}),
+      model,
+    };
     if (c.placeholder) {
       c._first = null;
       c._last = t._last;
@@ -963,6 +1168,7 @@ export async function scan(roots, {
   const d7ByPool = emptyPools();
   const nowSec = now.getTime() / 1000;
   const cycleAccum = prepareQuotaCycles(quotaCycles);
+  const periodModelParts = new Map(); // pool -> Map<period, Map<model, [in, out, cache]>>
   const dtCache = new Map();
   const priceCache = new Map();
   const poolCache = new Map();
@@ -1007,6 +1213,7 @@ export async function scan(roots, {
       _first: null,
       _last: -Infinity,
       _models: new Map(),
+      _modelParts: new Map(),
       _first_input: entry.first_input ?? null,
     };
     convs.push(conv);
@@ -1049,6 +1256,7 @@ export async function scan(roots, {
         priceCache.set(model, pinfo);
       }
       const [p, isEst] = pinfo;
+      const parts = p !== null ? costPartsOf(p, inp, out, cache, longCtx) : null;
       const cost = p !== null ? costOf(p, inp, out, cache, longCtx) : null;
 
       let pool = poolCache.get(model);
@@ -1068,22 +1276,66 @@ export async function scan(roots, {
         conv.d7_by_pool[pool] = (conv.d7_by_pool[pool] ?? 0) + d7Tok;
         d7ByPool[pool] = (d7ByPool[pool] ?? 0) + d7Tok;
       }
-      if (cost !== null) {
+      if (parts !== null) {
         conv.cost_by_pool[pool] = (conv.cost_by_pool[pool] ?? 0) + cost;
+        let cmp = conv._modelParts.get(model);
+        if (!cmp) {
+          cmp = [pool, 0, 0, 0];
+          conv._modelParts.set(model, cmp);
+        }
+        cmp[1] += parts[0];
+        cmp[2] += parts[1];
+        cmp[3] += parts[2];
       }
       const poolCycles = cycleAccum.get(pool);
       if (poolCycles) {
         for (const cy of poolCycles) {
-          if (ts >= cy._startSec && ts < cy._resetSec) {
+          if (ts >= cy._cycleSpanStartSec && ts < cy._endSec) {
             cy.cycle_calls += n;
             if (cost !== null) cy.cycle_cost_usd += cost;
-            if (ts <= cy._evalObsSec + 5) {
+            const afterEvalStart = cy._evalStartInclusive ? ts >= cy._evalStartSec : ts > cy._evalStartSec;
+            if (cy.eval_used_fraction > 0 && afterEvalStart && ts <= cy._evalObsSec + 5) {
               cy.observed_calls += n;
-              if (cost !== null) {
+              if (parts !== null) {
                 cy.observed_cost_usd += cost;
                 if (isEst) cy.cost_estimated = true;
+                let em = cy._evalCostByModel.get(model);
+                if (!em) {
+                  em = { in: 0, out: 0, cache: 0, total: 0 };
+                  cy._evalCostByModel.set(model, em);
+                }
+                em.in += parts[0];
+                em.out += parts[1];
+                em.cache += parts[2];
+                em.total += cost;
               } else {
                 cy.cost_partial = true;
+              }
+            }
+            if (cy._segments.length) {
+              for (let si = 0; si < cy._segments.length; si += 1) {
+                const seg = cy._segments[si];
+                const isLastSeg = si === cy._segments.length - 1;
+                const afterSegStart = seg.startInclusive ? ts >= seg.startSec : ts > seg.startSec;
+                const beforeSegEnd = isLastSeg ? ts <= seg.endSec + 5 : ts <= seg.endSec;
+                if (afterSegStart && beforeSegEnd) {
+                  seg.calls += n;
+                  if (parts !== null) {
+                    seg.costUsd += cost;
+                    let sm = seg.costByModel.get(model);
+                    if (!sm) {
+                      sm = { in: 0, out: 0, cache: 0, total: 0 };
+                      seg.costByModel.set(model, sm);
+                    }
+                    sm.in += parts[0];
+                    sm.out += parts[1];
+                    sm.cache += parts[2];
+                    sm.total += cost;
+                  } else {
+                    seg.costPartial = true;
+                  }
+                  break;
+                }
               }
             }
           }
@@ -1156,9 +1408,27 @@ export async function scan(roots, {
           pm.cache_read += cache;
           pm.thinking += think;
           pm.calls += n;
-          if (cost !== null) {
+          if (parts !== null) {
             pm.est_cost_usd = (pm.est_cost_usd ?? 0) + cost;
             if (isEst) pm.cost_estimated = true;
+            let pPoolMap = periodModelParts.get(pool);
+            if (!pPoolMap) {
+              pPoolMap = new Map();
+              periodModelParts.set(pool, pPoolMap);
+            }
+            let pWinMap = pPoolMap.get(w);
+            if (!pWinMap) {
+              pWinMap = new Map();
+              pPoolMap.set(w, pWinMap);
+            }
+            let pArr = pWinMap.get(model);
+            if (!pArr) {
+              pArr = [0, 0, 0];
+              pWinMap.set(model, pArr);
+            }
+            pArr[0] += parts[0];
+            pArr[1] += parts[1];
+            pArr[2] += parts[2];
           } else {
             pm.cost_partial = true;
           }
@@ -1195,8 +1465,10 @@ export async function scan(roots, {
   }
 
   const models = Array.from(byModel.values());
+  const calNames = new Map(names);
   for (const bm of models) {
     bm.display_name = names.get(bm.model) || catalogDisplay(bm.model, catalog);
+    if (bm.display_name && !calNames.has(bm.model)) calNames.set(bm.model, bm.display_name);
     if (bm.est_cost_usd !== null) bm.est_cost_usd = roundN(bm.est_cost_usd, 4);
     for (const pm of Object.values(bm.periods)) {
       if (pm && pm.est_cost_usd !== null) pm.est_cost_usd = roundN(pm.est_cost_usd, 4);
@@ -1208,6 +1480,144 @@ export async function scan(roots, {
     if (tb !== ta) return tb - ta;
     return cmpCode(a.model, b.model);
   });
+
+  const weeklyCyclesOut = { gemini: [], claude_gpt: [], other: [] };
+  const weeklyValueOut = { gemini: null, claude_gpt: null, other: null };
+  const quotaCalibrationOut = {};
+  for (const [pk, list] of cycleAccum.entries()) {
+    const poolSegments = [];
+    for (let i = 0; i < Math.min(6, list.length); i += 1) {
+      poolSegments.push(...list[i]._segments);
+    }
+    const cal = calibratePoolWeights(poolSegments, { modelNames: calNames });
+    if (cal.calibrated) {
+      const periodCostUsd = { today: 0, d7: 0, d30: 0, all: 0 };
+      const modelPeriodCost = {};
+      const pPoolMap = periodModelParts.get(pk);
+      if (pPoolMap) {
+        for (const [w] of windows) {
+          const pWinMap = pPoolMap.get(w);
+          if (!pWinMap) continue;
+          let wSum = 0;
+          for (const [m, pArr] of pWinMap) {
+            const cVal = calibratedCallCost(cal, m, pArr[0], pArr[1], pArr[2]);
+            wSum += cVal;
+            if (!modelPeriodCost[m]) modelPeriodCost[m] = { today: 0, d7: 0, d30: 0, all: 0 };
+            modelPeriodCost[m][w] = roundN(cVal, 6);
+          }
+          periodCostUsd[w] = roundN(wSum, 6);
+        }
+      }
+      cal.period_cost_usd = periodCostUsd;
+      cal.model_period_cost = modelPeriodCost;
+    }
+    quotaCalibrationOut[pk] = cal;
+
+    const outList = list.map((cy, idx) => {
+      const evalSegs = cy._segments.filter((s) => s.inEvalWindow);
+      const { clean: evalClean, externalDelta: cyExtDelta } = filterExternalSegments(evalSegs);
+      let effectiveUsed = cy.eval_used_fraction;
+      let effectiveCost = cy.observed_cost_usd;
+      let evalMap = cy._evalCostByModel;
+      if (cyExtDelta > 0) {
+        if (cy.valuation_method === 'delta') {
+          effectiveUsed = roundN(evalClean.reduce((acc, s) => acc + s.delta, 0), 8);
+          effectiveCost = evalClean.reduce((acc, s) => acc + s.costUsd, 0);
+          evalMap = new Map();
+          for (const s of evalClean) {
+            for (const [m, mv] of s.costByModel) {
+              let em = evalMap.get(m);
+              if (!em) {
+                em = { in: 0, out: 0, cache: 0, total: 0 };
+                evalMap.set(m, em);
+              }
+              em.in += mv.in;
+              em.out += mv.out;
+              em.cache += mv.cache;
+              em.total += mv.total;
+            }
+          }
+        } else if (effectiveUsed > cyExtDelta) {
+          effectiveUsed = roundN(effectiveUsed - cyExtDelta, 8);
+        } else {
+          effectiveUsed = 0;
+        }
+      }
+
+      let evalCostForWeekly = effectiveCost;
+      if (cal.calibrated && evalMap.size > 0) {
+        evalCostForWeekly = 0;
+        for (const [m, mv] of evalMap) {
+          evalCostForWeekly += calibratedCallCost(cal, m, mv.in, mv.out, mv.cache);
+        }
+      }
+
+      const valid = effectiveUsed >= cy._minUsedFraction && evalCostForWeekly > 0;
+      const isCurrent = idx === 0 && (cy._startSec !== null
+        ? (nowSec >= cy._startSec && nowSec < cy._endSec)
+        : (nowSec < cy._endSec));
+      return {
+        cycle_start: cy.cycle_start,
+        cycle_start_source: cy.cycle_start_source,
+        cycle_duration_ms: cy.cycle_duration_ms,
+        reset_time: cy.reset_time,
+        ended_at: cy.ended_at || null,
+        first_seen_at: cy.first_seen_at,
+        observed_at: cy.observed_at,
+        eval_start_at: cy.eval_start_at,
+        eval_obs_at: cy.eval_obs_at,
+        valuation_method: cy.valuation_method,
+        remaining_fraction: cy.remaining_fraction,
+        used_fraction: cy.used_fraction,
+        eval_used_fraction: effectiveUsed,
+        external_used_fraction: roundN(cyExtDelta, 8),
+        saturated: cy.saturated,
+        is_current: isCurrent,
+        observed_cost_usd: roundN(effectiveCost, 4),
+        cycle_cost_usd: roundN(cy.cycle_cost_usd, 4),
+        observed_calls: cy.observed_calls,
+        cycle_calls: cy.cycle_calls,
+        weekly_value_usd: valid ? roundN(evalCostForWeekly / effectiveUsed, 2) : null,
+        prev_weekly_value_usd: null,
+        change_pct: null,
+        cost_estimated: cy.cost_estimated,
+        cost_partial: cy.cost_partial,
+        plan: cy.plan,
+        tier: cy.tier,
+      };
+    });
+    for (let i = 0; i < outList.length; i += 1) {
+      const curVal = outList[i].weekly_value_usd;
+      if (!curVal || curVal <= 0) continue;
+      for (let j = i + 1; j < outList.length; j += 1) {
+        const prevVal = outList[j].weekly_value_usd;
+        if (prevVal && prevVal > 0) {
+          outList[i].prev_weekly_value_usd = prevVal;
+          outList[i].change_pct = roundN(((curVal - prevVal) / prevVal) * 100, 1);
+          break;
+        }
+      }
+    }
+    weeklyCyclesOut[pk] = outList;
+    const latestValid = outList.find((x) => x.weekly_value_usd !== null && x.weekly_value_usd > 0);
+    weeklyValueOut[pk] = latestValid ? latestValid.weekly_value_usd : null;
+  }
+
+  const anyCalibrated = Object.values(quotaCalibrationOut).some((q) => q && q.calibrated);
+  if (anyCalibrated) {
+    for (const c of convs) {
+      const qbp = { ...c.cost_by_pool };
+      const sumsByCalPool = new Map();
+      for (const [m, cmp] of c._modelParts) {
+        const [pk, cIn, cOut, cCache] = cmp;
+        const cal = quotaCalibrationOut[pk];
+        if (!cal || !cal.calibrated) continue;
+        sumsByCalPool.set(pk, (sumsByCalPool.get(pk) || 0) + calibratedCallCost(cal, m, cIn, cOut, cCache));
+      }
+      for (const [pk, val] of sumsByCalPool) qbp[pk] = val;
+      c._quotaCostByPool = qbp;
+    }
+  }
 
   const capped = buildConversationTree(convs, parentOf, cap, (id) => ({
     id,
@@ -1236,6 +1646,7 @@ export async function scan(roots, {
     _first: null,
     _last: -Infinity,
     _models: new Map(),
+    _modelParts: new Map(),
     _first_input: null,
   }));
   for (const c of capped) {
@@ -1275,6 +1686,9 @@ export async function scan(roots, {
       const tot = c.total;
       if (tot.est_cost_usd !== null) tot.est_cost_usd = roundN(tot.est_cost_usd, 4);
       for (const pk of Object.keys(tot.cost_by_pool)) tot.cost_by_pool[pk] = roundN(tot.cost_by_pool[pk], 6);
+      if (tot.quota_cost_by_pool) {
+        for (const pk of Object.keys(tot.quota_cost_by_pool)) tot.quota_cost_by_pool[pk] = roundN(tot.quota_cost_by_pool[pk], 6);
+      }
       tot.last_at = formatLocalIso(tot._last);
       delete tot._last;
       delete tot.model;
@@ -1286,52 +1700,9 @@ export async function scan(roots, {
     delete c._first;
     delete c._last;
     delete c._models;
+    delete c._modelParts;
+    delete c._quotaCostByPool;
     delete c._first_input;
-  }
-
-  const weeklyCyclesOut = { gemini: [], claude_gpt: [], other: [] };
-  const weeklyValueOut = { gemini: null, claude_gpt: null, other: null };
-  for (const [pk, list] of cycleAccum.entries()) {
-    const outList = list.map((cy) => {
-      const valid = cy.eval_used_fraction >= MIN_CYCLE_USED_FRACTION && cy.observed_cost_usd > 0;
-      return {
-        cycle_start: cy.cycle_start,
-        reset_time: cy.reset_time,
-        observed_at: cy.observed_at,
-        eval_obs_at: cy.eval_obs_at,
-        remaining_fraction: cy.remaining_fraction,
-        used_fraction: cy.used_fraction,
-        eval_used_fraction: cy.eval_used_fraction,
-        saturated: cy.saturated,
-        is_current: nowSec >= cy._startSec && nowSec < cy._resetSec,
-        observed_cost_usd: roundN(cy.observed_cost_usd, 4),
-        cycle_cost_usd: roundN(cy.cycle_cost_usd, 4),
-        observed_calls: cy.observed_calls,
-        cycle_calls: cy.cycle_calls,
-        weekly_value_usd: valid ? roundN(cy.observed_cost_usd / cy.eval_used_fraction, 2) : null,
-        prev_weekly_value_usd: null,
-        change_pct: null,
-        cost_estimated: cy.cost_estimated,
-        cost_partial: cy.cost_partial,
-        plan: cy.plan,
-        tier: cy.tier,
-      };
-    });
-    for (let i = 0; i < outList.length; i += 1) {
-      const curVal = outList[i].weekly_value_usd;
-      if (!curVal || curVal <= 0) continue;
-      for (let j = i + 1; j < outList.length; j += 1) {
-        const prevVal = outList[j].weekly_value_usd;
-        if (prevVal && prevVal > 0) {
-          outList[i].prev_weekly_value_usd = prevVal;
-          outList[i].change_pct = roundN(((curVal - prevVal) / prevVal) * 100, 1);
-          break;
-        }
-      }
-    }
-    weeklyCyclesOut[pk] = outList;
-    const latestValid = outList.find((x) => x.weekly_value_usd !== null && x.weekly_value_usd > 0);
-    weeklyValueOut[pk] = latestValid ? latestValid.weekly_value_usd : null;
   }
 
   const dailyOut = Array.from(daily.keys())
@@ -1350,6 +1721,7 @@ export async function scan(roots, {
     d7_by_pool: d7ByPool,
     weekly_cycles: weeklyCyclesOut,
     weekly_value_usd: weeklyValueOut,
+    quota_calibration: quotaCalibrationOut,
     pricing_source: pricingSource,
     pricing_fetched_at: pricingFetchedAt,
     sources,

@@ -275,7 +275,7 @@ const SUMMARY_POOL_LABELS = {
 
 // The LS reports no window length, so the limit kind is inferred from the
 // time left until reset (a rolling 5-hour window never resets later than 5h
-// from now).
+// from now; multi-day cycles up to 31 days classify as weekly).
 export function inferLimit(remaining_fraction, reset_time, now = Date.now()) {
   let kind = 'unknown';
   if (!reset_time) {
@@ -284,7 +284,7 @@ export function inferLimit(remaining_fraction, reset_time, now = Date.now()) {
     const dt = Date.parse(reset_time) - now;
     if (dt >= 0 && dt <= 5 * HOUR + SLACK) kind = '5h';
     else if (dt > 0 && dt <= 24 * HOUR + SLACK) kind = 'daily';
-    else if (dt > 0 && dt <= 7 * 24 * HOUR + SLACK) kind = 'weekly';
+    else if (dt > 0 && dt <= 31 * 24 * HOUR + SLACK) kind = 'weekly';
   }
   const [label, label_zh] = LIMIT_LABELS[kind];
   return { kind, inferred: kind !== 'unknown', label, label_zh, remaining_fraction, reset_time };
@@ -734,10 +734,14 @@ export function parseQuota(statusResp, modelsResp, now = Date.now(), summaryResp
   };
 }
 
-export const QUOTA_CYCLES_VERSION = 1;
+export const QUOTA_CYCLES_VERSION = 2;
 export const WEEK_MS = 7 * 24 * 3600 * 1000;
+export const MAX_CYCLE_HORIZON_MS = 90 * 24 * 3600 * 1000;
+export const MAX_CONSECUTIVE_CYCLE_MS = 35 * 24 * 3600 * 1000;
 const RESET_MATCH_TOLERANCE_MS = 120 * 1000;
 const MAX_CYCLES_PER_POOL = 52;
+const MAX_OBS_PER_CYCLE = 128;
+const CYCLE_START_SOURCES = new Set(['prev_reset', 'explicit', 'weekly_7d', 'unknown']);
 
 function normalizePeakUnsaturated(peak, resetMs) {
   if (!peak || typeof peak !== 'object' || Array.isArray(peak)) return null;
@@ -754,13 +758,78 @@ function normalizePeakUnsaturated(peak, resetMs) {
   };
 }
 
-function normalizeCycleEntry(raw) {
+export function normalizeObservations(rawObs, resetMs) {
+  if (!Array.isArray(rawObs) || !Number.isFinite(resetMs)) return [];
+  const valid = [];
+  for (const item of rawObs) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+    const obsMs = Date.parse(item.observed_at);
+    if (!Number.isFinite(obsMs)) continue;
+    let rawRem = Number(item.remaining_fraction);
+    if (!Number.isFinite(rawRem)) {
+      const rawUsed = Number(item.used_fraction);
+      if (!Number.isFinite(rawUsed)) continue;
+      rawRem = 1 - rawUsed;
+    }
+    const effMs = Math.min(obsMs, resetMs);
+    const rem = Math.min(1, Math.max(0, rawRem));
+    const used = roundN(1 - rem, 8);
+    valid.push({
+      _ms: effMs,
+      observed_at: new Date(effMs).toISOString(),
+      remaining_fraction: rem,
+      used_fraction: used,
+    });
+  }
+  valid.sort((a, b) => a._ms - b._ms || a.used_fraction - b.used_fraction);
+  const collapsed = [];
+  for (const pt of valid) {
+    const prev = collapsed[collapsed.length - 1];
+    // Keep the earliest timestamp of each equal-remaining plateau so unreflected
+    // trailing calls cannot leak into a delta evaluation window.
+    if (prev && Math.abs(prev.remaining_fraction - pt.remaining_fraction) <= 1e-6) continue;
+    collapsed.push(pt);
+  }
+  if (collapsed.length <= MAX_OBS_PER_CYCLE) {
+    return collapsed.map(({ observed_at, remaining_fraction, used_fraction }) => ({
+      observed_at, remaining_fraction, used_fraction,
+    }));
+  }
+  const keep = new Set([0, collapsed.length - 1]);
+  let minIdx = 0;
+  let peakUnsatIdx = -1;
+  let firstSatIdx = -1;
+  for (let i = 0; i < collapsed.length; i += 1) {
+    const pt = collapsed[i];
+    if (pt.used_fraction < collapsed[minIdx].used_fraction) minIdx = i;
+    if (pt.remaining_fraction > 0 && (peakUnsatIdx < 0 || pt.used_fraction > collapsed[peakUnsatIdx].used_fraction)) {
+      peakUnsatIdx = i;
+    }
+    if (pt.remaining_fraction <= 0 && firstSatIdx < 0) firstSatIdx = i;
+  }
+  keep.add(minIdx);
+  if (peakUnsatIdx >= 0) keep.add(peakUnsatIdx);
+  if (firstSatIdx >= 0) keep.add(firstSatIdx);
+  if (keep.size < MAX_OBS_PER_CYCLE) {
+    const step = (collapsed.length - 1) / (MAX_OBS_PER_CYCLE - 1);
+    for (let k = 0; k < MAX_OBS_PER_CYCLE && keep.size < MAX_OBS_PER_CYCLE; k += 1) {
+      keep.add(Math.min(collapsed.length - 1, Math.round(k * step)));
+    }
+    for (let i = 0; i < collapsed.length && keep.size < MAX_OBS_PER_CYCLE; i += 1) keep.add(i);
+  }
+  return [...keep]
+    .sort((a, b) => a - b)
+    .map((idx) => {
+      const { observed_at, remaining_fraction, used_fraction } = collapsed[idx];
+      return { observed_at, remaining_fraction, used_fraction };
+    });
+}
+
+function normalizeCycleEntry(raw, ledgerVersion = QUOTA_CYCLES_VERSION) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const resetMs = Date.parse(raw.reset_time);
   const rawRem = raw.remaining_fraction;
   if (!Number.isFinite(resetMs) || typeof rawRem !== 'number' || !Number.isFinite(rawRem)) return null;
-  const startParsed = Date.parse(raw.cycle_start);
-  const startMs = Number.isFinite(startParsed) ? startParsed : resetMs - WEEK_MS;
   const rem = Math.min(1, Math.max(0, rawRem));
   const used = roundN(1 - rem, 8);
   const obsParsed = Date.parse(raw.observed_at);
@@ -769,16 +838,59 @@ function normalizeCycleEntry(raw) {
   const firstMs = Number.isFinite(firstParsed) ? Math.min(firstParsed, obsMs) : obsMs;
   const sat = Boolean(raw.saturated) || rem <= 0;
   const obsCount = Number.isInteger(raw.obs_count) && raw.obs_count > 0 ? raw.obs_count : 1;
+  const peak = normalizePeakUnsaturated(raw.peak_unsaturated, resetMs);
+
+  const startParsed = raw.cycle_start ? Date.parse(raw.cycle_start) : NaN;
+  const rawSrc = typeof raw.cycle_start_source === 'string' && CYCLE_START_SOURCES.has(raw.cycle_start_source)
+    ? raw.cycle_start_source
+    : null;
+  let cycleStart = null;
+  let cycleStartSource = 'unknown';
+  if ((rawSrc === 'prev_reset' || rawSrc === 'explicit' || rawSrc === 'weekly_7d') && Number.isFinite(startParsed) && startParsed < resetMs) {
+    cycleStart = new Date(startParsed).toISOString();
+    cycleStartSource = rawSrc;
+  } else if (rawSrc === 'unknown' || !Number.isFinite(startParsed) || startParsed >= resetMs) {
+    cycleStart = null;
+    cycleStartSource = 'unknown';
+  } else if (ledgerVersion === 1 && Math.abs((resetMs - startParsed) - WEEK_MS) <= 1000) {
+    // Discard hardcoded v1 `reset_time - 7d` guesses; relinkPoolCycles recovers
+    // exact boundaries whenever two consecutive resets exist.
+    cycleStart = null;
+    cycleStartSource = 'unknown';
+  } else {
+    cycleStart = new Date(startParsed).toISOString();
+    cycleStartSource = 'explicit';
+  }
+  const endParsed = raw.ended_at ? Date.parse(raw.ended_at) : NaN;
+  const endedAt = Number.isFinite(endParsed) && endParsed < resetMs && (!cycleStart || endParsed > Date.parse(cycleStart))
+    ? new Date(endParsed).toISOString()
+    : null;
+  const cycleDurationMs = cycleStart
+    ? Math.max(0, (endedAt ? Date.parse(endedAt) : resetMs) - Date.parse(cycleStart))
+    : null;
+
+  const obsSeed = Array.isArray(raw.observations) && raw.observations.length
+    ? raw.observations
+    : [
+        ...(peak ? [{ observed_at: peak.observed_at, remaining_fraction: peak.remaining_fraction, used_fraction: peak.used_fraction }] : []),
+        { observed_at: new Date(obsMs).toISOString(), remaining_fraction: rem, used_fraction: used },
+      ];
+  const observations = normalizeObservations(obsSeed, resetMs);
+
   return {
-    cycle_start: new Date(startMs).toISOString(),
+    cycle_start: cycleStart,
+    cycle_start_source: cycleStartSource,
+    cycle_duration_ms: cycleDurationMs,
     reset_time: new Date(resetMs).toISOString(),
+    ended_at: endedAt,
     first_seen_at: new Date(firstMs).toISOString(),
     observed_at: new Date(obsMs).toISOString(),
     remaining_fraction: rem,
     used_fraction: used,
     saturated: sat,
     obs_count: obsCount,
-    peak_unsaturated: normalizePeakUnsaturated(raw.peak_unsaturated, resetMs),
+    peak_unsaturated: peak,
+    observations,
     plan: typeof raw.plan === 'string' && raw.plan ? raw.plan : null,
     tier: typeof raw.tier === 'string' && raw.tier ? raw.tier : null,
   };
@@ -788,31 +900,101 @@ function sortPoolCycles(list) {
   return list.slice().sort((a, b) => Date.parse(b.reset_time) - Date.parse(a.reset_time));
 }
 
+export function relinkPoolCycles(list) {
+  if (!Array.isArray(list) || !list.length) return [];
+  const asc = list
+    .map((c) => ({ ...c }))
+    .sort((a, b) => Date.parse(a.reset_time) - Date.parse(b.reset_time));
+  let refDurMs = null;
+  for (let i = 1; i < asc.length; i += 1) {
+    const prev = asc[i - 1];
+    const cur = asc[i];
+    const prevResetMs = Date.parse(prev.reset_time);
+    const curResetMs = Date.parse(cur.reset_time);
+    const curFirstMs = Date.parse(cur.first_seen_at);
+    const durMs = curResetMs - prevResetMs;
+    const gapSincePrevReset = curFirstMs - prevResetMs;
+    const plausible = durMs > RESET_MATCH_TOLERANCE_MS
+      && prevResetMs <= curFirstMs + RESET_MATCH_TOLERANCE_MS
+      && durMs <= MAX_CONSECUTIVE_CYCLE_MS
+      && (refDurMs === null || gapSincePrevReset <= Math.max(refDurMs * 1.5, 2 * 24 * 3600 * 1000));
+    if (plausible) {
+      if (cur.cycle_start_source !== 'explicit') {
+        cur.cycle_start = prev.reset_time;
+        cur.cycle_start_source = 'prev_reset';
+        cur.cycle_duration_ms = durMs;
+      }
+      refDurMs = durMs;
+    }
+  }
+  const hasNonWeeklyCadence = refDurMs !== null && Math.abs(refDurMs - WEEK_MS) > 3600_000;
+  for (const cur of asc) {
+    if (cur.cycle_start_source !== 'unknown' && cur.cycle_start_source !== 'weekly_7d') continue;
+    const rMs = Date.parse(cur.reset_time);
+    const fMs = Date.parse(cur.first_seen_at);
+    if (!hasNonWeeklyCadence && rMs - WEEK_MS <= fMs + RESET_MATCH_TOLERANCE_MS) {
+      cur.cycle_start = new Date(rMs - WEEK_MS).toISOString();
+      cur.cycle_start_source = 'weekly_7d';
+      cur.cycle_duration_ms = WEEK_MS;
+    } else if (cur.cycle_start_source === 'weekly_7d') {
+      cur.cycle_start = null;
+      cur.cycle_start_source = 'unknown';
+      cur.cycle_duration_ms = null;
+    }
+  }
+  // Pass 3: truncate early-superseded cycles at the start of the replacement cycle.
+  for (let i = 0; i < asc.length; i += 1) {
+    const cur = asc[i];
+    const curResetMs = Date.parse(cur.reset_time);
+    const curStartMs = cur.cycle_start ? Date.parse(cur.cycle_start) : NaN;
+    const curObsMs = Date.parse(cur.observed_at);
+    if (i < asc.length - 1) {
+      const next = asc[i + 1];
+      const nextBoundaryMs = next.cycle_start ? Date.parse(next.cycle_start) : Date.parse(next.first_seen_at);
+      if (
+        Number.isFinite(nextBoundaryMs)
+        && nextBoundaryMs < curResetMs - RESET_MATCH_TOLERANCE_MS
+        && (!Number.isFinite(curStartMs) || nextBoundaryMs > curStartMs)
+        && nextBoundaryMs >= curObsMs - RESET_MATCH_TOLERANCE_MS
+      ) {
+        cur.ended_at = new Date(nextBoundaryMs).toISOString();
+        if (Number.isFinite(curStartMs)) cur.cycle_duration_ms = Math.max(0, nextBoundaryMs - curStartMs);
+        continue;
+      }
+    }
+    cur.ended_at = null;
+    if (Number.isFinite(curStartMs)) cur.cycle_duration_ms = Math.max(0, curResetMs - curStartMs);
+  }
+  return sortPoolCycles(asc).slice(0, MAX_CYCLES_PER_POOL);
+}
+
 export function normalizeQuotaCycles(raw) {
   const out = { version: QUOTA_CYCLES_VERSION, pools: {} };
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out;
+  const ledgerVersion = Number.isFinite(raw.version) ? raw.version : QUOTA_CYCLES_VERSION;
   const poolsSrc = raw.pools && typeof raw.pools === 'object' && !Array.isArray(raw.pools) ? raw.pools : null;
   if (!poolsSrc) return out;
   for (const [pool, list] of Object.entries(poolsSrc)) {
     if (!Array.isArray(list)) continue;
     const deduped = [];
     for (const item of list) {
-      const e = normalizeCycleEntry(item);
+      const e = normalizeCycleEntry(item, ledgerVersion);
       if (!e) continue;
       const rMs = Date.parse(e.reset_time);
       const dup = deduped.find((x) => Math.abs(Date.parse(x.reset_time) - rMs) <= RESET_MATCH_TOLERANCE_MS);
       if (!dup) deduped.push(e);
     }
-    if (deduped.length) out.pools[pool] = sortPoolCycles(deduped).slice(0, MAX_CYCLES_PER_POOL);
+    if (deduped.length) out.pools[pool] = relinkPoolCycles(deduped);
   }
   return out;
 }
 
 /**
  * Merges a live /api/quota (or quota-raw bootstrap) snapshot into the persistent
- * per-cycle ledger. Locks `observed_at` when a pool first saturates (0% left)
- * and preserves `peak_unsaturated` so subsequent AI-credit spend after limit
- * saturation cannot inflate the implied 100% weekly quota dollar value.
+ * per-cycle ledger. Cycle boundaries are derived dynamically from consecutive
+ * reset timestamps (`reset_time_curr - reset_time_prev`) rather than assuming
+ * a fixed 7-day window, while recording monotonic observation checkpoints inside
+ * each cycle so in-cycle delta valuation works before two resets are observed.
  */
 export function mergeQuotaObservation(ledger, quotaResult) {
   const next = normalizeQuotaCycles(ledger);
@@ -830,12 +1012,10 @@ export function mergeQuotaObservation(ledger, quotaResult) {
     if (typeof w.remaining_fraction !== 'number' || !Number.isFinite(w.remaining_fraction)) continue;
     const resetMs = typeof w.reset_time === 'string' ? Date.parse(w.reset_time) : NaN;
     if (!Number.isFinite(resetMs)) continue;
-    const startMs = resetMs - WEEK_MS;
-    if (startMs > fetchedMs + 60_000 || resetMs < fetchedMs - 60_000) continue;
+    if (resetMs < fetchedMs - 60_000 || resetMs > fetchedMs + MAX_CYCLE_HORIZON_MS) continue;
 
     const effObsMs = Math.min(fetchedMs, resetMs);
     const effObsIso = new Date(effObsMs).toISOString();
-    const startIso = new Date(startMs).toISOString();
     const resetIso = new Date(resetMs).toISOString();
     const rem = Math.min(1, Math.max(0, w.remaining_fraction));
     const used = roundN(1 - rem, 8);
@@ -846,8 +1026,11 @@ export function mergeQuotaObservation(ledger, quotaResult) {
 
     if (!ex) {
       list.push({
-        cycle_start: startIso,
+        cycle_start: null,
+        cycle_start_source: 'unknown',
+        cycle_duration_ms: null,
         reset_time: resetIso,
+        ended_at: null,
         first_seen_at: effObsIso,
         observed_at: effObsIso,
         remaining_fraction: rem,
@@ -855,37 +1038,52 @@ export function mergeQuotaObservation(ledger, quotaResult) {
         saturated: sat,
         obs_count: 1,
         peak_unsaturated: (!sat && used >= 0.01) ? { observed_at: effObsIso, remaining_fraction: rem, used_fraction: used } : null,
+        observations: [{ observed_at: effObsIso, remaining_fraction: rem, used_fraction: used }],
         plan,
         tier,
       });
-      next.pools[pool] = sortPoolCycles(list).slice(0, MAX_CYCLES_PER_POOL);
+      next.pools[pool] = relinkPoolCycles(list);
       changed = true;
       continue;
     }
 
+    let needRelink = false;
     if (effObsMs < Date.parse(ex.first_seen_at)) {
       ex.first_seen_at = effObsIso;
+      needRelink = true;
+      changed = true;
+    }
+
+    const prevObsList = JSON.stringify(ex.observations || []);
+    ex.observations = normalizeObservations([
+      ...(ex.observations || []),
+      { observed_at: effObsIso, remaining_fraction: rem, used_fraction: used },
+    ], resetMs);
+    if (JSON.stringify(ex.observations) !== prevObsList) {
       changed = true;
     }
 
     const prevObsMs = Date.parse(ex.observed_at);
     if (!sat) {
       if (effObsMs >= prevObsMs) {
-        const diff = ex.observed_at !== effObsIso
-          || ex.remaining_fraction !== rem
-          || ex.reset_time !== resetIso
-          || ex.cycle_start !== startIso
-          || ex.saturated !== false
-          || (plan && ex.plan !== plan)
-          || (tier && ex.tier !== tier);
-        if (diff) {
-          ex.cycle_start = startIso;
-          ex.reset_time = resetIso;
-          ex.observed_at = effObsIso;
-          ex.remaining_fraction = rem;
-          ex.used_fraction = used;
+        const fracChanged = Math.abs(ex.remaining_fraction - rem) > 1e-8;
+        const resetChanged = ex.reset_time !== resetIso;
+        const metaChanged = ex.saturated !== false || (plan && ex.plan !== plan) || (tier && ex.tier !== tier);
+        if (fracChanged || resetChanged || metaChanged) {
+          if (resetChanged) {
+            ex.reset_time = resetIso;
+            if (ex.cycle_start && ex.cycle_start_source !== 'unknown') {
+              ex.cycle_duration_ms = Math.max(0, resetMs - Date.parse(ex.cycle_start));
+            }
+            needRelink = true;
+          }
+          if (fracChanged) {
+            ex.observed_at = effObsIso;
+            ex.remaining_fraction = rem;
+            ex.used_fraction = used;
+            ex.obs_count += 1;
+          }
           ex.saturated = false;
-          ex.obs_count += 1;
           if (used >= 0.01 && (!ex.peak_unsaturated || used > ex.peak_unsaturated.used_fraction)) {
             ex.peak_unsaturated = { observed_at: effObsIso, remaining_fraction: rem, used_fraction: used };
           }
@@ -895,8 +1093,13 @@ export function mergeQuotaObservation(ledger, quotaResult) {
         }
       }
     } else if (!ex.saturated) {
-      ex.cycle_start = startIso;
-      ex.reset_time = resetIso;
+      if (ex.reset_time !== resetIso) {
+        ex.reset_time = resetIso;
+        if (ex.cycle_start && ex.cycle_start_source !== 'unknown') {
+          ex.cycle_duration_ms = Math.max(0, resetMs - Date.parse(ex.cycle_start));
+        }
+        needRelink = true;
+      }
       ex.observed_at = effObsIso;
       ex.remaining_fraction = 0;
       ex.used_fraction = 1;
@@ -909,6 +1112,10 @@ export function mergeQuotaObservation(ledger, quotaResult) {
       // Tighten saturation lock if an earlier zero-remaining observation arrives.
       ex.observed_at = effObsIso;
       changed = true;
+    }
+
+    if (needRelink) {
+      next.pools[pool] = relinkPoolCycles(list);
     }
   }
 

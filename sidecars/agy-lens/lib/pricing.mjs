@@ -110,6 +110,24 @@ function extractPrice(v) {
 }
 
 /**
+ * Per-component USD costs `[input, output, cache_read]` for one model call.
+ * Uses the model's `above_200k` tier when `input + cache_read > threshold`
+ * (or when `longContext` boolean explicitly overrides pre-aggregated rows).
+ */
+export function costPartsOf(p, inp = 0, out = 0, cacheRead = 0, longContext = null) {
+  if (!p) return null;
+  const i = normTokens(inp);
+  const o = normTokens(out);
+  const c = normTokens(cacheRead);
+  const tier = p[3];
+  const useTier = typeof longContext === 'boolean' ? longContext : (tier ? i + c > tier.threshold : false);
+  if (tier && useTier) {
+    return [(i * tier.input) / 1_000_000, (o * tier.output) / 1_000_000, (c * tier.cache_read) / 1_000_000];
+  }
+  return [(i * p[0]) / 1_000_000, (o * p[1]) / 1_000_000, (c * p[2]) / 1_000_000];
+}
+
+/**
  * USD cost of one model call. `p` is a price from priceInfo(); input and cache read
  * together form the prompt, which decides whether the long-context tier applies.
  * `longContext` (boolean) overrides that decision for pre-aggregated rows, whose
