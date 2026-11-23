@@ -990,7 +990,7 @@ test('ScannerTest: windows/totals, contract shape, by_model, display-only resolu
     // 2. Contract shape
     assert.deepEqual(Object.keys(r).sort(), [
       'archived_conversations', 'by_conversation', 'by_model', 'd7_by_pool', 'daily', 'elapsed_ms', 'errors', 'hourly_today',
-      'pricing_fetched_at', 'pricing_source', 'scanned_at', 'sources', 'totals', 'weekly_cycles', 'weekly_value_usd',
+      'pricing_fetched_at', 'pricing_source', 'quota_calibration', 'scanned_at', 'sources', 'totals', 'weekly_cycles', 'weekly_value_usd',
     ]);
     assert.deepEqual(Object.keys(r.d7_by_pool).sort(), ['claude_gpt', 'gemini', 'other']);
     assert.deepEqual(Object.keys(r.by_conversation[0]).sort(), [
@@ -1901,26 +1901,47 @@ function makeSummariesDb(path, rows) {
   db.close();
 }
 
-test('QuotaCycles: cycle ledger persists, deduplicates jitter, locks saturation & bootstraps from quota-raw', async () => {
-  const { loadQuotaCycles, mergeQuotaObservation, recordQuotaCycles, WEEK_MS } = await import('../sidecars/agy-lens/lib/quota.mjs');
+test('QuotaCycles: consecutive-reset cycle linking, plateau lock, saturation, offline gap guard, v1->v2 migration & bootstrap', async () => {
+  const { loadQuotaCycles, mergeQuotaObservation, normalizeQuotaCycles, QUOTA_CYCLES_VERSION, recordQuotaCycles, WEEK_MS } = await import('../sidecars/agy-lens/lib/quota.mjs');
   const dir = mkdtempSync(join(tmpdir(), 'agy-unit-cycles-'));
   try {
     const cyclesPath = join(dir, 'quota-cycles.json');
     const resetMs = Date.parse('2026-11-28T08:51:10.000Z');
     const resetIso = new Date(resetMs).toISOString();
 
-    // 1. Progresses within same cycle and tracks peak_unsaturated.
+    // 1. First 7d weekly cycle infers weekly_7d cycle_start when reset - 7d <= first_seen_at,
+    // while a >7d first cycle stays cycle_start: null / unknown and uses monotonic delta tracking.
     let ledger = recordQuotaCycles(cyclesPath, {
       plan: 'Pro',
       tier: 'Pro',
       fetched_at: '2026-11-22T06:00:00.000Z',
       weekly: { gemini: { remaining_fraction: 0.6, reset_time: resetIso } },
     });
+    assert.equal(ledger.version, QUOTA_CYCLES_VERSION);
     assert.equal(ledger.pools.gemini.length, 1);
     assert.equal(ledger.pools.gemini[0].cycle_start, new Date(resetMs - WEEK_MS).toISOString());
+    assert.equal(ledger.pools.gemini[0].cycle_start_source, 'weekly_7d');
+    assert.equal(ledger.pools.gemini[0].cycle_duration_ms, WEEK_MS);
     assert.equal(ledger.pools.gemini[0].used_fraction, 0.4);
     assert.equal(ledger.pools.gemini[0].saturated, false);
     assert.equal(ledger.pools.gemini[0].peak_unsaturated.used_fraction, 0.4);
+    assert.equal(ledger.pools.gemini[0].observations.length, 1);
+
+    const longFirst = mergeQuotaObservation(normalizeQuotaCycles(null), {
+      fetched_at: '2026-11-22T06:00:00.000Z',
+      weekly: { gemini: { remaining_fraction: 0.6, reset_time: new Date(Date.parse('2026-11-22T06:00:00.000Z') + 14 * 86400_000).toISOString() } },
+    });
+    assert.equal(longFirst.ledger.pools.gemini[0].cycle_start, null);
+    assert.equal(longFirst.ledger.pools.gemini[0].cycle_start_source, 'unknown');
+    assert.equal(longFirst.ledger.pools.gemini[0].cycle_duration_ms, null);
+
+    // Repeating an unchanged fraction keeps the earliest timestamp of that plateau.
+    const flatCheck = mergeQuotaObservation(ledger, {
+      fetched_at: '2026-11-22T07:00:00.000Z',
+      weekly: { gemini: { remaining_fraction: 0.6, reset_time: resetIso } },
+    });
+    assert.equal(flatCheck.changed, false);
+    assert.equal(flatCheck.ledger.pools.gemini[0].observed_at, '2026-11-22T06:00:00.000Z');
 
     // 2. Small jitter on reset_time (±30s) merges into same cycle instead of duplicating.
     ledger = recordQuotaCycles(cyclesPath, {
@@ -1932,6 +1953,7 @@ test('QuotaCycles: cycle ledger persists, deduplicates jitter, locks saturation 
     assert.equal(ledger.pools.gemini.length, 1);
     assert.equal(ledger.pools.gemini[0].used_fraction, 0.95);
     assert.equal(ledger.pools.gemini[0].peak_unsaturated.observed_at, '2026-11-22T09:00:00.000Z');
+    assert.equal(ledger.pools.gemini[0].observations.length, 2);
 
     // Downward jitter or flat repeated reading must not overwrite peak_unsaturated.
     ledger = recordQuotaCycles(cyclesPath, {
@@ -1962,8 +1984,10 @@ test('QuotaCycles: cycle ledger persists, deduplicates jitter, locks saturation 
     assert.equal(ledger.pools.gemini[0].observed_at, '2026-11-22T10:00:00.000Z');
     assert.equal(ledger.pools.gemini[0].peak_unsaturated.used_fraction, 0.95);
 
-    // 4. Next week's reset starts a second cycle, sorted newest-first; expired/malformed resets ignored.
-    const nextResetIso = new Date(resetMs + WEEK_MS).toISOString();
+    // 4. Next cycle links cycle_start from previous reset_time and measures actual non-7d duration (5d, then 10d).
+    const fiveDaysMs = 5 * 86400_000;
+    const tenDaysMs = 10 * 86400_000;
+    const nextResetIso = new Date(resetMs + fiveDaysMs).toISOString();
     ledger = recordQuotaCycles(cyclesPath, {
       fetched_at: '2026-11-29T10:00:00.000Z',
       weekly: {
@@ -1973,15 +1997,108 @@ test('QuotaCycles: cycle ledger persists, deduplicates jitter, locks saturation 
     });
     assert.equal(ledger.pools.gemini.length, 2);
     assert.equal(ledger.pools.gemini[0].reset_time, nextResetIso);
+    assert.equal(ledger.pools.gemini[0].cycle_start, resetIso);
+    assert.equal(ledger.pools.gemini[0].cycle_start_source, 'prev_reset');
+    assert.equal(ledger.pools.gemini[0].cycle_duration_ms, fiveDaysMs);
     assert.equal(ledger.pools.gemini[1].reset_time, resetIso);
     assert.equal(ledger.pools.claude_gpt, undefined);
 
-    // Malformed cycle not yet started is rejected by mergeQuotaObservation.
+    const thirdResetIso = new Date(resetMs + fiveDaysMs + tenDaysMs).toISOString();
+    ledger = recordQuotaCycles(cyclesPath, {
+      fetched_at: '2026-12-04T10:00:00.000Z',
+      weekly: { gemini: { remaining_fraction: 0.7, reset_time: thirdResetIso } },
+    });
+    assert.equal(ledger.pools.gemini[0].cycle_start, nextResetIso);
+    assert.equal(ledger.pools.gemini[0].cycle_duration_ms, tenDaysMs);
+
+    // Offline multi-cycle gap guard: after a long offline gap (>1.5x cadence), do not link across missed cycles.
+    const farResetIso = new Date(Date.parse(thirdResetIso) + 25 * 86400_000).toISOString();
+    ledger = recordQuotaCycles(cyclesPath, {
+      fetched_at: new Date(Date.parse(thirdResetIso) + 20 * 86400_000).toISOString(),
+      weekly: { gemini: { remaining_fraction: 0.9, reset_time: farResetIso } },
+    });
+    assert.equal(ledger.pools.gemini[0].cycle_start, null);
+    assert.equal(ledger.pools.gemini[0].cycle_start_source, 'unknown');
+
+    // Early mid-cycle reset guard: if a new cycle was first seen before previous reset ended, do not link.
+    const earlyShift = mergeQuotaObservation({
+      version: 2,
+      pools: {
+        claude_gpt: [{
+          cycle_start: null,
+          cycle_start_source: 'unknown',
+          reset_time: '2026-12-10T00:00:00.000Z',
+          first_seen_at: '2026-12-01T00:00:00.000Z',
+          observed_at: '2026-12-01T00:00:00.000Z',
+          remaining_fraction: 0.5,
+        }],
+      },
+    }, {
+      fetched_at: '2026-12-05T00:00:00.000Z',
+      weekly: { claude_gpt: { remaining_fraction: 0.9, reset_time: '2026-12-15T00:00:00.000Z' } },
+    });
+    assert.equal(earlyShift.ledger.pools.claude_gpt[0].cycle_start, null);
+    assert.equal(earlyShift.ledger.pools.claude_gpt[0].cycle_start_source, 'unknown');
+
+    // Early-refresh truncation: weekly_7d superseded by a replacement weekly_7d cycle gets ended_at = next.cycle_start
+    // and truncated cycle_duration_ms while keeping reset_time intact.
+    const earlyTrunc0 = mergeQuotaObservation(normalizeQuotaCycles(null), {
+      fetched_at: '2026-11-20T13:44:22.579Z',
+      weekly: { gemini: { remaining_fraction: 0.77, reset_time: '2026-11-26T09:48:21.000Z' } },
+    });
+    const earlyTrunc1 = mergeQuotaObservation(earlyTrunc0.ledger, {
+      fetched_at: '2026-11-22T01:15:07.923Z',
+      weekly: { gemini: { remaining_fraction: 0.87, reset_time: '2026-11-28T08:51:10.000Z' } },
+    });
+    assert.equal(earlyTrunc1.ledger.pools.gemini.length, 2);
+    assert.equal(earlyTrunc1.ledger.pools.gemini[0].ended_at, null);
+    assert.equal(earlyTrunc1.ledger.pools.gemini[0].cycle_duration_ms, WEEK_MS);
+    assert.equal(earlyTrunc1.ledger.pools.gemini[1].reset_time, '2026-11-26T09:48:21.000Z');
+    assert.equal(earlyTrunc1.ledger.pools.gemini[1].ended_at, '2026-11-21T08:51:10.000Z');
+    assert.equal(earlyTrunc1.ledger.pools.gemini[1].cycle_duration_ms, Date.parse('2026-11-21T08:51:10.000Z') - Date.parse('2026-11-19T09:48:21.000Z'));
+
+    // Accepts long cycles > 7d (e.g. 21d), rejects absurdly distant (>90d).
+    const ok21d = mergeQuotaObservation(ledger, {
+      fetched_at: '2026-11-29T10:00:00.000Z',
+      weekly: { custom_21d: { remaining_fraction: 0.9, reset_time: new Date(Date.parse('2026-11-29T10:00:00.000Z') + 21 * 86400_000).toISOString() } },
+    });
+    assert.equal(ok21d.changed, true);
     const futureCheck = mergeQuotaObservation(ledger, {
       fetched_at: '2026-11-29T10:00:00.000Z',
-      weekly: { gemini: { remaining_fraction: 0.9, reset_time: '2026-12-20T10:00:00.000Z' } },
+      weekly: { gemini: { remaining_fraction: 0.9, reset_time: '2027-04-01T10:00:00.000Z' } },
     });
     assert.equal(futureCheck.changed, false);
+
+    // v1 -> v2 migration clears guessed 7d cycle_start on lone cycle, and relinks consecutive cycles.
+    const r1Iso = '2026-11-15T00:00:00.000Z';
+    const r2Iso = '2026-11-25T00:00:00.000Z';
+    const migrated = normalizeQuotaCycles({
+      version: 1,
+      pools: {
+        gemini: [
+          {
+            cycle_start: new Date(Date.parse(r2Iso) - WEEK_MS).toISOString(),
+            reset_time: r2Iso,
+            first_seen_at: '2026-11-16T00:00:00.000Z',
+            observed_at: '2026-11-20T00:00:00.000Z',
+            remaining_fraction: 0.6,
+          },
+          {
+            cycle_start: new Date(Date.parse(r1Iso) - WEEK_MS).toISOString(),
+            reset_time: r1Iso,
+            first_seen_at: '2026-11-10T00:00:00.000Z',
+            observed_at: '2026-11-14T00:00:00.000Z',
+            remaining_fraction: 0.2,
+          },
+        ],
+      },
+    });
+    assert.equal(migrated.version, 2);
+    assert.equal(migrated.pools.gemini[1].cycle_start, null);
+    assert.equal(migrated.pools.gemini[1].cycle_start_source, 'unknown');
+    assert.equal(migrated.pools.gemini[0].cycle_start, r1Iso);
+    assert.equal(migrated.pools.gemini[0].cycle_start_source, 'prev_reset');
+    assert.equal(migrated.pools.gemini[0].cycle_duration_ms, 10 * 86400_000);
 
     // 5. Bootstrap from quota-raw.json when quota-cycles.json does not exist yet.
     const bootDir = join(dir, 'boot');
@@ -2002,6 +2119,9 @@ test('QuotaCycles: cycle ledger persists, deduplicates jitter, locks saturation 
     }));
     const loaded = loadQuotaCycles(bootCyclesPath, rawPath);
     assert.equal(loaded.pools.gemini.length, 1);
+    assert.equal(loaded.pools.gemini[0].cycle_start, '2026-11-21T08:51:10.000Z');
+    assert.equal(loaded.pools.gemini[0].cycle_start_source, 'weekly_7d');
+    assert.equal(loaded.pools.gemini[0].cycle_duration_ms, WEEK_MS);
     assert.equal(loaded.pools.gemini[0].used_fraction, 0.52);
     assert.equal(loaded.pools.gemini[0].plan, 'Pro');
     assert.equal(existsSync(bootCyclesPath), true);
@@ -2010,7 +2130,7 @@ test('QuotaCycles: cycle ledger persists, deduplicates jitter, locks saturation 
   }
 });
 
-test('WeeklyValuation: exact cycle alignment, shrinkage change_pct, <1% & saturation guards, no 7d fallback, legacy import', async () => {
+test('WeeklyValuation: exact cycle alignment, delta fallback before 2 resets, non-7d & partial cycles, guards & legacy import', async () => {
   const { readLegacyCache } = await import('../sidecars/agy-lens/lib/history.mjs');
   const dir = mkdtempSync(join(tmpdir(), 'agy-unit-wk-'));
   try {
@@ -2035,11 +2155,13 @@ test('WeeklyValuation: exact cycle alignment, shrinkage change_pct, <1% & satura
     const curObsIso = new Date((hTs(2) + 1) * 1000).toISOString(); // between tCur1 (4d ago) and tCurPost (1d ago)
 
     const quotaCycles = {
-      version: 1,
+      version: 2,
       pools: {
         gemini: [
           {
-            cycle_start: new Date((hTs(4) - 3 * 86400) * 1000).toISOString(),
+            cycle_start: prevResetIso,
+            cycle_start_source: 'prev_reset',
+            cycle_duration_ms: 10 * 86400_000,
             reset_time: curResetIso,
             observed_at: curObsIso,
             remaining_fraction: 0.6, // 40% used
@@ -2048,6 +2170,7 @@ test('WeeklyValuation: exact cycle alignment, shrinkage change_pct, <1% & satura
           },
           {
             cycle_start: new Date((hTs(14) + 1) * 1000).toISOString(),
+            cycle_start_source: 'explicit',
             reset_time: prevResetIso,
             observed_at: prevObsIso,
             remaining_fraction: 0.8, // 20% used
@@ -2070,12 +2193,14 @@ test('WeeklyValuation: exact cycle alignment, shrinkage change_pct, <1% & satura
     const curVal = roundN(cCur / 0.4, 2);
     const prevVal = roundN(cPrev / 0.2, 2);
     assert.equal(gCycles[0].is_current, true);
+    assert.equal(gCycles[0].valuation_method, 'cycle');
+    assert.equal(gCycles[0].cycle_duration_ms, 10 * 86400_000);
     assert.equal(gCycles[0].observed_cost_usd, roundN(cCur, 4));
     assert.equal(gCycles[0].cycle_cost_usd, roundN(cCur + cCurPost, 4));
     assert.equal(gCycles[0].weekly_value_usd, curVal);
     assert.equal(gCycles[0].prev_weekly_value_usd, prevVal);
     assert.equal(gCycles[0].change_pct, roundN(((curVal - prevVal) / prevVal) * 100, 1));
-    assert.ok(gCycles[0].change_pct < 0); // quota shrank vs prev week!
+    assert.ok(gCycles[0].change_pct < 0); // quota shrank vs prev cycle!
     // Previous cycle also excludes tPrevPost from observed_cost_usd.
     assert.equal(gCycles[1].is_current, false);
     assert.equal(gCycles[1].observed_cost_usd, roundN(cPrev, 4));
@@ -2085,9 +2210,9 @@ test('WeeklyValuation: exact cycle alignment, shrinkage change_pct, <1% & satura
     assert.equal(r.weekly_value_usd.gemini, curVal);
     assert.equal(r.by_conversation[0].cost_by_pool.gemini, roundN(cPrev + cPrevPost + cCur + cCurPost, 6));
 
-    // Fresh reset (<5% used in current cycle): current value null, pool benchmark falls back to last valid week!
+    // Fresh reset (<5% used in current cycle): current value null, pool benchmark falls back to last valid cycle!
     const resetCycles = {
-      version: 1,
+      version: 2,
       pools: {
         gemini: [
           { ...quotaCycles.pools.gemini[0], remaining_fraction: 0.97, used_fraction: 0.03 },
@@ -2100,7 +2225,7 @@ test('WeeklyValuation: exact cycle alignment, shrinkage change_pct, <1% & satura
     assert.equal(rLow.weekly_value_usd.gemini, prevVal);
 
     const floorCycles = {
-      version: 1,
+      version: 2,
       pools: {
         gemini: [
           { ...quotaCycles.pools.gemini[0], remaining_fraction: 0.95, used_fraction: 0.05 },
@@ -2113,10 +2238,11 @@ test('WeeklyValuation: exact cycle alignment, shrinkage change_pct, <1% & satura
 
     // Saturation guard: saturated cycle evaluates using peak_unsaturated (>=20% prior peak) instead of post-limit AI credit spend!
     const satCycles = {
-      version: 1,
+      version: 2,
       pools: {
         gemini: [{
-          cycle_start: new Date((hTs(4) - 3 * 86400) * 1000).toISOString(),
+          cycle_start: prevResetIso,
+          cycle_start_source: 'prev_reset',
           reset_time: curResetIso,
           observed_at: new Date((hTs(0) + 1) * 1000).toISOString(), // includes tCurPost AI-credit spend
           remaining_fraction: 0,
@@ -2130,6 +2256,275 @@ test('WeeklyValuation: exact cycle alignment, shrinkage change_pct, <1% & satura
     assert.equal(rSat.weekly_cycles.gemini[0].eval_used_fraction, 0.3);
     assert.equal(rSat.weekly_cycles.gemini[0].observed_cost_usd, roundN(cCur, 4));
     assert.equal(rSat.weekly_value_usd.gemini, roundN(cCur / 0.3, 2));
+
+    // First-ever cycle with only 1 poll (cycle_start: null): NO fake 7d fallback!
+    const singlePollCycles = {
+      version: 2,
+      pools: {
+        gemini: [{
+          cycle_start: null,
+          cycle_start_source: 'unknown',
+          reset_time: curResetIso,
+          first_seen_at: curObsIso,
+          observed_at: curObsIso,
+          remaining_fraction: 0.6,
+          used_fraction: 0.4,
+          observations: [{ observed_at: curObsIso, remaining_fraction: 0.6, used_fraction: 0.4 }],
+        }],
+      },
+    };
+    const rSingle = await scan([[root, 'desktop']], { now: H_NOW, quotaCycles: singlePollCycles });
+    assert.equal(rSingle.weekly_cycles.gemini[0].valuation_method, 'delta');
+    assert.equal(rSingle.weekly_cycles.gemini[0].eval_used_fraction, 0);
+    assert.equal(rSingle.weekly_cycles.gemini[0].weekly_value_usd, null);
+    assert.equal(rSingle.weekly_value_usd.gemini, null);
+
+    // First-ever cycle with 2 polls: in-cycle delta valuation excludes pre-sample spend (tCur1) and uses (obs1, obs2].
+    const obs1Iso = new Date((hTs(3) + 1) * 1000).toISOString(); // strictly after tCur1 (4d ago)
+    const obs2Iso = new Date((hTs(0, 12) + 1) * 1000).toISOString(); // after tCurPost (1d ago)
+    const deltaCycles = {
+      version: 2,
+      pools: {
+        gemini: [{
+          cycle_start: null,
+          cycle_start_source: 'unknown',
+          reset_time: curResetIso,
+          first_seen_at: obs1Iso,
+          observed_at: obs2Iso,
+          remaining_fraction: 0.6,
+          used_fraction: 0.4,
+          observations: [
+            { observed_at: obs1Iso, remaining_fraction: 0.9, used_fraction: 0.1 },
+            { observed_at: obs2Iso, remaining_fraction: 0.6, used_fraction: 0.4 },
+          ],
+        }],
+      },
+    };
+    const rDelta = await scan([[root, 'desktop']], { now: H_NOW, quotaCycles: deltaCycles });
+    assert.equal(rDelta.weekly_cycles.gemini[0].valuation_method, 'delta');
+    assert.equal(rDelta.weekly_cycles.gemini[0].eval_used_fraction, 0.3);
+    assert.equal(rDelta.weekly_cycles.gemini[0].observed_cost_usd, roundN(cCurPost, 4));
+    assert.equal(rDelta.weekly_value_usd.gemini, roundN(cCurPost / 0.3, 2));
+
+    // When first delta poll started at remaining=1.0 (0% used), calls at the exact sample timestamp ARE included.
+    const zeroStartCycles = {
+      version: 2,
+      pools: {
+        gemini: [{
+          cycle_start: null,
+          cycle_start_source: 'unknown',
+          reset_time: curResetIso,
+          first_seen_at: new Date(tCur1 * 1000).toISOString(),
+          observed_at: curObsIso,
+          remaining_fraction: 0.8,
+          used_fraction: 0.2,
+          observations: [
+            { observed_at: new Date(tCur1 * 1000).toISOString(), remaining_fraction: 1.0, used_fraction: 0 },
+            { observed_at: curObsIso, remaining_fraction: 0.8, used_fraction: 0.2 },
+          ],
+        }],
+      },
+    };
+    const rZeroDelta = await scan([[root, 'desktop']], { now: H_NOW, quotaCycles: zeroStartCycles });
+    assert.equal(rZeroDelta.weekly_cycles.gemini[0].observed_cost_usd, roundN(cCur, 4));
+    assert.equal(rZeroDelta.weekly_value_usd.gemini, roundN(cCur / 0.2, 2));
+
+    // Precision-aware delta thresholds: fine-precision fraction (0.8500 -> 0.8144, 3.56% >= 3%) computes cleanly,
+    // tiny/noisy 1% delta (0.85 -> 0.8396, 1.04% < 3%) stays null, coarse 5% (0.85 -> 0.80) passes, 3% coarse stays null.
+    const fineDeltaCycles = {
+      version: 2,
+      pools: {
+        gemini: [{
+          cycle_start: null,
+          cycle_start_source: 'unknown',
+          reset_time: curResetIso,
+          first_seen_at: obs1Iso,
+          observed_at: obs2Iso,
+          remaining_fraction: 0.8144,
+          used_fraction: 0.1856,
+          observations: [
+            { observed_at: obs1Iso, remaining_fraction: 0.85, used_fraction: 0.15 },
+            { observed_at: obs2Iso, remaining_fraction: 0.8144, used_fraction: 0.1856 },
+          ],
+        }],
+      },
+    };
+    const rFineDelta = await scan([[root, 'desktop']], { now: H_NOW, quotaCycles: fineDeltaCycles });
+    assert.equal(rFineDelta.weekly_cycles.gemini[0].weekly_value_usd, roundN(cCurPost / 0.0356, 2));
+    assert.equal(rFineDelta.weekly_value_usd.gemini, roundN(cCurPost / 0.0356, 2));
+
+    const jitterDeltaCycles = {
+      version: 2,
+      pools: {
+        gemini: [{
+          cycle_start: null,
+          cycle_start_source: 'unknown',
+          reset_time: curResetIso,
+          first_seen_at: obs1Iso,
+          observed_at: obs2Iso,
+          remaining_fraction: 0.8396,
+          used_fraction: 0.1604,
+          observations: [
+            { observed_at: obs1Iso, remaining_fraction: 0.85, used_fraction: 0.15 },
+            { observed_at: obs2Iso, remaining_fraction: 0.8396, used_fraction: 0.1604 },
+          ],
+        }],
+      },
+    };
+    const rJitter = await scan([[root, 'desktop']], { now: H_NOW, quotaCycles: jitterDeltaCycles });
+    assert.equal(rJitter.weekly_cycles.gemini[0].weekly_value_usd, null);
+    assert.equal(rJitter.weekly_value_usd.gemini, null);
+
+    const smallCoarseCycles = {
+      version: 2,
+      pools: {
+        gemini: [{
+          cycle_start: null,
+          cycle_start_source: 'unknown',
+          reset_time: curResetIso,
+          first_seen_at: obs1Iso,
+          observed_at: obs2Iso,
+          remaining_fraction: 0.82,
+          used_fraction: 0.18,
+          observations: [
+            { observed_at: obs1Iso, remaining_fraction: 0.85, used_fraction: 0.15 },
+            { observed_at: obs2Iso, remaining_fraction: 0.82, used_fraction: 0.18 },
+          ],
+        }],
+      },
+    };
+    const rSmallCoarse = await scan([[root, 'desktop']], { now: H_NOW, quotaCycles: smallCoarseCycles });
+    assert.equal(rSmallCoarse.weekly_cycles.gemini[0].weekly_value_usd, null);
+
+    const coarseDeltaCycles = {
+      version: 2,
+      pools: {
+        gemini: [{
+          cycle_start: null,
+          cycle_start_source: 'unknown',
+          reset_time: curResetIso,
+          first_seen_at: obs1Iso,
+          observed_at: obs2Iso,
+          remaining_fraction: 0.8,
+          used_fraction: 0.2,
+          observations: [
+            { observed_at: obs1Iso, remaining_fraction: 0.85, used_fraction: 0.15 },
+            { observed_at: obs2Iso, remaining_fraction: 0.8, used_fraction: 0.2 },
+          ],
+        }],
+      },
+    };
+    const rCoarseDelta = await scan([[root, 'desktop']], { now: H_NOW, quotaCycles: coarseDeltaCycles });
+    assert.equal(rCoarseDelta.weekly_cycles.gemini[0].weekly_value_usd, roundN(cCurPost / 0.05, 2));
+    assert.equal(rCoarseDelta.weekly_value_usd.gemini, roundN(cCurPost / 0.05, 2));
+
+    // Early-refresh superseded cycle (still has future reset_time) must truncate at replacement cycle start (ended_at),
+    // never double-counting replacement spend, and strictly keep one is_current per pool;
+    // prepareQuotaCycles also coalesces micro-drops (<0.5%) and skips upward rebounds via monotonic high-water anchor.
+    const { prepareQuotaCycles } = await import('../sidecars/agy-lens/lib/history.mjs');
+    const { renderQuotaHtml } = await import('../sidecars/agy-lens/web/views/quota.js');
+    const { fmtCycleSpan } = await import('../sidecars/agy-lens/web/format.js');
+    const { createTranslator } = await import('../sidecars/agy-lens/web/i18n.js');
+    const earlyReplStart = new Date(hTs(2) * 1000).toISOString();
+    const earlyResetCycles = {
+      version: 2,
+      pools: {
+        gemini: [
+          {
+            cycle_start: earlyReplStart,
+            cycle_start_source: 'weekly_7d',
+            reset_time: new Date(hTs(-5) * 1000).toISOString(),
+            observed_at: obs2Iso,
+            remaining_fraction: 0.7,
+            used_fraction: 0.3,
+          },
+          {
+            cycle_start: new Date(hTs(5) * 1000).toISOString(),
+            cycle_start_source: 'weekly_7d',
+            reset_time: new Date(hTs(-2) * 1000).toISOString(),
+            observed_at: new Date((hTs(3) + 1) * 1000).toISOString(),
+            remaining_fraction: 0.8,
+            used_fraction: 0.2,
+          },
+        ],
+      },
+    };
+    const rEarly = await scan([[root, 'desktop']], { now: H_NOW, quotaCycles: earlyResetCycles });
+    assert.equal(rEarly.weekly_cycles.gemini[0].is_current, true);
+    assert.equal(rEarly.weekly_cycles.gemini[0].ended_at, null);
+    assert.equal(rEarly.weekly_cycles.gemini[1].is_current, false);
+    assert.equal(rEarly.weekly_cycles.gemini[1].ended_at, earlyReplStart);
+    assert.equal(rEarly.weekly_cycles.gemini[1].cycle_duration_ms, 3 * 86400_000);
+    assert.equal(rEarly.weekly_cycles.gemini[1].cycle_cost_usd, roundN(cCur, 4));
+    const earlyHtml = renderQuotaHtml({
+      data: { plan: 'Pro', fetched_at: new Date().toISOString(), pools: [] },
+      historyData: rEarly,
+      openKeys: new Set(['weekly-cycles']),
+      t: createTranslator('zh'),
+      lang: 'zh',
+    });
+    assert.equal((earlyHtml.match(/class="wtag">当前</g) || []).length, 1);
+    assert.ok(earlyHtml.includes(fmtCycleSpan(earlyResetCycles.pools.gemini[1].cycle_start, earlyReplStart, 'zh')));
+    assert.ok(!earlyHtml.includes(fmtCycleSpan(earlyResetCycles.pools.gemini[1].cycle_start, earlyResetCycles.pools.gemini[1].reset_time, 'zh')));
+    assert.ok(earlyHtml.includes('满额约'));
+    assert.ok(!earlyHtml.includes('→') && !earlyHtml.includes('wcycles-note'));
+
+    const prepRebound = prepareQuotaCycles({
+      version: 2,
+      pools: {
+        gemini: [{
+          cycle_start: new Date(tCur1 * 1000).toISOString(),
+          cycle_start_source: 'explicit',
+          reset_time: curResetIso,
+          observed_at: new Date((tCur1 + 4000) * 1000).toISOString(),
+          remaining_fraction: 0.85,
+          used_fraction: 0.15,
+          observations: [
+            { observed_at: new Date((tCur1 + 1000) * 1000).toISOString(), remaining_fraction: 0.90, used_fraction: 0.10 },
+            { observed_at: new Date((tCur1 + 2000) * 1000).toISOString(), remaining_fraction: 0.899, used_fraction: 0.101 },
+            { observed_at: new Date((tCur1 + 3000) * 1000).toISOString(), remaining_fraction: 0.902, used_fraction: 0.098 },
+            { observed_at: new Date((tCur1 + 4000) * 1000).toISOString(), remaining_fraction: 0.85, used_fraction: 0.15 },
+          ],
+        }],
+      },
+    });
+    assert.deepEqual(
+      prepRebound.get('gemini')[0]._segments.map((s) => s.delta),
+      [0.1, 0.05],
+    );
+
+    // Completed partial-usage cycle (e.g. ended at 30% used vs 3% used without hitting 100%).
+    const partialCompleted = {
+      version: 2,
+      pools: {
+        gemini: [
+          {
+            cycle_start: new Date((hTs(6)) * 1000).toISOString(),
+            cycle_start_source: 'prev_reset',
+            cycle_duration_ms: 5 * 86400_000,
+            reset_time: new Date((hTs(1)) * 1000).toISOString(),
+            observed_at: new Date((hTs(2)) * 1000).toISOString(),
+            remaining_fraction: 0.7,
+            used_fraction: 0.3,
+          },
+          {
+            cycle_start: new Date((hTs(11)) * 1000).toISOString(),
+            cycle_start_source: 'prev_reset',
+            cycle_duration_ms: 5 * 86400_000,
+            reset_time: new Date((hTs(6)) * 1000).toISOString(),
+            observed_at: new Date((hTs(8)) * 1000).toISOString(),
+            remaining_fraction: 0.97,
+            used_fraction: 0.03,
+          },
+        ],
+      },
+    };
+    const rPartial = await scan([[root, 'desktop']], { now: H_NOW, quotaCycles: partialCompleted });
+    assert.equal(rPartial.weekly_cycles.gemini[0].is_current, false);
+    assert.equal(rPartial.weekly_cycles.gemini[0].cycle_duration_ms, 5 * 86400_000);
+    assert.equal(rPartial.weekly_cycles.gemini[0].weekly_value_usd, roundN(cCur / 0.3, 2));
+    assert.equal(rPartial.weekly_cycles.gemini[1].is_current, false);
+    assert.equal(rPartial.weekly_cycles.gemini[1].weekly_value_usd, null);
 
     // Without quotaCycles: NO rolling 7-day fallback!
     const rNoCycles = await scan([[root, 'desktop']], { now: H_NOW });
@@ -2267,7 +2662,7 @@ test('TreeFix: subagent usage rolls up to parents (multi-level, placeholders, cy
 test('MultiPoolWeekly: mixed-pool conversations lead with highest quota-% impact and support dynamic pools', async () => {
   const f = await import('../sidecars/agy-lens/web/format.js');
   const { createTranslator } = await import('../sidecars/agy-lens/web/i18n.js');
-  const { renderQuotaHtml } = await import('../sidecars/agy-lens/web/views/quota.js');
+  const { meterHtml, renderQuotaHtml } = await import('../sidecars/agy-lens/web/views/quota.js');
   const { renderOverviewHtml } = await import('../sidecars/agy-lens/web/views/overview.js');
 
   const tZh = createTranslator('zh');
@@ -2306,10 +2701,12 @@ test('MultiPoolWeekly: mixed-pool conversations lead with highest quota-% impact
       hCall(1, { ts: tCur + 60, model: 'gemini-2.5-pro', input: 4_000_000, output: 200_000, cache: 0 }),
     ]);
     const quotaCycles = {
-      version: 1,
+      version: 2,
       pools: {
         claude_opus: [{
           cycle_start: new Date((hTs(4)) * 1000).toISOString(),
+          cycle_start_source: 'explicit',
+          cycle_duration_ms: 7 * 86400_000,
           reset_time: new Date((hTs(-3)) * 1000).toISOString(),
           observed_at: new Date((tCur + 120) * 1000).toISOString(),
           remaining_fraction: 0.6,
@@ -2318,6 +2715,8 @@ test('MultiPoolWeekly: mixed-pool conversations lead with highest quota-% impact
         }],
         gemini: [{
           cycle_start: new Date((hTs(4)) * 1000).toISOString(),
+          cycle_start_source: 'explicit',
+          cycle_duration_ms: 7 * 86400_000,
           reset_time: new Date((hTs(-3)) * 1000).toISOString(),
           observed_at: new Date((tCur + 120) * 1000).toISOString(),
           remaining_fraction: 0.9,
@@ -2504,6 +2903,642 @@ test('AccuracyFix: cross-DB compaction enum resolution avoids misbilling under m
     const convA = r.by_conversation.find((c) => c.id === 'a-claude');
     assert.equal(convA.cost_partial, true);
     assert.equal(JSON.parse(readFileSync(cachePath, 'utf8')).enums['1530'], 'gemini-2.5-pro');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('Updater: semver comparisons, release parsers, URL sanitization, fallback & 6h cache', async () => {
+  const {
+    checkForUpdate,
+    compareSemver,
+    GITHUB_LATEST_RELEASE_URL,
+    GITHUB_MANIFEST_FALLBACK_URL,
+    GITHUB_RELEASES_PAGE,
+    parseGithubRelease,
+    parseManifestRelease,
+    readUpdateMeta,
+  } = await import('../sidecars/agy-lens/lib/updater.mjs');
+  const { fmtCycleDuration, fmtCycleSpan } = await import('../sidecars/agy-lens/web/format.js');
+  const { meterHtml, quotaColor, renderQuotaHtml } = await import('../sidecars/agy-lens/web/views/quota.js');
+  const { createTranslator } = await import('../sidecars/agy-lens/web/i18n.js');
+
+  assert.equal(compareSemver('2.3.0', '2.2.0'), 1);
+  assert.equal(compareSemver('2.10.0', '2.2.0'), 1);
+  assert.equal(compareSemver('v2.2.0', '2.2.0'), 0);
+  assert.equal(compareSemver('2.3.0', '2.3.0-beta.1'), 1);
+  assert.equal(compareSemver('2.3.0-beta.2', '2.3.0-beta.1'), 1);
+  assert.equal(compareSemver('2.1.9', '2.2.0'), -1);
+  assert.equal(compareSemver('bad', '2.2.0'), 0);
+
+  assert.equal(parseGithubRelease({ tag_name: 'v2.3.0', draft: true }), null);
+  assert.equal(parseGithubRelease({ tag_name: 'v2.3.0-rc.1', prerelease: true }), null);
+  const rel = parseGithubRelease({
+    tag_name: 'v2.3.0',
+    html_url: 'https://evil.example.com/phish',
+    published_at: '2026-11-23T00:00:00Z',
+    body: '## Highlights\n- Dynamic cycles & update checker',
+  });
+  assert.equal(rel.latest_version, '2.3.0');
+  assert.equal(rel.release_url, GITHUB_RELEASES_PAGE);
+  assert.equal(rel.notes_summary, 'Highlights');
+
+  const mf = parseManifestRelease({ version: '2.4.0' });
+  assert.equal(mf.latest_version, '2.4.0');
+  assert.equal(mf.release_url, 'https://github.com/Aoike123/agy-lens/releases/tag/v2.4.0');
+
+  // Quota format helpers for null cycle_start and measured duration + completed low-usage cycle.
+  assert.equal(fmtCycleSpan(null, '2026-11-28T00:00:00Z', 'en').startsWith('→ '), true);
+  assert.equal(fmtCycleSpan(null, '2026-11-28T00:00:00Z', 'zh').startsWith('至 '), true);
+  assert.equal(fmtCycleDuration(5 * 86400_000, 'en'), '5d');
+  assert.equal(fmtCycleDuration(5 * 86400_000, 'zh'), '5天');
+  assert.equal(fmtCycleDuration(12 * 3600_000, 'en'), '12h');
+  const qHtml = renderQuotaHtml({
+    data: { plan: 'Pro', fetched_at: '2026-11-22T00:00:00Z', pools: [] },
+    historyData: {
+      weekly_cycles: {
+        gemini: [{
+          cycle_start: null,
+          reset_time: '2026-11-20T00:00:00Z',
+          observed_at: '2026-11-19T00:00:00Z',
+          used_fraction: 0.03,
+          remaining_fraction: 0.97,
+          is_current: false,
+          observed_cost_usd: 0.5,
+          weekly_value_usd: null,
+        }],
+      },
+      weekly_value_usd: {},
+    },
+    openKeys: new Set(['weekly-cycles']),
+    t: createTranslator('en'),
+    lang: 'en',
+  });
+  assert.ok(qHtml.includes('Low usage'));
+  assert.ok(!qHtml.includes('wcycles-note'));
+  assert.ok(!qHtml.includes('(Δ'));
+  const parseHex = (h) => [
+    parseInt(h.slice(1, 3), 16),
+    parseInt(h.slice(3, 5), 16),
+    parseInt(h.slice(5, 7), 16),
+  ];
+  const cFull = quotaColor(1);
+  const cHigh = quotaColor(0.88);
+  const cMid = quotaColor(0.41);
+  const cCrit = quotaColor(0.007);
+  for (const hex of [cFull, cHigh, cMid, cCrit]) assert.match(hex, /^#[0-9a-f]{6}$/);
+  const [r1, g1, b1] = parseHex(cFull);
+  const [r2, g2, b2] = parseHex(cHigh);
+  assert.ok(g1 > r1 && g1 > b1);
+  assert.ok(g2 > r2 && g2 > b2);
+  assert.ok(Math.max(Math.abs(r1 - r2), Math.abs(g1 - g2), Math.abs(b1 - b2)) <= 12);
+  const [rm, gm, bm] = parseHex(cMid);
+  assert.ok(rm > gm && gm > bm);
+  const [rc, gc, bc] = parseHex(cCrit);
+  assert.ok(rc > gc && rc > bc && (rc - gc) >= 100);
+  const meterCrit = meterHtml(0.007, 'Weekly');
+  assert.equal((meterCrit.match(/class="on"/g) || []).length, 1);
+  assert.ok(meterCrit.includes('style="--mc:'));
+  assert.ok(!meterCrit.includes('<i class="on" style='));
+  assert.equal((meterHtml(0, 'Weekly').match(/class="on"/g) || []).length, 0);
+  assert.equal((meterHtml(1, 'Weekly').match(/class="on"/g) || []).length, 20);
+  const stylesCss = readFileSync(new URL('../sidecars/agy-lens/web/styles.css', import.meta.url), 'utf8');
+  assert.ok(stylesCss.includes('var(--mc'));
+
+  const dir = mkdtempSync(join(tmpdir(), 'agy-unit-upd-'));
+  const prevNoUpd = process.env.AGY_LENS_NO_UPDATE_CHECK;
+  try {
+    delete process.env.AGY_LENS_NO_UPDATE_CHECK;
+    const cachePath = join(dir, 'update-cache.json');
+    const now0 = Date.parse('2026-11-23T06:00:00Z');
+    let hits = 0;
+
+    // 1. Fetches release API and caches result.
+    const r1 = await checkForUpdate({
+      updateCachePath: cachePath,
+      currentVersion: '2.2.0',
+      now: now0,
+      fetchJson: async (url) => {
+        hits += 1;
+        assert.equal(url, GITHUB_LATEST_RELEASE_URL);
+        return {
+          tag_name: 'v2.3.0',
+          html_url: 'https://github.com/Aoike123/agy-lens/releases/tag/v2.3.0',
+          published_at: '2026-11-23T05:00:00Z',
+        };
+      },
+    });
+    assert.equal(hits, 1);
+    assert.equal(r1.update_available, true);
+    assert.equal(r1.latest_version, '2.3.0');
+    assert.equal(r1.stale, false);
+
+    // 2. Cache hit skips network within 6h TTL.
+    const r2 = await checkForUpdate({
+      updateCachePath: cachePath,
+      currentVersion: '2.2.0',
+      now: now0 + 3600_000,
+      fetchJson: async () => { throw new Error('should not fetch'); },
+    });
+    assert.equal(r2.update_available, true);
+    assert.equal(r2.latest_version, '2.3.0');
+
+    // 3. Local upgrade flips update_available to false without waiting on TTL.
+    assert.equal(readUpdateMeta(cachePath, '2.3.0', now0 + 3600_000).update_available, false);
+
+    // 4. Primary API failure falls back to raw plugin.json.
+    const seenUrls = [];
+    const r3 = await checkForUpdate({
+      updateCachePath: cachePath,
+      currentVersion: '2.2.0',
+      force: true,
+      now: now0 + 7200_000,
+      fetchJson: async (url) => {
+        seenUrls.push(url);
+        if (url === GITHUB_LATEST_RELEASE_URL) throw new Error('HTTP 403');
+        return { version: '2.4.0' };
+      },
+    });
+    assert.deepEqual(seenUrls, [GITHUB_LATEST_RELEASE_URL, GITHUB_MANIFEST_FALLBACK_URL]);
+    assert.equal(r3.latest_version, '2.4.0');
+    assert.equal(r3.source, 'github_manifest');
+
+    // 5. Offline failure returns cached state + error without throwing.
+    const rErr = await checkForUpdate({
+      updateCachePath: cachePath,
+      currentVersion: '2.2.0',
+      force: true,
+      now: now0 + 7300_000,
+      fetchJson: async () => { throw new Error('offline'); },
+    });
+    assert.equal(rErr.error, 'failed');
+    assert.equal(rErr.latest_version, '2.4.0');
+
+    // 6. AGY_LENS_NO_UPDATE_CHECK=1 disables network fetches.
+    process.env.AGY_LENS_NO_UPDATE_CHECK = '1';
+    const rDis = await checkForUpdate({
+      updateCachePath: cachePath,
+      currentVersion: '2.2.0',
+      force: true,
+      fetchJson: async () => { throw new Error('should not fetch when disabled'); },
+    });
+    assert.equal(rDis.disabled, true);
+  } finally {
+    if (prevNoUpd === undefined) delete process.env.AGY_LENS_NO_UPDATE_CHECK;
+    else process.env.AGY_LENS_NO_UPDATE_CHECK = prevNoUpd;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('HistoryTotalsWeekly: periodCostByPool, periodWeeklySummary & renderTotalsHeroHtml', async () => {
+  const { periodCostByPool, periodWeeklySummary } = await import('../sidecars/agy-lens/web/format.js');
+  const { renderTotalsHeroHtml } = await import('../sidecars/agy-lens/web/views/history.js');
+  const { createTranslator } = await import('../sidecars/agy-lens/web/i18n.js');
+  const tEn = createTranslator('en');
+  const tZh = createTranslator('zh');
+
+  const weeklyValueUsd = { gemini: 1316, claude_gpt: 100 };
+  const sampleModels = [
+    {
+      model: 'gemini-4-hydrogen-tiered-xhigh',
+      display_name: 'Gemini 4 Hydrogen (XHigh)',
+      pool: 'gemini',
+      periods: {
+        today: { input: 5_000_000, output: 800_000, cache_read: 40_000_000, calls: 200, est_cost_usd: 14.33 },
+        d7: { input: 20_000_000, output: 2_000_000, cache_read: 100_000_000, calls: 500, est_cost_usd: 45 },
+        d30: { input: 60_000_000, output: 6_000_000, cache_read: 200_000_000, calls: 1200, est_cost_usd: 180 },
+        all: { input: 60_000_000, output: 6_000_000, cache_read: 200_000_000, calls: 1200, est_cost_usd: 3200 },
+      },
+    },
+    {
+      model: 'gemini-4-neon-high',
+      display_name: 'Gemini 4 Neon (High)',
+      pool: 'gemini',
+      periods: {
+        today: { input: 6_000_000, output: 200_000, cache_read: 30_000_000, calls: 150, est_cost_usd: 26.83 },
+        d7: { input: 10_000_000, output: 1_000_000, cache_read: 40_000_000, calls: 200, est_cost_usd: 55 },
+        d30: { input: 10_000_000, output: 1_000_000, cache_read: 40_000_000, calls: 200, est_cost_usd: 55 },
+        all: { input: 10_000_000, output: 1_000_000, cache_read: 40_000_000, calls: 200, est_cost_usd: 55 },
+      },
+    },
+    {
+      model: 'gemini-4-hydrogen-tiered-high',
+      display_name: 'Gemini 4 Hydrogen (High)',
+      pool: 'gemini',
+      periods: {
+        today: { input: 3_200_000, output: 100_000, cache_read: 27_386_669, calls: 300, est_cost_usd: 8.69 },
+        d7: { input: 3_200_000, output: 100_000, cache_read: 27_386_669, calls: 300, est_cost_usd: 8.69 },
+        d30: { input: 3_200_000, output: 100_000, cache_read: 27_386_669, calls: 300, est_cost_usd: 8.69 },
+        all: { input: 3_200_000, output: 100_000, cache_read: 27_386_669, calls: 300, est_cost_usd: 8.69 },
+      },
+    },
+    {
+      model: 'gemini-4-neon-xhigh',
+      display_name: 'Gemini 4 Neon (XHigh)',
+      pool: 'gemini',
+      periods: {
+        today: { input: 10_000, output: 1_500, cache_read: 0, calls: 59, est_cost_usd: 0.18 },
+        d7: { input: 10_000, output: 1_500, cache_read: 0, calls: 59, est_cost_usd: 0.18 },
+        d30: { input: 10_000, output: 1_500, cache_read: 0, calls: 59, est_cost_usd: 0.18 },
+        all: { input: 10_000, output: 1_500, cache_read: 0, calls: 59, est_cost_usd: 0.18 },
+      },
+    },
+  ];
+
+  // 1. Single-pool today sum ($50.03 / $1316 ≈ 3.8%).
+  assert.ok(Math.abs(periodCostByPool(sampleModels, 'today').cost_by_pool.gemini - 50.03) < 1e-6);
+  const todaySum = periodWeeklySummary(sampleModels, 'today', weeklyValueUsd);
+  assert.equal(todaySum.length, 1);
+  assert.equal(todaySum[0].pool, 'gemini');
+  assert.ok(Math.abs(todaySum[0].pct - (50.03 / 1316) * 100) < 1e-6);
+
+  // 2. All-time multi-week spend stays unclamped (>100%).
+  const allSum = periodWeeklySummary(sampleModels, 'all', weeklyValueUsd);
+  assert.ok(allSum[0].pct > 240);
+
+  // 3. Empty or missing weekly_value_usd returns [].
+  assert.deepEqual(periodWeeklySummary([], 'today', weeklyValueUsd), []);
+  assert.deepEqual(periodWeeklySummary(sampleModels, 'today', null), []);
+
+  // 4. Multi-pool active period ranks highest % impact pool first, never sums across pools.
+  const multiModels = [
+    ...sampleModels,
+    {
+      model: 'claude-sonnet-4-5',
+      display_name: 'Claude Sonnet 4.5',
+      pool: 'claude_gpt',
+      periods: {
+        today: { input: 0, output: 0, cache_read: 0, calls: 0, est_cost_usd: null },
+        d30: { input: 2_000_000, output: 500_000, cache_read: 0, calls: 40, est_cost_usd: 41.8 },
+      },
+    },
+  ];
+  const d30Multi = periodWeeklySummary(multiModels, 'd30', weeklyValueUsd);
+  assert.equal(d30Multi.length, 2);
+  assert.equal(d30Multi[0].pool, 'claude_gpt');
+  assert.ok(Math.abs(d30Multi[0].pct - 41.8) < 1e-6);
+
+  const historyData = {
+    totals: {
+      today: { input: 14_400_000, output: 941_900, cache_read: 105_600_000, calls: 709, conversations: 3, est_cost_usd: 50.03, cost_estimated: false },
+      d7: { input: 33_210_000, output: 3_101_500, cache_read: 167_386_669, calls: 1059, conversations: 5, est_cost_usd: 108.87, cost_estimated: false },
+      d30: { input: 75_210_000, output: 7_601_500, cache_read: 267_386_669, calls: 1799, conversations: 12, est_cost_usd: 285.67, cost_estimated: false },
+      all: { input: 75_210_000, output: 7_601_500, cache_read: 267_386_669, calls: 1799, conversations: 12, est_cost_usd: 3263.87, cost_estimated: false },
+    },
+    by_model: multiModels,
+    weekly_value_usd: weeklyValueUsd,
+    pricing_source: 'builtin',
+  };
+  const liveQuota = {
+    weekly: {
+      gemini: { remaining_fraction: 0.96, reset_time: '2026-11-28T00:00:00Z' },
+      claude_gpt: { remaining_fraction: 0.1, reset_time: '2026-11-28T00:00:00Z' },
+    },
+  };
+
+  // Single-pool today view (zh & en): shows ≈ 3.8%, pool + status, no .hero-weekly-pools strip, no .wbar/.wcycles.
+  const zhToday = renderTotalsHeroHtml(historyData, { period: 'today', quotaData: liveQuota, t: tZh, lang: 'zh' });
+  assert.ok(zhToday.includes('≈ 3.8%'));
+  assert.ok(zhToday.includes('Gemini · <span class="txt-warn">官方同步</span>'));
+  assert.ok(!zhToday.includes('hero-weekly-pools'));
+  assert.ok(!zhToday.includes('class="wbar') && !zhToday.includes('class="wcycles'));
+
+  const enToday = renderTotalsHeroHtml(historyData, { period: 'today', quotaData: liveQuota, t: tEn, lang: 'en' });
+  assert.ok(enToday.includes('≈ 3.8%'));
+  assert.ok(enToday.includes('Gemini · <span class="txt-warn">Live</span>'));
+
+  // Multi-pool d30 view: headlines Claude/GPT ≈ 41.8% and renders compact .hero-weekly-pools strip.
+  const zhMulti = renderTotalsHeroHtml(historyData, { period: 'd30', quotaData: liveQuota, t: tZh, lang: 'zh' });
+  assert.ok(zhMulti.includes('≈ 41.8%'));
+  assert.ok(zhMulti.includes('class="hero-weekly-pools'));
+  assert.ok(zhMulti.includes('各池周额度预估'));
+  assert.ok(zhMulti.includes('Claude/GPT <b>≈ 41.8%</b>'));
+  assert.ok(zhMulti.includes('Gemini <b>≈ 18.5%</b>'));
+
+  // Cached offline valuation still estimates %, labeled Recorded / 已记录.
+  const zhOfflineEst = renderTotalsHeroHtml(historyData, { period: 'today', quotaData: null, t: tZh, lang: 'zh' });
+  assert.ok(zhOfflineEst.includes('≈ 3.8%'));
+  assert.ok(zhOfflineEst.includes('已记录'));
+
+  // Zero-usage period and missing weekly_value_usd fall back cleanly without ≈ %.
+  const emptyTodayData = {
+    ...historyData,
+    totals: { ...historyData.totals, today: { input: 0, output: 0, cache_read: 0, calls: 0, conversations: 0, est_cost_usd: null } },
+  };
+  const zeroTodayHtml = renderTotalsHeroHtml(emptyTodayData, { period: 'today', quotaData: liveQuota, t: tZh, lang: 'zh' });
+  assert.ok(zeroTodayHtml.includes('官方同步'));
+  assert.ok(!zeroTodayHtml.includes('≈ '));
+
+  const noValHtml = renderTotalsHeroHtml({ ...historyData, weekly_value_usd: {} }, { period: 'today', quotaData: null, t: tEn, lang: 'en' });
+  assert.ok(noValHtml.includes('Offline'));
+  assert.ok(!noValHtml.includes('≈ '));
+
+  // When a live pool has an active estimating cycle with weekly_value_usd: null, Totals shows clean estimating status.
+  const samplingData = {
+    ...historyData,
+    weekly_value_usd: { gemini: null, claude_gpt: null },
+    weekly_cycles: {
+      gemini: [{ is_current: true, valuation_method: 'delta', weekly_value_usd: null }],
+    },
+  };
+  const zhSampling = renderTotalsHeroHtml(samplingData, { period: 'today', quotaData: liveQuota, t: tZh, lang: 'zh' });
+  assert.ok(zhSampling.includes('估算中'));
+  assert.ok(zhSampling.includes('官方同步'));
+  const enSampling = renderTotalsHeroHtml(samplingData, { period: 'today', quotaData: liveQuota, t: tEn, lang: 'en' });
+  assert.ok(enSampling.includes('Estimating…'));
+  assert.ok(enSampling.includes('Live'));
+
+  // renderListBodyHtml: groups child subagents under parent conversations, badges orphans, and preserves search & hide-subagents.
+  const { renderListBodyHtml } = await import('../sidecars/agy-lens/web/views/history.js');
+  const nowIso = new Date().toISOString();
+  const olderIso = new Date(Date.now() - 3600_000).toISOString();
+  const oldestIso = new Date(Date.now() - 7200_000).toISOString();
+  const listData = {
+    sources: { desktop: 4, cli: 0 },
+    by_conversation: [
+      {
+        id: 'parent-1',
+        title: '下一步做什么',
+        model: 'gemini-4-hydrogen-tiered-xhigh',
+        display_name: 'Gemini 4 Hydrogen (XHigh)',
+        input: 1_000_000,
+        output: 100_000,
+        cache_read: 0,
+        calls: 10,
+        est_cost_usd: 5,
+        last_at: oldestIso,
+        children: ['child-1'],
+        total: { input: 5_000_000, output: 800_000, cache_read: 0, calls: 60, est_cost_usd: 35.41, subagents: 1, last_at: nowIso, model: 'gemini-4-hydrogen-tiered-xhigh' },
+      },
+      {
+        id: 'child-1',
+        title: '@teamwork_explorer',
+        agent: 'teamwork_explorer',
+        parent_id: 'parent-1',
+        is_subagent: true,
+        model: 'gemini-4-hydrogen-tiered-high',
+        display_name: 'Gemini 4 Hydrogen (High)',
+        input: 4_000_000,
+        output: 700_000,
+        cache_read: 0,
+        calls: 50,
+        est_cost_usd: 30.41,
+        last_at: nowIso,
+      },
+      {
+        id: 'orphan-sub',
+        title: '@teamwork',
+        agent: 'teamwork',
+        is_subagent: true,
+        model: 'gemini-4-hydrogen-tiered-high',
+        display_name: 'Gemini 4 Hydrogen (High)',
+        input: 150_000,
+        output: 17_000,
+        cache_read: 0,
+        calls: 12,
+        est_cost_usd: 0.42,
+        last_at: olderIso,
+      },
+    ],
+  };
+
+  // Default: child-1 is nested inside parent-1 (not flat at top level), parent-1 sorts first using subtree last_at, orphan-sub gets .sub-badge.
+  const listDefaultZh = renderListBodyHtml(listData, { t: tZh, lang: 'zh' });
+  assert.ok(listDefaultZh.includes('2 个主对话（含 1 个子智能体）'));
+  assert.ok(listDefaultZh.includes('data-children-of="parent-1"'));
+  assert.ok(listDefaultZh.includes('含 1 个子智能体'));
+  assert.ok(!listDefaultZh.includes('>@teamwork_explorer<'));
+  assert.ok(listDefaultZh.includes('class="sub-badge">子智能体<'));
+  assert.ok(listDefaultZh.indexOf('下一步做什么') < listDefaultZh.indexOf('@teamwork'));
+
+  // Hide subagents: excludes orphan-sub and nested children.
+  const listHideZh = renderListBodyHtml(listData, { hideSubagents: true, t: tZh, lang: 'zh' });
+  assert.ok(listHideZh.includes('下一步做什么'));
+  assert.ok(!listHideZh.includes('@teamwork'));
+  assert.ok(!listHideZh.includes('data-children-of'));
+
+  // Search matching child subagent surfaces child with .sub-badge and parent link ("隶属 下一步做什么" / "in ...").
+  const listSearchZh = renderListBodyHtml(listData, { searchQuery: 'explorer', t: tZh, lang: 'zh' });
+  assert.ok(listSearchZh.includes('@teamwork_explorer'));
+  assert.ok(listSearchZh.includes('class="sub-badge">子智能体<'));
+  assert.ok(listSearchZh.includes('隶属 下一步做什么'));
+  const listSearchEn = renderListBodyHtml(listData, { searchQuery: 'explorer', t: tEn, lang: 'en' });
+  assert.ok(listSearchEn.includes('in 下一步做什么'));
+});
+
+test('Calibration: Ridge WLS + LOOCV across model / io / model_io splits, external-usage filter & end-to-end scan/UI', async () => {
+  const {
+    calibratePoolWeights,
+    calibratedCallCost,
+    filterExternalSegments,
+    invertMatrix,
+    solveLinearSystem,
+  } = await import('../sidecars/agy-lens/lib/calibration.mjs');
+  const { costPartsOf, priceFor } = await import('../sidecars/agy-lens/lib/pricing.mjs');
+  const { meterHtml, renderQuotaHtml } = await import('../sidecars/agy-lens/web/views/quota.js');
+  const { renderTotalsHeroHtml } = await import('../sidecars/agy-lens/web/views/history.js');
+  const { convWeeklyLabel, modelWeeklyLabel } = await import('../sidecars/agy-lens/web/format.js');
+  const { createTranslator } = await import('../sidecars/agy-lens/web/i18n.js');
+  const tEn = createTranslator('en');
+  const tZh = createTranslator('zh');
+
+  // 1. Linear algebra & matrix inversion
+  const sol = solveLinearSystem([[2, 1], [1, 3]], [5, 10]);
+  assert.ok(sol && Math.abs(sol[0] - 1) < 1e-9 && Math.abs(sol[1] - 3) < 1e-9);
+  assert.equal(solveLinearSystem([[1, 2], [2, 4]], [3, 6]), null);
+  const inv = invertMatrix([[2, 1], [1, 3]]);
+  assert.ok(inv && Math.abs(inv[0][0] - 0.6) < 1e-9 && Math.abs(inv[0][1] + 0.2) < 1e-9 && Math.abs(inv[1][1] - 0.4) < 1e-9);
+  assert.equal(invertMatrix([[1, 2], [2, 4]]), null);
+
+  // 2. External segment filter: drops zero-call / zero-spend drops >= 0.5%
+  const mkSeg = (delta, calls, modelsObj, fine = true) => {
+    let costUsd = 0;
+    const costByModel = new Map();
+    for (const [m, p] of Object.entries(modelsObj)) {
+      const cIn = p.in ?? p.total ?? 0;
+      const cOut = p.out ?? 0;
+      const cCache = p.cache ?? 0;
+      const total = cIn + cOut + cCache;
+      costUsd += total;
+      costByModel.set(m, { in: cIn, out: cOut, cache: cCache, total });
+    }
+    return { delta, calls, costUsd, costPartial: false, fine, costByModel };
+  };
+
+  const extRes = filterExternalSegments([
+    mkSeg(0.08, 0, {}),
+    mkSeg(0.05, 5, { 'gemini-4-neon-high': { total: 5 } }),
+  ]);
+  assert.equal(extRes.external.length, 1);
+  assert.equal(extRes.externalDelta, 0.08);
+  assert.equal(extRes.clean.length, 1);
+
+  const modelNames = new Map([
+    ['gemini-4-neon-high', 'Gemini 4 Neon (High)'],
+    ['gemini-4-hydrogen-tiered-high', 'Gemini 4 Hydrogen (High)'],
+    ['gemini-4-hydrogen-tiered-xhigh', 'Gemini 4 Hydrogen (XHigh)'],
+  ]);
+
+  // 3. Candidate 1 (mode: 'model'): recovers hidden 2:1 Neon vs Hydrogen ratio across 5 varied segments
+  const modelSegs = [
+    mkSeg(0.01 * (2 * 10 + 0), 10, { 'gemini-4-neon-high': { total: 10 } }),
+    mkSeg(0.01 * (2 * 0 + 10), 10, { 'gemini-4-hydrogen-tiered-high': { total: 10 } }),
+    mkSeg(0.01 * (2 * 8 + 4), 10, { 'gemini-4-neon-high': { total: 8 }, 'gemini-4-hydrogen-tiered-high': { total: 4 } }),
+    mkSeg(0.01 * (2 * 2 + 12), 10, { 'gemini-4-neon-high': { total: 2 }, 'gemini-4-hydrogen-tiered-high': { total: 12 } }),
+    mkSeg(0.01 * (2 * 6 + 6), 10, { 'gemini-4-neon-high': { total: 6 }, 'gemini-4-hydrogen-tiered-high': { total: 6 } }),
+  ];
+  const calModel = calibratePoolWeights(modelSegs, { modelNames });
+  assert.equal(calModel.calibrated, true);
+  assert.equal(calModel.mode, 'model');
+  const mRatio = calModel.models['gemini-4-neon-high'].multiplier / calModel.models['gemini-4-hydrogen-tiered-high'].multiplier;
+  assert.ok(mRatio > 1.8 && mRatio < 2.2, `Expected Neon/Hydrogen ratio near 2.0, got ${mRatio}`);
+  assert.ok(calModel.improvement_pct > 50 && calModel.loo_improvement_pct > 50);
+
+  // 4. Candidate 2 (mode: 'io'): single model where server charges output 2x and cache_read 0x
+  const ioSegs = [
+    mkSeg(0.01 * (1 * 10 + 2 * 1 + 0 * 1), 10, { 'gemini-4-hydrogen-tiered-xhigh': { in: 10, out: 1, cache: 1 } }),
+    mkSeg(0.01 * (1 * 1 + 2 * 8 + 0 * 1), 10, { 'gemini-4-hydrogen-tiered-xhigh': { in: 1, out: 8, cache: 1 } }),
+    mkSeg(0.01 * (1 * 2 + 2 * 1 + 0 * 12), 10, { 'gemini-4-hydrogen-tiered-xhigh': { in: 2, out: 1, cache: 12 } }),
+    mkSeg(0.01 * (1 * 6 + 2 * 6 + 0 * 2), 10, { 'gemini-4-hydrogen-tiered-xhigh': { in: 6, out: 6, cache: 2 } }),
+    mkSeg(0.01 * (1 * 3 + 2 * 7 + 0 * 9), 10, { 'gemini-4-hydrogen-tiered-xhigh': { in: 3, out: 7, cache: 9 } }),
+    mkSeg(0.01 * (1 * 9 + 2 * 2 + 0 * 8), 10, { 'gemini-4-hydrogen-tiered-xhigh': { in: 9, out: 2, cache: 8 } }),
+  ];
+  const calIo = calibratePoolWeights(ioSegs, { modelNames });
+  assert.equal(calIo.calibrated, true);
+  assert.equal(calIo.mode, 'io');
+  assert.ok(calIo.components.cache_read < 0.35, `Expected near-0 cache weight, got ${calIo.components.cache_read}`);
+  assert.ok(calIo.components.output > calIo.components.input * 1.4, `Expected output > 1.4x input, got ${JSON.stringify(calIo.components)}`);
+
+  // 5. Candidate 3 (mode: 'model_io'): two models with distinct per-(input, output, cache_read) billing
+  const mioSegs = [
+    mkSeg(0.01 * (1 * 2 + 2.5 * 8 + 0 * 1 + 1 * 4 + 1 * 2 + 1 * 4), 10, { 'gemini-4-neon-high': { in: 2, out: 8, cache: 1 }, 'gemini-4-hydrogen-tiered-high': { in: 4, out: 2, cache: 4 } }),
+    mkSeg(0.01 * (1 * 9 + 2.5 * 1 + 0 * 10 + 1 * 1 + 1 * 1 + 1 * 1), 10, { 'gemini-4-neon-high': { in: 9, out: 1, cache: 10 }, 'gemini-4-hydrogen-tiered-high': { in: 1, out: 1, cache: 1 } }),
+    mkSeg(0.01 * (1 * 1 + 2.5 * 1 + 0 * 12), 10, { 'gemini-4-neon-high': { in: 1, out: 1, cache: 12 } }),
+    mkSeg(0.01 * (1 * 8 + 2.5 * 2 + 0 * 1), 10, { 'gemini-4-neon-high': { in: 8, out: 2, cache: 1 } }),
+    mkSeg(0.01 * (1 * 1 + 2.5 * 10 + 0 * 1), 10, { 'gemini-4-neon-high': { in: 1, out: 10, cache: 1 } }),
+    mkSeg(0.01 * (1 * 2 + 1 * 2 + 1 * 10), 10, { 'gemini-4-hydrogen-tiered-high': { in: 2, out: 2, cache: 10 } }),
+    mkSeg(0.01 * (1 * 10 + 1 * 2 + 1 * 2), 10, { 'gemini-4-hydrogen-tiered-high': { in: 10, out: 2, cache: 2 } }),
+    mkSeg(0.01 * (1 * 2 + 1 * 10 + 1 * 2), 10, { 'gemini-4-hydrogen-tiered-high': { in: 2, out: 10, cache: 2 } }),
+    mkSeg(0.01 * (1 * 3 + 2.5 * 6 + 0 * 6 + 1 * 5 + 1 * 5 + 1 * 2), 10, { 'gemini-4-neon-high': { in: 3, out: 6, cache: 6 }, 'gemini-4-hydrogen-tiered-high': { in: 5, out: 5, cache: 2 } }),
+    mkSeg(0.01 * (1 * 6 + 2.5 * 5 + 0 * 2 + 1 * 2 + 1 * 2 + 1 * 8), 10, { 'gemini-4-neon-high': { in: 6, out: 5, cache: 2 }, 'gemini-4-hydrogen-tiered-high': { in: 2, out: 2, cache: 8 } }),
+  ];
+  const calMio = calibratePoolWeights(mioSegs, { modelNames });
+  assert.equal(calMio.calibrated, true);
+  assert.equal(calMio.mode, 'model_io');
+  assert.ok(calMio.models['gemini-4-neon-high'].output > calMio.models['gemini-4-neon-high'].input * 1.4);
+  assert.ok(calMio.models['gemini-4-neon-high'].cache_read < 0.35);
+  assert.ok(calMio.models['gemini-4-hydrogen-tiered-high'].cache_read > 0.65);
+
+  // 6. Anti-overfitting gate: 1:1 prior + small jitter and collinear mixtures must NOT trigger calibration
+  const noiseSegs = [
+    mkSeg(0.050 * 1.02, 5, { 'gemini-4-neon-high': { total: 4 }, 'gemini-4-hydrogen-tiered-high': { total: 1 } }),
+    mkSeg(0.050 * 0.98, 5, { 'gemini-4-neon-high': { total: 1 }, 'gemini-4-hydrogen-tiered-high': { total: 4 } }),
+    mkSeg(0.060 * 0.99, 5, { 'gemini-4-neon-high': { total: 5 }, 'gemini-4-hydrogen-tiered-high': { total: 1 } }),
+    mkSeg(0.060 * 1.01, 5, { 'gemini-4-neon-high': { total: 1 }, 'gemini-4-hydrogen-tiered-high': { total: 5 } }),
+    mkSeg(0.040 * 1.02, 5, { 'gemini-4-neon-high': { total: 2 }, 'gemini-4-hydrogen-tiered-high': { total: 2 } }),
+    mkSeg(0.040 * 0.98, 5, { 'gemini-4-neon-high': { total: 3 }, 'gemini-4-hydrogen-tiered-high': { total: 1 } }),
+  ];
+  assert.equal(calibratePoolWeights(noiseSegs).calibrated, false);
+
+  const colinearSegs = [
+    mkSeg(0.04, 5, { 'gemini-4-neon-high': { total: 2 }, 'gemini-4-hydrogen-tiered-high': { total: 2 } }),
+    mkSeg(0.08, 5, { 'gemini-4-neon-high': { total: 4 }, 'gemini-4-hydrogen-tiered-high': { total: 4 } }),
+    mkSeg(0.06, 5, { 'gemini-4-neon-high': { total: 3 }, 'gemini-4-hydrogen-tiered-high': { total: 3 } }),
+    mkSeg(0.10, 5, { 'gemini-4-neon-high': { total: 5 }, 'gemini-4-hydrogen-tiered-high': { total: 5 } }),
+  ];
+  assert.equal(calibratePoolWeights(colinearSegs).calibrated, false);
+
+  // 7. End-to-end scan() + UI: off-machine drop excluded & calibrated model weights propagate consistently
+  const dir = mkdtempSync(join(tmpdir(), 'agy-unit-cal-'));
+  try {
+    const root = join(dir, 'convs');
+    mkdirSync(root);
+    const t0 = hTs(4);
+    const makeParts = (m, i, o) => {
+      const pr = costPartsOf(priceFor(m), i, o, 0, false);
+      return pr[0] + pr[1] + pr[2];
+    };
+    const segCosts = [
+      { ts: t0 + 1800, model: 'gemini-4-neon-high', disp: 'Gemini 4 Neon (High)', i: 1_000_000, o: 100_000 },
+      { ts: t0 + 5400, model: 'gemini-4-hydrogen-tiered-high', disp: 'Gemini 4 Hydrogen (High)', i: 2_000_000, o: 200_000 },
+      { ts: t0 + 9000, model: 'gemini-4-neon-high', disp: 'Gemini 4 Neon (High)', i: 1_500_000, o: 150_000 },
+      { ts: t0 + 12600, model: 'gemini-4-hydrogen-tiered-high', disp: 'Gemini 4 Hydrogen (High)', i: 3_000_000, o: 300_000 },
+      { ts: t0 + 16200, model: 'gemini-4-neon-high', disp: 'Gemini 4 Neon (High)', i: 800_000, o: 80_000 },
+    ];
+    makeHistoryDb(join(root, 'cal.db'), segCosts.map((c) => hCall(4, {
+      ts: c.ts, model: c.model, display: c.disp, input: c.i, output: c.o, cache: 0,
+    })));
+    // True 100% benchmark: $200 calibrated equivalent USD; Neon has true 2x prior vs Hydrogen 1x.
+    let used = 0;
+    const obs = [{ observed_at: new Date((t0) * 1000).toISOString(), remaining_fraction: 1, used_fraction: 0 }];
+    const pushObs = (tsSec, du) => {
+      used = roundN(used + du, 8);
+      obs.push({
+        observed_at: new Date(tsSec * 1000).toISOString(),
+        remaining_fraction: roundN(1 - used, 8),
+        used_fraction: used,
+      });
+    };
+    pushObs(t0 + 3600, (2 * makeParts('gemini-4-neon-high', segCosts[0].i, segCosts[0].o)) / 200);
+    pushObs(t0 + 7200, (1 * makeParts('gemini-4-hydrogen-tiered-high', segCosts[1].i, segCosts[1].o)) / 200);
+    pushObs(t0 + 10800, (2 * makeParts('gemini-4-neon-high', segCosts[2].i, segCosts[2].o)) / 200);
+    pushObs(t0 + 14400, (1 * makeParts('gemini-4-hydrogen-tiered-high', segCosts[3].i, segCosts[3].o)) / 200);
+    pushObs(t0 + 18000, (2 * makeParts('gemini-4-neon-high', segCosts[4].i, segCosts[4].o)) / 200);
+    // Add an off-machine 8% drop with 0 local calls inside the cycle
+    pushObs(t0 + 21600, 0.08);
+
+    const quotaCycles = {
+      version: 2,
+      pools: {
+        gemini: [{
+          cycle_start: new Date(t0 * 1000).toISOString(),
+          cycle_start_source: 'explicit',
+          reset_time: new Date((hTs(-3)) * 1000).toISOString(),
+          observed_at: obs[obs.length - 1].observed_at,
+          remaining_fraction: obs[obs.length - 1].remaining_fraction,
+          used_fraction: obs[obs.length - 1].used_fraction,
+          observations: obs,
+        }],
+      },
+    };
+    const r = await scan([[root, 'desktop']], { now: H_NOW, quotaCycles });
+    assert.equal(r.quota_calibration.gemini.calibrated, true);
+    assert.equal(r.quota_calibration.gemini.external_dropped, 1);
+    assert.equal(r.weekly_cycles.gemini[0].external_used_fraction, 0.08);
+    assert.ok(
+      r.quota_calibration.gemini.models['gemini-4-neon-high'].multiplier
+      > r.quota_calibration.gemini.models['gemini-4-hydrogen-tiered-high'].multiplier * 1.6,
+    );
+    // Sum of per-model calibrated period shares aligns with total observed cycle share (minus 8% external drop).
+    const qHtml = renderQuotaHtml({
+      data: {
+        plan: 'Pro',
+        fetched_at: new Date().toISOString(),
+        weekly: { gemini: { remaining_fraction: obs[obs.length - 1].remaining_fraction, reset_time: quotaCycles.pools.gemini[0].reset_time } },
+        pools: [{ id: 'gemini', category: 'gemini', limits: [{ kind: 'weekly', remaining_fraction: obs[obs.length - 1].remaining_fraction, reset_time: quotaCycles.pools.gemini[0].reset_time }], models: [] }],
+      },
+      historyData: r,
+      openKeys: new Set(),
+      t: tZh,
+      lang: 'zh',
+    });
+    assert.ok(!qHtml.includes('权重已校准') && !qHtml.includes('class="wcal') && !qHtml.includes('wcycles-note'));
+    assert.ok(!qHtml.includes('(Δ'));
+
+    const heroEn = renderTotalsHeroHtml(r, { period: 'all', t: tEn, lang: 'en' });
+    assert.ok(heroEn.includes(`$${r.totals.all.est_cost_usd.toFixed(2)}`));
+    const calCostTest = calibratedCallCost(r.quota_calibration.gemini, 'gemini-4-neon-high', 10, 0, 0);
+    assert.ok(calCostTest > 10);
+    assert.ok(modelWeeklyLabel(r.by_model.find((m) => m.model === 'gemini-4-neon-high'), {
+      weeklyValueUsd: r.weekly_value_usd,
+      quotaCalibration: r.quota_calibration,
+      t: tEn,
+    }).includes('%'));
+    assert.ok(convWeeklyLabel(r.by_conversation[0], {
+      weeklyValueUsd: r.weekly_value_usd,
+      quotaCalibration: r.quota_calibration,
+      t: tEn,
+    }).includes('%'));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

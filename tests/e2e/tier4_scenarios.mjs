@@ -605,6 +605,34 @@ export const TESTS = [
         });
         sb.track(() => ls.close());
 
+        const prevResetIso = new Date(nowMs - 3 * 86400e3).toISOString();
+        const prevObsIso = new Date(nowMs - 4 * 86400e3).toISOString();
+        writeFileSync(join(sb.dataDir, 'quota-cycles.json'), JSON.stringify({
+          version: 2,
+          pools: {
+            gemini: [{
+              cycle_start: null,
+              cycle_start_source: 'unknown',
+              reset_time: prevResetIso,
+              first_seen_at: prevObsIso,
+              observed_at: prevObsIso,
+              remaining_fraction: 0.7,
+              used_fraction: 0.3,
+              saturated: false,
+            }],
+            claude_opus: [{
+              cycle_start: null,
+              cycle_start_source: 'unknown',
+              reset_time: prevResetIso,
+              first_seen_at: prevObsIso,
+              observed_at: prevObsIso,
+              remaining_fraction: 0.6,
+              used_fraction: 0.4,
+              saturated: false,
+            }],
+          },
+        }));
+
         const sidecar = await startSidecar({
           sidecarDir: SIDECAR_DIR,
           mockLs: ls,
