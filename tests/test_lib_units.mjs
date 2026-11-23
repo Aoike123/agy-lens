@@ -2990,9 +2990,11 @@ test('Updater: semver comparisons, release parsers, URL sanitization, fallback &
   assert.equal((qGridHtml.match(/<div class="cbar unvalued"/g) || []).length, 1);
   assert.equal((qGridHtml.match(/<span class="cell l0"/g) || []).length, 10 * 3);
   assert.ok(!/class="cell l[1-4](?:\s|")/.test(qGridHtml));
+  assert.ok(!qGridHtml.includes('diff-shrink') && !qGridHtml.includes('diff-grow'));
   assert.ok(qHtml.includes('Low usage'));
   assert.ok(qHtml.includes('Spent $0.50'));
   assert.ok(qHtml.includes('1 reset this month'));
+  assert.ok(qHtml.includes('Shrunk vs now') && qHtml.includes('Grown vs now'));
   assert.ok(!qHtml.includes('wcycles-note'));
   assert.ok(!qHtml.includes('(Δ'));
 
@@ -3070,7 +3072,7 @@ test('Updater: semver comparisons, release parsers, URL sanitization, fallback &
   assert.ok(wcySecZh.indexOf('Claude / GPT') < wcySecZh.indexOf('Gemini'));
   assert.ok(wcySecZh.includes('峰值 $2,043.21'));
   assert.ok(wcySecZh.includes('$2k') && wcySecZh.includes('$1k'));
-  assert.ok(wcySecZh.includes('>少<') && wcySecZh.includes('>多<'));
+  assert.ok(wcySecZh.includes('较当前缩水') && wcySecZh.includes('较当前增长'));
   assert.ok(wcySecZh.includes('<div class="cy-chart">'));
   const [claudePoolHtml, geminiPoolHtml] = wcySecZh.split('<div class="wcy-pool"').slice(1);
   assert.ok(claudePoolHtml.includes('峰值 $45.63') && claudePoolHtml.includes('<span class="wcy-cur">$45.63</span>'));
@@ -3080,6 +3082,7 @@ test('Updater: semver comparisons, release parsers, URL sanitization, fallback &
   assert.equal((claudeGridHtml.match(/<div class="cbar\b/g) || []).length, 10);
   assert.equal((claudeGridHtml.match(/<div class="cbar ghost"/g) || []).length, 9);
   assert.equal((claudeGridHtml.match(/class="cell l4"/g) || []).length, 3);
+  assert.ok(!claudeGridHtml.includes('diff-shrink') && !claudeGridHtml.includes('diff-grow'));
   assert.ok(geminiPoolHtml.includes('<span class="wcy-cur">$1,363.87</span>'));
   assert.ok(geminiPoolHtml.includes('-33.2%'));
   assert.ok(geminiPoolHtml.includes('本月刷新 2 次 · 提前 1 次'));
@@ -3093,10 +3096,13 @@ test('Updater: semver comparisons, release parsers, URL sanitization, fallback &
   const gemBars = geminiGridHtml.split(/<div class="cbar\b/).slice(1);
   assert.equal(gemBars.length, 10);
   assert.equal(gemBars.slice(0, 8).filter((b) => b.startsWith(' ghost"')).length, 8);
-  assert.equal((gemBars[8].match(/class="cell l4"/g) || []).length, 3); // older peak $2,043.21
+  assert.equal((gemBars[8].match(/class="cell l4"/g) || []).length, 2); // older peak $2,043.21 within current baseline (2/3)
+  assert.equal((gemBars[8].match(/class="cell l4 diff-shrink"/g) || []).length, 1); // shrunk cap above current
+  assert.equal((gemBars[8].match(/diff-grow/g) || []).length, 0);
   assert.ok(gemBars[9].startsWith(' cur"'));
   assert.equal((gemBars[9].match(/class="cell l3"/g) || []).length, 2); // current $1,363.87 -> 2/3 rows
   assert.equal((gemBars[9].match(/class="cell l0"/g) || []).length, 1);
+  assert.ok(!gemBars[9].includes('diff-shrink') && !gemBars[9].includes('diff-grow'));
   const multiVisible = wcySecZh.replace(/\s+title="[^"]*"/g, '');
   assert.ok(!multiVisible.includes('本周期已花') && !multiVisible.includes('已花 ') && !multiVisible.includes('已用'));
 
@@ -3117,7 +3123,7 @@ test('Updater: semver comparisons, release parsers, URL sanitization, fallback &
   assert.ok(multiEn.includes('Total full value $3,407.08'));
   assert.ok(multiEn.includes('Early reset'));
   assert.ok(multiEn.includes('Full ≈ $2,043.21') && multiEn.includes('Full ≈ $1,363.87'));
-  assert.ok(multiEn.includes('>Less<') && multiEn.includes('>More<'));
+  assert.ok(multiEn.includes('Shrunk vs now') && multiEn.includes('Grown vs now'));
   assert.ok(multiEn.includes('>This month<') && multiEn.includes('>3 months<') && multiEn.includes('>All<'));
   assert.ok(multiEn.includes('data-qperiod="month"') && multiEn.includes('data-qperiod="m3"') && multiEn.includes('data-qperiod="all"'));
 
@@ -3155,9 +3161,11 @@ test('Updater: semver comparisons, release parsers, URL sanitization, fallback &
   assert.equal(m3Bars.length, 14);
   assert.equal(m3Bars.slice(0, 5).filter((b) => b.startsWith(' ghost"')).length, 5);
   assert.equal((m3Bars[5].match(/class="cell l1"/g) || []).length, 1); // $400 -> 1/4 rows
-  assert.equal((m3Bars[5].match(/class="cell l0"/g) || []).length, 3);
+  assert.equal((m3Bars[5].match(/class="cell diff-grow"/g) || []).length, 3); // lower than current $2000 -> 3 grow cells
+  assert.equal((m3Bars[5].match(/class="cell l0"/g) || []).length, 0);
   assert.equal((m3Bars[13].match(/class="cell l4"/g) || []).length, 4); // $2000 -> 4/4 rows
   assert.ok(m3Bars[13].startsWith(' cur"'));
+  assert.ok(!m3Bars[13].includes('diff-grow') && !m3Bars[13].includes('diff-shrink'));
   assert.ok(m3Zh.includes('近 3 个月刷新 9 次') && !m3Zh.includes('提前'));
 
   const scrollZh = renderQuotaHtml({
@@ -3176,12 +3184,51 @@ test('Updater: semver comparisons, release parsers, URL sanitization, fallback &
   assert.equal(scrollBars.length, 24);
   assert.equal(scrollBars.slice(0, 15).filter((b) => b.startsWith(' ghost"')).length, 15);
   assert.equal((scrollBars[15].match(/class="cell l1"/g) || []).length, 1); // $400 -> 1/7 rows
+  assert.equal((scrollBars[15].match(/class="cell diff-grow"/g) || []).length, 6); // 6 grow cells up to $2000
+  assert.equal((scrollBars[15].match(/class="cell l0"/g) || []).length, 0);
   assert.equal((scrollBars[23].match(/class="cell l4"/g) || []).length, 7); // $2000 -> 7/7 rows
   assert.ok(scrollBars[23].startsWith(' cur"'));
   for (const lvl of ['l1', 'l2', 'l3', 'l4']) {
-    assert.ok(new RegExp(`class="cell ${lvl}"`).test(scrollGridHtml), `missing level ${lvl}`);
+    assert.ok(new RegExp(`class="cell ${lvl}(?:\\s|")`).test(scrollGridHtml), `missing level ${lvl}`);
   }
   assert.ok(scrollZh.includes('累计刷新 9 次') && !scrollZh.includes('提前'));
+
+  // Edge cases: unvalued historical cycle is never painted green; unvalued current cycle falls back to plain depth without diff colors.
+  const edgeHistUnvaluedPast = renderQuotaHtml({
+    data: { plan: 'Google AI Ultra', fetched_at: '2026-11-23T08:22:00Z', pools: [] },
+    historyData: {
+      weekly_cycles: {
+        gemini: [
+          { cycle_start: '2026-11-21T00:00:00Z', is_current: true, weekly_value_usd: 1000 },
+          { cycle_start: '2026-11-14T00:00:00Z', is_current: false, weekly_value_usd: null },
+        ],
+      },
+    },
+    openKeys: new Set(),
+    t: createTranslator('zh'),
+    lang: 'zh',
+  });
+  const unvalPastBars = edgeHistUnvaluedPast.split('<div class="heat-foot">')[0].split(/<div class="cbar\b/).slice(1);
+  assert.ok(unvalPastBars[8].startsWith(' unvalued"'));
+  assert.equal((unvalPastBars[8].match(/diff-grow|diff-shrink/g) || []).length, 0);
+
+  const edgeHistUnvaluedCur = renderQuotaHtml({
+    data: { plan: 'Google AI Ultra', fetched_at: '2026-11-23T08:22:00Z', pools: [] },
+    historyData: {
+      weekly_cycles: {
+        gemini: [
+          { cycle_start: '2026-11-21T00:00:00Z', is_current: true, weekly_value_usd: null },
+          { cycle_start: '2026-11-14T00:00:00Z', is_current: false, weekly_value_usd: 2000 },
+        ],
+      },
+    },
+    openKeys: new Set(),
+    t: createTranslator('zh'),
+    lang: 'zh',
+  });
+  const unvalCurBars = edgeHistUnvaluedCur.split('<div class="heat-foot">')[0].split(/<div class="cbar\b/).slice(1);
+  assert.equal((unvalCurBars[8].match(/class="cell l4"/g) || []).length, 3);
+  assert.equal((unvalCurBars[8].match(/diff-grow|diff-shrink/g) || []).length, 0);
   const parseHex = (h) => [
     parseInt(h.slice(1, 3), 16),
     parseInt(h.slice(3, 5), 16),
