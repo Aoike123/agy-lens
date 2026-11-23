@@ -1,6 +1,6 @@
 // History tab renderer (totals, sessions, list, calibration, pricing sync, share card) and controller for Agy Lens.
 
-import { localeFor } from '../i18n.js';
+import { createTranslator, localeFor } from '../i18n.js';
 import {
   allTok,
   budgetLevel,
@@ -13,6 +13,7 @@ import {
   fmtAgo,
   fmtCost,
   fmtInt,
+  fmtPctNum,
   fmtTime,
   fmtTok,
   fmtUsd,
@@ -33,8 +34,10 @@ import {
   newTok,
   num,
   parseDay,
+  periodCostByPool,
   periodCutoff,
   PERIODS,
+  periodWeeklySummary,
   pricingSourceName,
   poolRowLabel,
   pricingTip,
@@ -70,11 +73,376 @@ export function matchesQuery(c, q) {
   return false;
 }
 
+function periodRowHtml(data, { period = 'd30', pricingSyncing = false, t, lang = 'en' }) {
+  const pills = PERIODS.map((k) => {
+    const on = k === period;
+    return `<button class="pill" type="button" role="tab" data-period="${k}" aria-selected="${on}" tabindex="${on ? 0 : -1}">${esc(t('periodPills')[k])}</button>`;
+  }).join('');
+  const tip = pricingTip(data && data.pricing_source, data && data.pricing_fetched_at, {}, t, lang);
+  const share = `<button class="share-btn" type="button" data-share-card title="${esc(t('shareCardTip'))}">${SHARE_ICON}<span>${esc(t('shareCard'))}</span></button>`;
+  const sync = `<button type="button" class="sync-btn" data-sync-prices ${pricingSyncing ? 'disabled' : ''} title="${esc(tip)}">${pricingSyncing ? `<span class="spin"></span>${esc(t('syncingPrices'))}` : esc(t('syncPrices'))}</button>`;
+  return `<div class="period-row"><div class="period-bar" role="tablist" aria-label="${esc(t('periodBarAria'))}">${pills}</div><div class="period-actions">${share}${sync}</div></div>`;
+}
+
+export function renderTotalsHeroHtml(data, { period = 'd30', quotaData = null, pricingSyncing = false, pricingNotice = null, t = createTranslator('en'), lang = 'en' } = {}) {
+  const tot = (data && data.totals) || {};
+  const p = tot[period] || {};
+  const costPartial = Boolean(p.cost_partial)
+    || (period === 'all' && Array.isArray(data && data.by_model) && data.by_model.some((m) => num(m.calls) > 0 && !isNum(m.est_cost_usd)));
+  const costStr = fmtCost(p.est_cost_usd, { estimated: !!p.cost_estimated, partial: costPartial && isNum(p.est_cost_usd) });
+  const costTip = pricingTip(data && data.pricing_source, data && data.pricing_fetched_at, { partial: costPartial }, t, lang);
+  const pc = t('poolCompact');
+  const weeklyValueUsd = (data && data.weekly_value_usd) || {};
+  const poolList = knownQuotaPools(quotaData && !quotaData.error ? quotaData.weekly : null, weeklyValueUsd);
+  const liveEntries = poolList.map((k) => ({ k, eff: liveWeeklyEntry(quotaData, k) })).filter((x) => x.eff != null);
+  const hasVal = hasAnyWeeklyValue(weeklyValueUsd);
+  const valParts = poolList.filter((k) => num(weeklyValueUsd[k]) > 0).map((k) => `${formatPoolName(k, pc)} ${fmtUsd(num(weeklyValueUsd[k]))}`);
+
+  const statusLabel = liveEntries.length ? t('liveSynced') : hasVal ? t('weeklyCached') : t('weeklyOffline');
+  let liveCls = '';
+  if (liveEntries.length) {
+    const worst = Math.max(...liveEntries.map((x) => x.eff.used));
+    const lvl = budgetLevel(worst / 100);
+    liveCls = lvl === 'crit' ? 'txt-crit' : lvl === 'warn' ? 'txt-warn' : '';
+  }
+
+  const hasPeriodUsage = num(p.calls) > 0 || allTok(p) > 0 || (isNum(p.est_cost_usd) && p.est_cost_usd > 0);
+  const quotaCalibration = (data && data.quota_calibration) || null;
+  const periodWeekly = hasPeriodUsage ? periodWeeklySummary(data && data.by_model, period, weeklyValueUsd, quotaCalibration) : [];
+
+  let quotaVal;
+  let quotaSub = '';
+  let weeklyPoolsRow = '';
+  if (periodWeekly.length) {
+    const top = periodWeekly[0];
+    const estParts = periodWeekly.map((x) => `${formatPoolName(x.pool, pc)} ≈ ${fmtPctNum(x.pct)} (${fmtUsd(x.cost)})`);
+    const tipParts = [t('periodWeeklyTip', estParts.join(' · '), statusLabel)];
+    if (valParts.length) tipParts.push(t('weeklyRefTip', valParts.join(' · ')));
+    const tip = tipParts.join('\n');
+    quotaVal = `<button type="button" class="inline-link on" data-go-tab="quota" title="${esc(tip)}">≈ ${esc(fmtPctNum(top.pct))}</button>`;
+    quotaSub = `<div class="hero-stat-sub ellipsis" title="${esc(tip)}">${esc(formatPoolName(top.pool, pc))} · <span${liveCls ? ` class="${liveCls}"` : ''}>${esc(statusLabel)}</span></div>`;
+    if (periodWeekly.length >= 2) {
+      weeklyPoolsRow = `<div class="hero-weekly-pools num" title="${esc(t('weeklySizeTip'))}">
+        <span class="dim">${esc(t('weeklyEstPools'))}</span>
+        <span>${periodWeekly.map((x) => `${esc(formatPoolName(x.pool, pc))} <b>≈ ${esc(fmtPctNum(x.pct))}</b>`).join('<span class="dim"> · </span>')}</span>
+      </div>`;
+    }
+  } else if (liveEntries.length) {
+    const activeCostPools = hasPeriodUsage ? Object.keys(periodCostByPool(data && data.by_model, period).cost_by_pool) : [];
+    const cyclesMap = (data && data.weekly_cycles) || {};
+    const isSampling = activeCostPools.some((pk) => Array.isArray(cyclesMap[pk]) && cyclesMap[pk].some((cy) => cy && cy.is_current && !isNum(cy.weekly_value_usd)));
+    if (isSampling) {
+      const tip = t('weeklyEstimatingTip');
+      quotaVal = `<button type="button" class="inline-link" data-go-tab="quota" title="${esc(tip)}">${esc(t('weeklyEstimating'))}</button>`;
+      quotaSub = `<div class="hero-stat-sub ellipsis" title="${esc(tip)}"><span${liveCls ? ` class="${liveCls}"` : ''}>${esc(statusLabel)}</span></div>`;
+    } else {
+      const tip = valParts.length ? t('weeklyRefTip', valParts.join(' · ')) : t('liveWeeklyTip');
+      quotaVal = `<button type="button" class="inline-link on${liveCls ? ` ${liveCls}` : ''}" data-go-tab="quota" title="${esc(tip)}">${esc(statusLabel)}</button>`;
+    }
+  } else if (hasVal) {
+    const tip = valParts.length ? t('weeklyRefTip', valParts.join(' · ')) : t('weeklyCachedTip');
+    quotaVal = `<button type="button" class="inline-link on" data-go-tab="quota" title="${esc(tip)}">${esc(statusLabel)}</button>`;
+  } else {
+    quotaVal = `<button type="button" class="inline-link" data-go-tab="quota" title="${esc(t('weeklyOfflineTip'))}">${esc(statusLabel)}</button>`;
+  }
+
+  const syncNote = pricingNotice
+    ? `<div id="history-sync-note" class="sync-note ${pricingNotice.ok ? 'ok' : 'err'}">${esc(pricingNotice.text)}</div>`
+    : '<div id="history-sync-note" class="sync-note" hidden></div>';
+  return `${periodRowHtml(data, { period, pricingSyncing, t, lang })}${syncNote}
+    <div class="hero">
+      <div class="fig num" title="${esc(fmtInt(newTok(p), lang))}">${fmtTok(newTok(p))}<span class="unit">${esc(t('tokens'))}</span></div>
+      <div class="sub num">${esc(t('exclCache'))} · ${esc(t('convsCount', fmtInt(p.conversations, lang)))}</div>
+    </div>
+    <div class="hero-stats">
+      <div><div class="lbl">${esc(t('legInput'))}</div><div class="v num" title="${esc(fmtInt(p.input, lang))}">${fmtTok(p.input)}</div></div>
+      <div><div class="lbl">${esc(t('legOutput'))}</div><div class="v num" title="${esc(fmtInt(p.output, lang))}">${fmtTok(p.output)}</div></div>
+      <div><div class="lbl">${esc(t('legCache'))}</div><div class="v num" title="${esc(fmtInt(p.cache_read, lang))}">${fmtTok(p.cache_read)}</div></div>
+      <div><div class="lbl">${esc(t('colCalls'))}</div><div class="v num">${fmtInt(p.calls, lang)}</div></div>
+      <div title="${esc(costTip)}"><div class="lbl">${esc(t('colCost'))}</div><div class="v num">${costStr ? esc(costStr) : '<span class="dim">—</span>'}</div></div>
+      <div><div class="lbl">${esc(t('weeklyQuota'))}</div><div class="v num">${quotaVal}</div>${quotaSub}</div>
+    </div>${weeklyPoolsRow}`;
+}
+
 export function hasCliSources(data) {
   const src = (data && data.sources) || {};
   if (num(src.cli) > 0) return true;
   const all = Array.isArray(data && data.by_conversation) ? data.by_conversation : [];
   return all.some((c) => c && c.source && c.source !== 'desktop');
+}
+
+const CHILD_VISIBLE = 40;
+let convIndexCache = { data: null, map: new Map() };
+function convIndex(data) {
+  if (convIndexCache.data !== data) {
+    const map = new Map();
+    for (const c of (data && data.by_conversation) || []) if (c && c.id) map.set(String(c.id), c);
+    convIndexCache = { data, map };
+  }
+  return convIndexCache.map;
+}
+
+const sourceLabel = (s, t) => (s && t('sourceNames')[s]) || s || '';
+
+function convDisplayTitle(c, t) {
+  const title = c && c.title ? String(c.title) : '';
+  return title || `${t('untitled')} · ${String((c && c.id) || '').slice(0, 8)}`;
+}
+
+// Direct subagents of a conversation, by usage of their own subtree.
+function childrenOf(c, data) {
+  const ids = Array.isArray(c && c.children) ? c.children : [];
+  if (!ids.length) return [];
+  const idx = convIndex(data);
+  return ids.map((id) => idx.get(id)).filter(Boolean)
+    .sort((a, b) => newTok(withSubtree(b)) - newTok(withSubtree(a)) || tsOf(withSubtree(b).last_at) - tsOf(withSubtree(a).last_at));
+}
+
+function childListHtml(c, data, maxTok, ctx) {
+  const { t } = ctx;
+  const kids = childrenOf(c, data);
+  const total = Array.isArray(c.children) ? c.children.length : 0;
+  const rows = kids.slice(0, CHILD_VISIBLE).map((k, i) => convItemHtml(k, i, maxTok, data, { ...ctx, tree: true, showSubBadge: false, parentTitle: '' })).join('');
+  const hidden = total - Math.min(kids.length, CHILD_VISIBLE);
+  const note = hidden > 0 ? `<p class="note conv-children-note">${esc(t('moreChildren', hidden))}</p>` : '';
+  return rows ? `<ul class="conv-list conv-children">${rows}</ul>${note}` : note;
+}
+
+function convDetailHtml(c, data, { tree = false, maxTok = 0, openKeys, t, lang } = {}) {
+  const weeklyValueUsd = (data && data.weekly_value_usd) || null;
+  const totalIn = num(c.input) + num(c.cache_read);
+  const hit = totalIn > 0 ? `${(num(c.cache_read) / totalIn * 100).toFixed(0)}%` : '—';
+  const think = isNum(c.thinking) ? fmtTok(c.thinking) : '—';
+  const first = c.first_at ? fmtTime(c.first_at, true, lang) : '';
+  const last = c.last_at ? fmtTime(c.last_at, true, lang) : '';
+  const spanText = first && last && first !== last ? t('span', first, last) : (last || first);
+  const metaBits = [];
+  if (c.source) metaBits.push(esc(sourceLabel(c.source, t)));
+  if (isSubagent(c)) metaBits.push(esc(t('agentSub')));
+  if (c.id) metaBits.push(`<span class="mono" title="${esc(c.id)}">${esc(String(c.id).slice(0, 8))}</span>`);
+  const costStr = fmtCost(c.est_cost_usd, { estimated: !!c.cost_estimated, partial: !!c.cost_partial && isNum(c.est_cost_usd) });
+  const costTip = pricingTip(data && data.pricing_source, data && data.pricing_fetched_at, { partial: !!c.cost_partial }, t, lang);
+  const costRow = costStr
+    ? `<div class="conv-row"><span class="lbl">${esc(t('colCost'))}</span><span class="num" title="${esc(costTip)}">${esc(costStr)}</span></div>`
+    : '';
+  const quotaCalibration = (data && data.quota_calibration) || null;
+  const wVal = convWeeklyLabel(c, { compact: false, weeklyValueUsd, quotaCalibration, t });
+  const cPools = c.cost_by_pool || {};
+  const activePools = sortActivePools(c, weeklyValueUsd, quotaCalibration);
+  const pn = t('poolShort');
+  const poolRows = activePools.length > 1
+    ? `<div class="conv-models"><ul class="mini">${activePools.map((pk) => {
+      const cost = num(cPools[pk]);
+      const lbl = poolRowLabel(c, pk, { weeklyValueUsd, quotaCalibration, t });
+      return `<li><span class="dim">${esc(formatPoolName(pk, pn))}</span><span class="num dim">${esc(fmtUsd(cost))}${lbl ? ` · ${esc(lbl)}` : ''}</span></li>`;
+    }).join('')}</ul></div>`
+    : '';
+  // Hierarchy: this conversation's own usage vs. its subagents (all levels).
+  const self = c.self || null;
+  const subN = num(c.total && c.total.subagents);
+  let treeRows = '';
+  if (subN > 0) {
+    const own = self || c;
+    const ownCost = fmtCost(own.est_cost_usd, { estimated: !!own.cost_estimated, partial: !!own.cost_partial && isNum(own.est_cost_usd) });
+    const tot = c.total;
+    const subCostVal = isNum(tot.est_cost_usd) ? tot.est_cost_usd - num(own.est_cost_usd) : null;
+    const subCost = fmtCost(subCostVal, { estimated: !!tot.cost_estimated, partial: !!tot.cost_partial && isNum(subCostVal) });
+    const subTok = newTok(tot) - newTok(own);
+    treeRows = `<div class="conv-models conv-tree"><div class="lbl">${esc(t('usageLevels'))}</div><ul class="mini">
+      <li><span>${esc(t('selfUsage'))}</span><span class="num dim">${fmtTok(newTok(own))}${ownCost ? ` · ${esc(ownCost)}` : ''}</span></li>
+      <li><span>${esc(t('subagentsUsage', fmtInt(subN, lang)))}</span><span class="num dim">${fmtTok(subTok)}${subCost ? ` · ${esc(subCost)}` : ''}</span></li>
+    </ul></div>`;
+  }
+  const kidsSlot = tree && Array.isArray(c.children) && c.children.length
+    ? (() => {
+      const key = `conv:${c.id}`;
+      const filled = openKeys && openKeys.has(key);
+      return `<div class="conv-kids" data-children-of="${esc(c.id)}" data-max-tok="${maxTok}"${filled ? ' data-filled="1"' : ''}>${filled ? childListHtml(c, data, maxTok, { openKeys, t, lang }) : ''}</div>`;
+    })()
+    : '';
+  const mergedModels = mergeModels(c.by_model);
+  const models = mergedModels.length
+    ? `<div class="conv-models"><div class="lbl">${esc(subN > 0 ? t('byModelSelf') : t('byModel'))}</div><ul class="mini">${mergedModels.map((m) => {
+      const mc = fmtCost(m.est_cost_usd, { estimated: m.cost_estimated, partial: m.cost_partial && isNum(m.est_cost_usd) });
+      return `<li><span class="ellipsis" title="${esc(m.ids.join(', ') || m.name)}">${esc(m.name)}</span>
+        <span class="num dim">${fmtTok(newTok(m))}${mc ? ` · ${esc(mc)}` : ` · ${esc(t('calls', fmtInt(m.calls, lang)))}`}</span></li>`;
+    }).join('')}</ul></div>`
+    : '';
+  return `<div class="conv-detail">
+    <div class="conv-kv">
+      <div><div class="lbl">${esc(t('legInput'))}</div><div class="v num" title="${esc(fmtInt(c.input, lang))}">${fmtTok(c.input)}</div></div>
+      <div><div class="lbl">${esc(t('legOutput'))}</div><div class="v num" title="${esc(fmtInt(c.output, lang))}">${fmtTok(c.output)}</div></div>
+      <div><div class="lbl">${esc(t('legCache'))}</div><div class="v num" title="${esc(fmtInt(c.cache_read, lang))}">${fmtTok(c.cache_read)}</div></div>
+      <div><div class="lbl">${esc(t('legThinking'))}</div><div class="v num" title="${isNum(c.thinking) ? esc(fmtInt(c.thinking, lang)) : ''}">${think}</div></div>
+      <div><div class="lbl">${esc(t('cacheHit'))}</div><div class="v num">${hit}</div></div>
+      <div><div class="lbl">${esc(t('colCalls'))}</div><div class="v num">${fmtInt(c.calls, lang)}</div></div>
+    </div>
+    ${costRow}
+    <div class="conv-row" title="${esc(t('weeklySizeTip'))}"><span class="lbl">${esc(t('weeklyQuota'))}</span><span class="num">${esc(wVal)}</span></div>
+    ${poolRows}
+    ${spanText ? `<div class="conv-foot num">${esc(spanText)}</div>` : ''}
+    ${metaBits.length ? `<div class="conv-foot num">${metaBits.join(' · ')}</div>` : ''}
+    ${treeRows}
+    ${models}
+    ${kidsSlot}
+  </div>`;
+}
+
+// tree: show the conversation with all its subagents (totals) and let it
+// expand into its direct subagents; otherwise its own usage only.
+function convItemHtml(raw, i, maxTok, data, { tree = false, parentTitle = '', showSubBadge = false, openKeys, t, lang } = {}) {
+  const c = tree ? withSubtree(raw) : raw;
+  const id = String(c.id || i);
+  const key = `conv:${id}`;
+  const title = c.title ? String(c.title) : '';
+  const muted = !title || title.startsWith('@') || Boolean(c.is_subagent);
+  const shown = title || `${t('untitled')} · ${id.slice(0, 8)}`;
+  const subN = num(raw.total && raw.total.subagents);
+  const agentTag = raw.agent && raw.agent !== 'self' && raw.parent_id && !title.startsWith('@') ? `@${raw.agent}` : '';
+  const parentBit = parentTitle ? t('subagentOf', parentTitle) : '';
+  const treeTag = subN > 0
+    ? (tree ? t('inclSubs', fmtInt(subN, lang)) : t('treeTotal', fmtInt(subN, lang), fmtCost(raw.total.est_cost_usd, { estimated: !!raw.total.cost_estimated }) || fmtTok(newTok(raw.total))))
+    : '';
+  const subLeft = [agentTag, parentBit, c.display_name || c.model, treeTag, fmtAgo(c.last_at, lang)].filter(Boolean).join(' · ');
+  const wTag = convWeeklyLabel(c, {
+    compact: true,
+    weeklyValueUsd: (data && data.weekly_value_usd) || null,
+    quotaCalibration: (data && data.quota_calibration) || null,
+    t,
+  });
+  const costStr = fmtCost(c.est_cost_usd, { estimated: !!c.cost_estimated, partial: !!c.cost_partial && isNum(c.est_cost_usd) });
+  const rightBits = [];
+  if (costStr) rightBits.push(costStr);
+  if (wTag) rightBits.push(wTag);
+  if (!rightBits.length) rightBits.push(t('calls', fmtInt(c.calls, lang)));
+  const subBadge = showSubBadge && isSubagent(raw)
+    ? `<span class="sub-badge">${esc(t('agentSub'))}</span>`
+    : '';
+  let bar = '';
+  if (maxTok > 0) {
+    const seg = (v, cls) => (v > 0 ? `<span class="${cls}" style="width:${(v / maxTok * 100).toFixed(2)}%"></span>` : '');
+    bar = `<div class="hbar conv-bar">${seg(num(c.input), 'seg-in')}${seg(num(c.output), 'seg-out')}</div>`;
+  }
+  return `<li class="conv-item"><details data-key="${esc(key)}"${openKeys && openKeys.has(key) ? ' open' : ''}>
+    <summary class="conv-sum">
+      <div class="conv-top">
+        ${CHEV}
+        <span class="conv-title-wrap"><span class="conv-title ellipsis${muted ? ' dim' : ''}" title="${esc(shown)}">${esc(shown)}</span>${subBadge}</span>
+        <span class="conv-val num" title="${esc(fmtInt(newTok(c), lang))}">${fmtTok(newTok(c))}</span>
+      </div>
+      <div class="conv-meta"><span class="ellipsis">${esc(subLeft)}</span><span class="num">${esc(rightBits.join(' · '))}</span></div>
+      ${bar}
+    </summary>
+    ${convDetailHtml(c, data, { tree, maxTok, openKeys, t, lang })}
+  </details></li>`;
+}
+
+function summarizeConvs(list, t, lang) {
+  let tok = 0;
+  let calls = 0;
+  for (const c of list) { tok += newTok(c); calls += num(c.calls); }
+  return `<div class="summary num">${esc(t('summaryLine', fmtInt(list.length, lang), fmtTok(tok), fmtInt(calls, lang)))}</div>`;
+}
+
+function sortListItems(list, sortKey, useTree = true) {
+  const viewOf = (c) => (useTree && c.children && c.children.length ? withSubtree(c) : c);
+  return list.slice().sort((a, b) => {
+    const va = viewOf(a);
+    const vb = viewOf(b);
+    if (sortKey === 'tokens') return newTok(vb) - newTok(va) || tsOf(vb.last_at) - tsOf(va.last_at);
+    if (sortKey === 'calls') return num(vb.calls) - num(va.calls) || tsOf(vb.last_at) - tsOf(va.last_at);
+    return tsOf(vb.last_at) - tsOf(va.last_at) || newTok(vb) - newTok(va);
+  });
+}
+
+export function renderListBodyHtml(data, {
+  listSort = 'recent',
+  listSource = 'all',
+  hideSubagents = false,
+  searchQuery = '',
+  listLimit = CONV_VISIBLE,
+  openKeys = new Set(),
+  t = createTranslator('en'),
+  lang = 'en',
+} = {}) {
+  const all = Array.isArray(data && data.by_conversation) ? data.by_conversation : [];
+  const cli = hasCliSources(data);
+  const srcFilter = cli ? listSource : 'all';
+  const q = String(searchQuery || '').trim().toLowerCase();
+  const idx = convIndex(data);
+
+  if (hideSubagents) {
+    const filtered = sortListItems(all.filter((c) => {
+      if (isSubagent(c)) return false;
+      if (srcFilter !== 'all' && (c.source || 'desktop') !== srcFilter) return false;
+      return matchesQuery(c, q);
+    }), listSort, false);
+    if (!filtered.length) {
+      return `<p class="empty">${esc(all.length ? t('noMatches') : t('noConversations'))}</p>`;
+    }
+    const rows = filtered.slice(0, listLimit).map((c, i) => convItemHtml(c, i, 0, data, { tree: false, openKeys, t, lang })).join('');
+    const rest = filtered.length - listLimit;
+    const more = rest > 0 ? `<button type="button" class="quiet-btn" data-more-list>${CHEV}<span>${esc(t('moreConvs', Math.min(rest, CONV_VISIBLE * 2)))}</span></button>` : '';
+    return summarizeConvs(filtered, t, lang) + `<ul class="conv-list">${rows}</ul>` + more;
+  }
+
+  if (q) {
+    const filtered = sortListItems(all.filter((c) => {
+      if (srcFilter !== 'all' && (c.source || 'desktop') !== srcFilter) return false;
+      return matchesQuery(c, q);
+    }), listSort, true);
+    if (!filtered.length) {
+      return `<p class="empty">${esc(all.length ? t('noMatches') : t('noConversations'))}</p>`;
+    }
+    const rows = filtered.slice(0, listLimit).map((c, i) => {
+      const par = c.parent_id && idx.has(String(c.parent_id)) ? idx.get(String(c.parent_id)) : null;
+      const parentTitle = par ? convDisplayTitle(par, t) : '';
+      return convItemHtml(c, i, 0, data, {
+        tree: Boolean(c.children && c.children.length),
+        parentTitle,
+        showSubBadge: true,
+        openKeys,
+        t,
+        lang,
+      });
+    }).join('');
+    const rest = filtered.length - listLimit;
+    const more = rest > 0 ? `<button type="button" class="quiet-btn" data-more-list>${CHEV}<span>${esc(t('moreConvs', Math.min(rest, CONV_VISIBLE * 2)))}</span></button>` : '';
+    return summarizeConvs(filtered, t, lang) + `<ul class="conv-list">${rows}</ul>` + more;
+  }
+
+  // Default view: group subagents inside their parent conversation trees, and
+  // badge any standalone orphan subagents at the top level.
+  const tops = sortListItems(all.filter((c) => {
+    if (c.parent_id && idx.has(String(c.parent_id))) return false;
+    if (srcFilter !== 'all' && (c.source || 'desktop') !== srcFilter) return false;
+    return true;
+  }), listSort, true);
+  if (!tops.length) {
+    return `<p class="empty">${esc(all.length ? t('noMatches') : t('noConversations'))}</p>`;
+  }
+  let tok = 0;
+  let calls = 0;
+  let subs = 0;
+  for (const c of tops) {
+    const v = withSubtree(c);
+    tok += newTok(v);
+    calls += num(v.calls);
+    subs += num(c.total && c.total.subagents);
+  }
+  const summary = subs > 0
+    ? `<div class="summary num">${esc(t('summaryTree', fmtInt(tops.length, lang), fmtInt(subs, lang), fmtTok(tok), fmtInt(calls, lang)))}</div>`
+    : summarizeConvs(tops, t, lang);
+  const rows = tops.slice(0, listLimit).map((c, i) => convItemHtml(c, i, 0, data, {
+    tree: true,
+    showSubBadge: true,
+    openKeys,
+    t,
+    lang,
+  })).join('');
+  const rest = tops.length - listLimit;
+  const more = rest > 0 ? `<button type="button" class="quiet-btn" data-more-list>${CHEV}<span>${esc(t('moreConvs', Math.min(rest, CONV_VISIBLE * 2)))}</span></button>` : '';
+  return summary + `<ul class="conv-list">${rows}</ul>` + more;
 }
 
 export function createHistoryController({
@@ -133,8 +501,6 @@ export function createHistoryController({
     return foot.join(' · ');
   }
 
-  const sourceLabel = (s) => (s && getT()('sourceNames')[s]) || s || '';
-
   function historySubNav() {
     const t = getT();
     const btns = HISTORY_VIEWS.map((k) => {
@@ -144,66 +510,15 @@ export function createHistoryController({
     return `<div class="seg" role="tablist" aria-label="${esc(t('hviewAria'))}">${btns}</div>`;
   }
 
-  function periodRow(data) {
-    const t = getT();
-    const lang = getLang();
-    const pills = PERIODS.map((k) => {
-      const on = k === period;
-      return `<button class="pill" type="button" role="tab" data-period="${k}" aria-selected="${on}" tabindex="${on ? 0 : -1}">${esc(t('periodPills')[k])}</button>`;
-    }).join('');
-    const tip = pricingTip(data && data.pricing_source, data && data.pricing_fetched_at, {}, t, lang);
-    const share = `<button class="share-btn" type="button" data-share-card title="${esc(t('shareCardTip'))}">${SHARE_ICON}<span>${esc(t('shareCard'))}</span></button>`;
-    const sync = `<button class="sync-btn" type="button" data-sync-prices ${pricingSyncing ? 'disabled' : ''} title="${esc(tip)}">${pricingSyncing ? `<span class="spin"></span>${esc(t('syncingPrices'))}` : esc(t('syncPrices'))}</button>`;
-    return `<div class="period-row"><div class="period-bar" role="tablist" aria-label="${esc(t('periodBarAria'))}">${pills}</div><div class="period-actions">${share}${sync}</div></div>`;
-  }
-
   function totalsHero(data) {
-    const t = getT();
-    const lang = getLang();
-    const quotaData = getQuotaData();
-    const tot = data.totals || {};
-    const p = tot[period] || {};
-    const costPartial = Boolean(p.cost_partial)
-      || (period === 'all' && Array.isArray(data.by_model) && data.by_model.some((m) => num(m.calls) > 0 && !isNum(m.est_cost_usd)));
-    const costStr = fmtCost(p.est_cost_usd, { estimated: !!p.cost_estimated, partial: costPartial && isNum(p.est_cost_usd) });
-    const costTip = pricingTip(data.pricing_source, data.pricing_fetched_at, { partial: costPartial }, t, lang);
-    const pc = t('poolCompact');
-    const weeklyValueUsd = data.weekly_value_usd || {};
-    const poolList = knownQuotaPools(quotaData && !quotaData.error ? quotaData.weekly : null, weeklyValueUsd);
-    const liveEntries = poolList.map((k) => ({ k, eff: liveWeeklyEntry(quotaData, k) })).filter((x) => x.eff != null);
-    const hasVal = hasAnyWeeklyValue(weeklyValueUsd);
-    const valParts = poolList.filter((k) => num(weeklyValueUsd[k]) > 0).map((k) => `${formatPoolName(k, pc)} ${fmtUsd(num(weeklyValueUsd[k]))}`);
-
-    let quotaVal;
-    if (liveEntries.length) {
-      const worst = Math.max(...liveEntries.map((x) => x.eff.used));
-      const lvl = budgetLevel(worst / 100);
-      const cls = lvl === 'crit' ? ' txt-crit' : lvl === 'warn' ? ' txt-warn' : '';
-      const tip = valParts.length ? t('weeklyRefTip', valParts.join(' · ')) : t('liveWeeklyTip');
-      quotaVal = `<button type="button" class="inline-link on${cls}" data-go-tab="quota" title="${esc(tip)}">${esc(t('liveSynced'))}</button>`;
-    } else if (hasVal) {
-      const tip = valParts.length ? t('weeklyRefTip', valParts.join(' · ')) : t('weeklyCachedTip');
-      quotaVal = `<button type="button" class="inline-link on" data-go-tab="quota" title="${esc(tip)}">${esc(t('weeklyCached'))}</button>`;
-    } else {
-      quotaVal = `<button type="button" class="inline-link" data-go-tab="quota" title="${esc(t('weeklyOfflineTip'))}">${esc(t('weeklyOffline'))}</button>`;
-    }
-
-    const syncNote = pricingNotice
-      ? `<div id="history-sync-note" class="sync-note ${pricingNotice.ok ? 'ok' : 'err'}">${esc(pricingNotice.text)}</div>`
-      : '<div id="history-sync-note" class="sync-note" hidden></div>';
-    return `${periodRow(data)}${syncNote}
-      <div class="hero">
-        <div class="fig num" title="${esc(fmtInt(newTok(p), lang))}">${fmtTok(newTok(p))}<span class="unit">${esc(t('tokens'))}</span></div>
-        <div class="sub num">${esc(t('exclCache'))} · ${esc(t('convsCount', fmtInt(p.conversations, lang)))}</div>
-      </div>
-      <div class="hero-stats">
-        <div><div class="lbl">${esc(t('legInput'))}</div><div class="v num" title="${esc(fmtInt(p.input, lang))}">${fmtTok(p.input)}</div></div>
-        <div><div class="lbl">${esc(t('legOutput'))}</div><div class="v num" title="${esc(fmtInt(p.output, lang))}">${fmtTok(p.output)}</div></div>
-        <div><div class="lbl">${esc(t('legCache'))}</div><div class="v num" title="${esc(fmtInt(p.cache_read, lang))}">${fmtTok(p.cache_read)}</div></div>
-        <div><div class="lbl">${esc(t('colCalls'))}</div><div class="v num">${fmtInt(p.calls, lang)}</div></div>
-        <div title="${esc(costTip)}"><div class="lbl">${esc(t('colCost'))}</div><div class="v num">${costStr ? esc(costStr) : '<span class="dim">—</span>'}</div></div>
-        <div><div class="lbl">${esc(t('weeklyQuota'))}</div><div class="v">${quotaVal}</div></div>
-      </div>`;
+    return renderTotalsHeroHtml(data, {
+      period,
+      quotaData: getQuotaData(),
+      pricingSyncing,
+      pricingNotice,
+      t: getT(),
+      lang: getLang(),
+    });
   }
 
   function heatFooter(summary) {
@@ -375,7 +690,8 @@ export function createHistoryController({
   function byModel(data) {
     const t = getT();
     const lang = getLang();
-    const merged = mergeModels(sliceModelsForPeriod(data.by_model, period));
+    const quotaCalibration = (data && data.quota_calibration) || null;
+    const merged = mergeModels(sliceModelsForPeriod(data.by_model, period), { period, quotaCalibration });
     if (!merged.length) return `<section id="history-models"><h2>${esc(t('byModel'))}</h2><p class="note" style="margin:0">${esc(t('noModels'))}</p></section>`;
     const weeklyValueUsd = (data && data.weekly_value_usd) || null;
     const max = Math.max(1, ...merged.map(allTok));
@@ -383,7 +699,7 @@ export function createHistoryController({
     const legend = `<div class="legend"><span><i class="seg-in"></i>${esc(t('legInput'))}</span><span><i class="seg-cache"></i>${esc(t('legCache'))}</span><span><i class="seg-out"></i>${esc(t('legOutput'))}</span></div>`;
     const visible = showAllModels ? merged : merged.slice(0, MODEL_VISIBLE);
     const rows = visible.map((m) => {
-      const wTag = modelWeeklyLabel(m, { compact: true, weeklyValueUsd, t });
+      const wTag = modelWeeklyLabel(m, { compact: true, weeklyValueUsd, quotaCalibration, t });
       const costStr = fmtCost(m.est_cost_usd, { estimated: m.cost_estimated, partial: m.cost_partial && isNum(m.est_cost_usd) });
       const tip = `${m.ids.join(', ') || m.name}\n${t('ioLine', fmtInt(m.input, lang), fmtInt(m.output, lang), fmtInt(m.cache_read, lang))}\n${t('calls', fmtInt(m.calls, lang))}`;
       const subRight = costStr || t('calls', fmtInt(m.calls, lang));
@@ -402,176 +718,18 @@ export function createHistoryController({
     return `<section id="history-models"><h2>${esc(t('byModel'))} <span class="hint">${esc(hint)}</span></h2>${legend}<ul class="rank">${rows}</ul>${toggle}</section>`;
   }
 
-  // Direct subagents of a conversation, by usage of their own subtree.
-  function childrenOf(c, data) {
-    const ids = Array.isArray(c && c.children) ? c.children : [];
-    if (!ids.length) return [];
-    const idx = convIndex(data);
-    return ids.map((id) => idx.get(id)).filter(Boolean)
-      .sort((a, b) => newTok(withSubtree(b)) - newTok(withSubtree(a)) || tsOf(withSubtree(b).last_at) - tsOf(withSubtree(a).last_at));
-  }
-
-  let convIndexCache = { data: null, map: new Map() };
-  function convIndex(data) {
-    if (convIndexCache.data !== data) {
-      const map = new Map();
-      for (const c of (data && data.by_conversation) || []) if (c && c.id) map.set(String(c.id), c);
-      convIndexCache = { data, map };
-    }
-    return convIndexCache.map;
-  }
-
-  const CHILD_VISIBLE = 40;
-  function childListHtml(c, data, maxTok) {
-    const t = getT();
-    const kids = childrenOf(c, data);
-    const total = Array.isArray(c.children) ? c.children.length : 0;
-    const rows = kids.slice(0, CHILD_VISIBLE).map((k, i) => convItemHtml(k, i, maxTok, data, { tree: true })).join('');
-    const hidden = total - Math.min(kids.length, CHILD_VISIBLE);
-    const note = hidden > 0 ? `<p class="note conv-children-note">${esc(t('moreChildren', hidden))}</p>` : '';
-    return rows ? `<ul class="conv-list conv-children">${rows}</ul>${note}` : note;
-  }
-
   // Fills a conversation's subagent list the first time it is opened.
   function expandChildren(details) {
     const slot = details && details.querySelector(':scope > .conv-detail > [data-children-of]');
     if (!slot || slot.dataset.filled === '1' || !loader.data || loader.data.error) return;
     const c = convIndex(loader.data).get(slot.dataset.childrenOf);
     if (!c) return;
-    slot.innerHTML = childListHtml(c, loader.data, Number(slot.dataset.maxTok) || 0);
+    slot.innerHTML = childListHtml(c, loader.data, Number(slot.dataset.maxTok) || 0, {
+      openKeys,
+      t: getT(),
+      lang: getLang(),
+    });
     slot.dataset.filled = '1';
-  }
-
-  function convDetailHtml(c, data, { tree = false, maxTok = 0 } = {}) {
-    const t = getT();
-    const lang = getLang();
-    const weeklyValueUsd = (data && data.weekly_value_usd) || null;
-    const totalIn = num(c.input) + num(c.cache_read);
-    const hit = totalIn > 0 ? `${(num(c.cache_read) / totalIn * 100).toFixed(0)}%` : '—';
-    const think = isNum(c.thinking) ? fmtTok(c.thinking) : '—';
-    const first = c.first_at ? fmtTime(c.first_at, true, lang) : '';
-    const last = c.last_at ? fmtTime(c.last_at, true, lang) : '';
-    const spanText = first && last && first !== last ? t('span', first, last) : (last || first);
-    const metaBits = [];
-    if (c.source) metaBits.push(esc(sourceLabel(c.source)));
-    if (isSubagent(c)) metaBits.push(esc(t('agentSub')));
-    if (c.id) metaBits.push(`<span class="mono" title="${esc(c.id)}">${esc(String(c.id).slice(0, 8))}</span>`);
-    const costStr = fmtCost(c.est_cost_usd, { estimated: !!c.cost_estimated, partial: !!c.cost_partial && isNum(c.est_cost_usd) });
-    const costTip = pricingTip(data && data.pricing_source, data && data.pricing_fetched_at, { partial: !!c.cost_partial }, t, lang);
-    const costRow = costStr
-      ? `<div class="conv-row"><span class="lbl">${esc(t('colCost'))}</span><span class="num" title="${esc(costTip)}">${esc(costStr)}</span></div>`
-      : '';
-    const wVal = convWeeklyLabel(c, { compact: false, weeklyValueUsd, t });
-    const cPools = c.cost_by_pool || {};
-    const activePools = sortActivePools(c, weeklyValueUsd);
-    const pn = t('poolShort');
-    const poolRows = activePools.length > 1
-      ? `<div class="conv-models"><ul class="mini">${activePools.map((pk) => {
-        const cost = num(cPools[pk]);
-        const lbl = poolRowLabel(c, pk, { weeklyValueUsd, t });
-        return `<li><span class="dim">${esc(formatPoolName(pk, pn))}</span><span class="num dim">${esc(fmtUsd(cost))}${lbl ? ` · ${esc(lbl)}` : ''}</span></li>`;
-      }).join('')}</ul></div>`
-      : '';
-    // Hierarchy: this conversation's own usage vs. its subagents (all levels).
-    const self = c.self || null;
-    const subN = num(c.total && c.total.subagents);
-    let treeRows = '';
-    if (subN > 0) {
-      const own = self || c;
-      const ownCost = fmtCost(own.est_cost_usd, { estimated: !!own.cost_estimated, partial: !!own.cost_partial && isNum(own.est_cost_usd) });
-      const tot = c.total;
-      const subCostVal = isNum(tot.est_cost_usd) ? tot.est_cost_usd - num(own.est_cost_usd) : null;
-      const subCost = fmtCost(subCostVal, { estimated: !!tot.cost_estimated, partial: !!tot.cost_partial && isNum(subCostVal) });
-      const subTok = newTok(tot) - newTok(own);
-      treeRows = `<div class="conv-models conv-tree"><div class="lbl">${esc(t('usageLevels'))}</div><ul class="mini">
-        <li><span>${esc(t('selfUsage'))}</span><span class="num dim">${fmtTok(newTok(own))}${ownCost ? ` · ${esc(ownCost)}` : ''}</span></li>
-        <li><span>${esc(t('subagentsUsage', fmtInt(subN, lang)))}</span><span class="num dim">${fmtTok(subTok)}${subCost ? ` · ${esc(subCost)}` : ''}</span></li>
-      </ul></div>`;
-    }
-    const kidsSlot = tree && Array.isArray(c.children) && c.children.length
-      ? (() => {
-        const key = `conv:${c.id}`;
-        const filled = openKeys.has(key);
-        return `<div class="conv-kids" data-children-of="${esc(c.id)}" data-max-tok="${maxTok}"${filled ? ' data-filled="1"' : ''}>${filled ? childListHtml(c, data, maxTok) : ''}</div>`;
-      })()
-      : '';
-    const mergedModels = mergeModels(c.by_model);
-    const models = mergedModels.length
-      ? `<div class="conv-models"><div class="lbl">${esc(subN > 0 ? t('byModelSelf') : t('byModel'))}</div><ul class="mini">${mergedModels.map((m) => {
-        const mc = fmtCost(m.est_cost_usd, { estimated: m.cost_estimated, partial: m.cost_partial && isNum(m.est_cost_usd) });
-        return `<li><span class="ellipsis" title="${esc(m.ids.join(', ') || m.name)}">${esc(m.name)}</span>
-          <span class="num dim">${fmtTok(newTok(m))}${mc ? ` · ${esc(mc)}` : ` · ${esc(t('calls', fmtInt(m.calls, lang)))}`}</span></li>`;
-      }).join('')}</ul></div>`
-      : '';
-    return `<div class="conv-detail">
-      <div class="conv-kv">
-        <div><div class="lbl">${esc(t('legInput'))}</div><div class="v num" title="${esc(fmtInt(c.input, lang))}">${fmtTok(c.input)}</div></div>
-        <div><div class="lbl">${esc(t('legOutput'))}</div><div class="v num" title="${esc(fmtInt(c.output, lang))}">${fmtTok(c.output)}</div></div>
-        <div><div class="lbl">${esc(t('legCache'))}</div><div class="v num" title="${esc(fmtInt(c.cache_read, lang))}">${fmtTok(c.cache_read)}</div></div>
-        <div><div class="lbl">${esc(t('legThinking'))}</div><div class="v num" title="${isNum(c.thinking) ? esc(fmtInt(c.thinking, lang)) : ''}">${think}</div></div>
-        <div><div class="lbl">${esc(t('cacheHit'))}</div><div class="v num">${hit}</div></div>
-        <div><div class="lbl">${esc(t('colCalls'))}</div><div class="v num">${fmtInt(c.calls, lang)}</div></div>
-      </div>
-      ${costRow}
-      <div class="conv-row" title="${esc(t('weeklySizeTip'))}"><span class="lbl">${esc(t('weeklyQuota'))}</span><span class="num">${esc(wVal)}</span></div>
-      ${poolRows}
-      ${spanText ? `<div class="conv-foot num">${esc(spanText)}</div>` : ''}
-      ${metaBits.length ? `<div class="conv-foot num">${metaBits.join(' · ')}</div>` : ''}
-      ${treeRows}
-      ${models}
-      ${kidsSlot}
-    </div>`;
-  }
-
-  // tree: show the conversation with all its subagents (totals) and let it
-  // expand into its direct subagents; otherwise its own usage only.
-  function convItemHtml(raw, i, maxTok, data, { tree = false } = {}) {
-    const t = getT();
-    const lang = getLang();
-    const c = tree ? withSubtree(raw) : raw;
-    const id = String(c.id || i);
-    const key = `conv:${id}`;
-    const title = c.title ? String(c.title) : '';
-    const muted = !title || title.startsWith('@') || Boolean(c.is_subagent);
-    const shown = title || `${t('untitled')} · ${id.slice(0, 8)}`;
-    const subN = num(raw.total && raw.total.subagents);
-    const agentTag = raw.agent && raw.agent !== 'self' && raw.parent_id && !title.startsWith('@') ? `@${raw.agent}` : '';
-    const treeTag = subN > 0
-      ? (tree ? t('inclSubs', fmtInt(subN, lang)) : t('treeTotal', fmtInt(subN, lang), fmtCost(raw.total.est_cost_usd, { estimated: !!raw.total.cost_estimated }) || fmtTok(newTok(raw.total))))
-      : '';
-    const subLeft = [agentTag, c.display_name || c.model, treeTag, fmtAgo(c.last_at, lang)].filter(Boolean).join(' · ');
-    const wTag = convWeeklyLabel(c, { compact: true, weeklyValueUsd: (data && data.weekly_value_usd) || null, t });
-    const costStr = fmtCost(c.est_cost_usd, { estimated: !!c.cost_estimated, partial: !!c.cost_partial && isNum(c.est_cost_usd) });
-    const rightBits = [];
-    if (costStr) rightBits.push(costStr);
-    if (wTag) rightBits.push(wTag);
-    if (!rightBits.length) rightBits.push(t('calls', fmtInt(c.calls, lang)));
-    let bar = '';
-    if (maxTok > 0) {
-      const seg = (v, cls) => (v > 0 ? `<span class="${cls}" style="width:${(v / maxTok * 100).toFixed(2)}%"></span>` : '');
-      bar = `<div class="hbar conv-bar">${seg(num(c.input), 'seg-in')}${seg(num(c.output), 'seg-out')}</div>`;
-    }
-    return `<li class="conv-item"><details data-key="${esc(key)}"${openKeys.has(key) ? ' open' : ''}>
-      <summary class="conv-sum">
-        <div class="conv-top">
-          ${CHEV}
-          <span class="conv-title ellipsis${muted ? ' dim' : ''}" title="${esc(shown)}">${esc(shown)}</span>
-          <span class="conv-val num" title="${esc(fmtInt(newTok(c), lang))}">${fmtTok(newTok(c))}</span>
-        </div>
-        <div class="conv-meta"><span class="ellipsis">${esc(subLeft)}</span><span class="num">${esc(rightBits.join(' · '))}</span></div>
-        ${bar}
-      </summary>
-      ${convDetailHtml(c, data, { tree, maxTok })}
-    </details></li>`;
-  }
-
-  function summarizeConvs(list) {
-    const t = getT();
-    const lang = getLang();
-    let tok = 0;
-    let calls = 0;
-    for (const c of list) { tok += newTok(c); calls += num(c.calls); }
-    return `<div class="summary num">${esc(t('summaryLine', fmtInt(list.length, lang), fmtTok(tok), fmtInt(calls, lang)))}</div>`;
   }
 
   // By usage: top-level conversations ranked by usage including all their
@@ -599,7 +757,7 @@ export function createHistoryController({
     }
     const maxTok = Math.max(1, newTok(withSubtree(filtered[0])));
     const legend = `<div class="legend" style="margin-top:12px"><span><i class="seg-in"></i>${esc(t('legInput'))}</span><span><i class="seg-out"></i>${esc(t('legOutput'))}</span></div>`;
-    const rows = filtered.slice(0, sessionsLimit).map((c, i) => convItemHtml(c, i, maxTok, data, { tree: true })).join('');
+    const rows = filtered.slice(0, sessionsLimit).map((c, i) => convItemHtml(c, i, maxTok, data, { tree: true, openKeys, t, lang })).join('');
     const rest = filtered.length - sessionsLimit;
     const more = rest > 0 ? `<button type="button" class="quiet-btn" data-more-sessions>${CHEV}<span>${esc(t('moreConvs', Math.min(rest, CONV_VISIBLE * 2)))}</span></button>` : '';
     let tok = 0;
@@ -630,27 +788,17 @@ export function createHistoryController({
   }
 
   function listBodyHtml(data) {
-    const t = getT();
-    const all = Array.isArray(data && data.by_conversation) ? data.by_conversation : [];
-    const cli = hasCliSources(data);
-    if (!cli && listSource !== 'all') listSource = 'all';
-    const q = searchQuery.trim().toLowerCase();
-    const filtered = all.filter((c) => {
-      if (hideSubagents && isSubagent(c)) return false;
-      if (listSource !== 'all' && (c.source || 'desktop') !== listSource) return false;
-      return matchesQuery(c, q);
-    }).sort((a, b) => {
-      if (listSort === 'tokens') return newTok(b) - newTok(a) || tsOf(b.last_at) - tsOf(a.last_at);
-      if (listSort === 'calls') return num(b.calls) - num(a.calls) || tsOf(b.last_at) - tsOf(a.last_at);
-      return tsOf(b.last_at) - tsOf(a.last_at) || newTok(b) - newTok(a);
+    if (!hasCliSources(data) && listSource !== 'all') listSource = 'all';
+    return renderListBodyHtml(data, {
+      listSort,
+      listSource,
+      hideSubagents,
+      searchQuery,
+      listLimit,
+      openKeys,
+      t: getT(),
+      lang: getLang(),
     });
-    if (!filtered.length) {
-      return `<p class="empty">${esc(all.length ? t('noMatches') : t('noConversations'))}</p>`;
-    }
-    const rows = filtered.slice(0, listLimit).map((c, i) => convItemHtml(c, i, 0, data)).join('');
-    const rest = filtered.length - listLimit;
-    const more = rest > 0 ? `<button type="button" class="quiet-btn" data-more-list>${CHEV}<span>${esc(t('moreConvs', Math.min(rest, CONV_VISIBLE * 2)))}</span></button>` : '';
-    return summarizeConvs(filtered) + `<ul class="conv-list">${rows}</ul>` + more;
   }
 
   function listViewHtml(data) {

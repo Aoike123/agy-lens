@@ -102,14 +102,28 @@ export function fmtDeltaPct(p) {
 export const deltaLevel = (p) => (!isNum(p) ? '' : p <= -10 ? 'crit' : p < 0 ? 'warn' : p > 0 ? 'ok' : '');
 
 export function fmtCycleSpan(startIso, endIso, lang = 'en') {
-  const a = parseDate(startIso);
-  const b = parseDate(endIso);
+  const a = startIso ? parseDate(startIso) : null;
+  const b = endIso ? parseDate(endIso) : null;
   if (!a && !b) return '—';
   const loc = resolveLoc(lang);
   const opts = lang === 'zh' ? { month: 'numeric', day: 'numeric' } : { month: 'short', day: 'numeric' };
-  const fa = a ? a.toLocaleDateString(loc, opts) : '?';
   const fb = b ? b.toLocaleDateString(loc, opts) : '?';
+  if (!a) return lang === 'zh' ? `至 ${fb}` : `→ ${fb}`;
+  const fa = a.toLocaleDateString(loc, opts);
   return `${fa} – ${fb}`;
+}
+
+export function fmtCycleDuration(ms, lang = 'en') {
+  if (!isNum(ms) || ms <= 0) return '';
+  const hours = ms / 3600000;
+  if (hours < 48) {
+    const h = Math.max(1, Math.round(hours));
+    return lang === 'zh' ? `${h}小时` : `${h}h`;
+  }
+  const days = hours / 24;
+  const rounded = Math.round(days);
+  const val = Math.abs(days - rounded) <= 0.05 ? String(rounded) : days.toFixed(1).replace(/\.0$/, '');
+  return lang === 'zh' ? `${val}天` : `${val}d`;
 }
 
 export function fmtUsd(v) {
@@ -283,17 +297,75 @@ export function costWeeklyPct(costUsd, pool, weeklyValueUsd) {
   return (costUsd / val) * 100;
 }
 
+/** Effective quota weight multiplier for one model inside a calibrated pool (1 when uncalibrated). */
+export function modelQuotaMultiplier(modelId, pool, quotaCalibration) {
+  const cal = quotaCalibration && pool && quotaCalibration[pool];
+  if (!cal || !cal.calibrated) return 1;
+  const mw = modelId && cal.models && cal.models[modelId];
+  if (mw && isNum(mw.multiplier) && mw.multiplier >= 0) return mw.multiplier;
+  return 1;
+}
+
+/** Exact (or multiplier-scaled) quota-equivalent spend for one period model row. */
+export function calibratedModelPeriodCost(m, period, quotaCalibration) {
+  if (!m || !isNum(m.est_cost_usd)) return null;
+  const pool = m.pool || inferPool(m.model || m.display_name);
+  const cal = quotaCalibration && pool && quotaCalibration[pool];
+  if (cal && cal.calibrated) {
+    const exact = period && m.model && cal.model_period_cost && cal.model_period_cost[m.model];
+    if (exact && isNum(exact[period])) return exact[period];
+    return m.est_cost_usd * modelQuotaMultiplier(m.model, pool, quotaCalibration);
+  }
+  return m.est_cost_usd;
+}
+
+/** Resolve quota-equivalent pool cost map for a conversation or subtree. */
+export function convQuotaCostByPool(c, quotaCalibration = null) {
+  if (!c || typeof c !== 'object') return null;
+  if (c.quota_cost_by_pool && typeof c.quota_cost_by_pool === 'object') return c.quota_cost_by_pool;
+  if (c.total && !num(c.total.subagents) && c.total.quota_cost_by_pool && typeof c.total.quota_cost_by_pool === 'object') {
+    return c.total.quota_cost_by_pool;
+  }
+  const base = c.cost_by_pool && typeof c.cost_by_pool === 'object' ? c.cost_by_pool : null;
+  const hasCal = Boolean(
+    quotaCalibration && typeof quotaCalibration === 'object'
+    && Object.values(quotaCalibration).some((q) => q && q.calibrated),
+  );
+  if (hasCal && Array.isArray(c.by_model) && c.by_model.length) {
+    const out = { ...(base || {}) };
+    const sums = new Map();
+    for (const m of c.by_model) {
+      if (!m) continue;
+      const costVal = isNum(m.est_cost_usd) ? m.est_cost_usd : (isNum(m.cost_usd) ? m.cost_usd : null);
+      if (!isNum(costVal)) continue;
+      const pk = m.pool || inferPool(m.model || m.display_name);
+      const cal = quotaCalibration[pk];
+      if (!cal || !cal.calibrated) continue;
+      sums.set(pk, (sums.get(pk) || 0) + costVal * modelQuotaMultiplier(m.model, pk, quotaCalibration));
+    }
+    for (const [pk, val] of sums) out[pk] = val;
+    return out;
+  }
+  return base;
+}
+
 /** Estimate a model's total spend as % of one weekly quota of its pool. */
-export function modelWeeklyLabel(m, { compact = true, weeklyValueUsd = null, t = DEFAULT_T } = {}) {
-  const pool = (m && m.pool) || inferPool((m && m.ids && m.ids[0]) || (m && m.name));
-  const pct = costWeeklyPct(m && m.est_cost_usd, pool, weeklyValueUsd);
+export function modelWeeklyLabel(m, { compact = true, weeklyValueUsd = null, quotaCalibration = null, t = DEFAULT_T } = {}) {
+  const pool = (m && m.pool) || inferPool((m && m.ids && m.ids[0]) || (m && m.model) || (m && m.name));
+  const qCost = m && isNum(m.quota_cost_usd)
+    ? m.quota_cost_usd
+    : (m && isNum(m.est_cost_usd)
+      ? m.est_cost_usd * modelQuotaMultiplier((m.ids && m.ids[0]) || m.model, pool, quotaCalibration)
+      : null);
+  const pct = costWeeklyPct(qCost, pool, weeklyValueUsd);
   if (pct != null) return t('ofPoolQuota', fmtPctNum(pct));
   return compact ? '' : t('weeklyPending');
 }
 
 /** Label for one pool row inside conversation/session detail: spend ÷ pool weekly value. */
-export function poolRowLabel(c, pk, { weeklyValueUsd = null, t = DEFAULT_T } = {}) {
-  const pct = costWeeklyPct(c && c.cost_by_pool && c.cost_by_pool[pk], pk, weeklyValueUsd);
+export function poolRowLabel(c, pk, { weeklyValueUsd = null, quotaCalibration = null, t = DEFAULT_T } = {}) {
+  const qPools = convQuotaCostByPool(c, quotaCalibration);
+  const pct = costWeeklyPct(qPools && qPools[pk], pk, weeklyValueUsd);
   return pct != null ? t('ofPoolQuota', fmtPctNum(pct)) : '';
 }
 
@@ -329,6 +401,7 @@ export function withSubtree(c) {
     d7_tokens: tot.d7_tokens,
     d7_by_pool: tot.d7_by_pool,
     cost_by_pool: tot.cost_by_pool,
+    quota_cost_by_pool: tot.quota_cost_by_pool || null,
     est_cost_usd: tot.est_cost_usd,
     cost_estimated: tot.cost_estimated,
     cost_partial: tot.cost_partial,
@@ -338,15 +411,16 @@ export function withSubtree(c) {
 }
 
 /** Per-pool weekly quota share breakdown, sorted by highest % quota impact first. */
-export function convWeeklyBreakdown(c, weeklyValueUsd) {
-  const cPools = c && c.cost_by_pool;
-  if (!cPools || typeof cPools !== 'object') return [];
+export function convWeeklyBreakdown(c, weeklyValueUsd, quotaCalibration = null) {
+  const qPools = convQuotaCostByPool(c, quotaCalibration);
+  if (!qPools || typeof qPools !== 'object') return [];
+  const rawPools = (c && c.cost_by_pool && typeof c.cost_by_pool === 'object') ? c.cost_by_pool : qPools;
   const primary = (c && c.pool) || '';
   const items = [];
-  for (const [pk, rawCost] of Object.entries(cPools)) {
-    const pct = costWeeklyPct(rawCost, pk, weeklyValueUsd);
+  for (const [pk, qCost] of Object.entries(qPools)) {
+    const pct = costWeeklyPct(qCost, pk, weeklyValueUsd);
     if (pct != null && pct > 0) {
-      items.push({ pool: pk, cost: num(rawCost), pct });
+      items.push({ pool: pk, cost: num(rawPools[pk]), pct });
     }
   }
   items.sort((a, b) => (
@@ -359,18 +433,19 @@ export function convWeeklyBreakdown(c, weeklyValueUsd) {
 }
 
 /** Active cost_by_pool keys ordered by highest weekly quota impact first, then USD cost. */
-export function sortActivePools(c, weeklyValueUsd) {
-  const cPools = (c && c.cost_by_pool) || {};
+export function sortActivePools(c, weeklyValueUsd, quotaCalibration = null) {
+  const rawPools = (c && c.cost_by_pool) || {};
+  const qPools = convQuotaCostByPool(c, quotaCalibration) || rawPools;
   const primary = (c && c.pool) || '';
-  return Object.keys(cPools)
-    .filter((k) => num(cPools[k]) > 0)
+  return Object.keys(rawPools)
+    .filter((k) => num(rawPools[k]) > 0)
     .sort((a, b) => {
-      const pa = costWeeklyPct(cPools[a], a, weeklyValueUsd);
-      const pb = costWeeklyPct(cPools[b], b, weeklyValueUsd);
+      const pa = costWeeklyPct(qPools[a], a, weeklyValueUsd);
+      const pb = costWeeklyPct(qPools[b], b, weeklyValueUsd);
       const wa = pa != null ? pa : -1;
       const wb = pb != null ? pb : -1;
       return (wb - wa)
-        || (num(cPools[b]) - num(cPools[a]))
+        || (num(rawPools[b]) - num(rawPools[a]))
         || ((b === primary ? 1 : 0) - (a === primary ? 1 : 0))
         || a.localeCompare(b);
     });
@@ -378,13 +453,13 @@ export function sortActivePools(c, weeklyValueUsd) {
 
 /**
  * Estimate a conversation's (or subtree's) size relative to one official
- * weekly quota: `pool_cost / pool_weekly_value_usd`. For mixed-pool sessions,
+ * weekly quota: `quota_pool_cost / pool_weekly_value_usd`. For mixed-pool sessions,
  * leads with the pool consuming the largest share of its weekly quota (never
  * hiding a 40% Claude burn behind a larger-USD 1% Gemini burn).
  */
-export function convWeeklyLabel(c, { compact = true, weeklyValueUsd = null, t = DEFAULT_T } = {}) {
+export function convWeeklyLabel(c, { compact = true, weeklyValueUsd = null, quotaCalibration = null, t = DEFAULT_T } = {}) {
   if (!c) return compact ? '' : t('weeklyPending');
-  const items = convWeeklyBreakdown(c, weeklyValueUsd);
+  const items = convWeeklyBreakdown(c, weeklyValueUsd, quotaCalibration);
   if (items.length === 1) {
     return t('ofPoolQuota', fmtPctNum(items[0].pct));
   }
@@ -402,7 +477,11 @@ export function convWeeklyLabel(c, { compact = true, weeklyValueUsd = null, t = 
     return t('ofPoolQuota', fmtPctNum(top.pct));
   }
   const primary = (c && c.pool) || inferPool((c && c.model) || (c && c.display_name));
-  const direct = primary && primary !== 'other' ? costWeeklyPct(c.est_cost_usd, primary, weeklyValueUsd) : null;
+  const rawUsd = c.est_cost_usd;
+  const qUsd = isNum(rawUsd)
+    ? rawUsd * modelQuotaMultiplier(c.model, primary, quotaCalibration)
+    : rawUsd;
+  const direct = primary && primary !== 'other' ? costWeeklyPct(qUsd, primary, weeklyValueUsd) : null;
   if (direct != null) return t('ofPoolQuota', fmtPctNum(direct));
   return compact ? '' : t('weeklyPending');
 }
@@ -443,8 +522,54 @@ export function sliceModelsForPeriod(list, period = 'all') {
   return out;
 }
 
+/** Aggregate estimated USD cost per quota pool for the given period from sliced models. */
+export function periodCostByPool(byModel, period = 'all', quotaCalibration = null) {
+  const cost_by_pool = {};
+  const sliced = sliceModelsForPeriod(byModel, period);
+  for (const m of sliced) {
+    const pk = m.pool || inferPool(m.model || m.display_name);
+    if (isNum(m.est_cost_usd) && m.est_cost_usd > 0) {
+      cost_by_pool[pk] = num(cost_by_pool[pk]) + m.est_cost_usd;
+    }
+  }
+  if (!quotaCalibration) return { cost_by_pool };
+  const quota_cost_by_pool = {};
+  for (const [pk, rawCost] of Object.entries(cost_by_pool)) {
+    const cal = quotaCalibration[pk];
+    if (cal && cal.calibrated && cal.period_cost_usd && isNum(cal.period_cost_usd[period])) {
+      quota_cost_by_pool[pk] = cal.period_cost_usd[period];
+    } else if (cal && cal.calibrated) {
+      let sum = 0;
+      for (const m of sliced) {
+        const mpk = m.pool || inferPool(m.model || m.display_name);
+        if (mpk === pk && isNum(m.est_cost_usd)) sum += calibratedModelPeriodCost(m, period, quotaCalibration);
+      }
+      quota_cost_by_pool[pk] = sum;
+    } else {
+      quota_cost_by_pool[pk] = rawCost;
+    }
+  }
+  return { cost_by_pool, quota_cost_by_pool };
+}
+
+/** Per-pool estimated weekly quota usage (%) for the given period, sorted by highest impact. */
+export function periodWeeklySummary(byModel, period, weeklyValueUsd, quotaCalibration = null) {
+  const agg = periodCostByPool(byModel, period, quotaCalibration);
+  const qMap = agg.quota_cost_by_pool || agg.cost_by_pool;
+  const rawMap = agg.cost_by_pool;
+  const items = [];
+  for (const [pk, qCost] of Object.entries(qMap)) {
+    const pct = costWeeklyPct(qCost, pk, weeklyValueUsd);
+    if (pct != null && pct > 0) {
+      items.push({ pool: pk, cost: num(rawMap[pk]), pct });
+    }
+  }
+  items.sort((a, b) => (b.pct - a.pct) || (b.cost - a.cost) || a.pool.localeCompare(b.pool));
+  return items;
+}
+
 /** Merge duplicate display names so raw model variants never clutter inline rows. */
-export function mergeModels(list) {
+export function mergeModels(list, { period = null, quotaCalibration = null } = {}) {
   const map = new Map();
   for (const m of Array.isArray(list) ? list : []) {
     if (!m) continue;
@@ -462,6 +587,7 @@ export function mergeModels(list) {
         calls: 0,
         d7_tokens: null,
         est_cost_usd: null,
+        quota_cost_usd: null,
         cost_estimated: false,
         cost_partial: false,
       };
@@ -474,8 +600,13 @@ export function mergeModels(list) {
     g.thinking += num(m.thinking);
     g.calls += num(m.calls);
     if (isNum(m.d7_tokens)) g.d7_tokens = (g.d7_tokens || 0) + m.d7_tokens;
-    if (isNum(m.est_cost_usd)) g.est_cost_usd = (g.est_cost_usd || 0) + m.est_cost_usd;
-    else if (num(m.calls) > 0) g.cost_partial = true;
+    if (isNum(m.est_cost_usd)) {
+      g.est_cost_usd = (g.est_cost_usd || 0) + m.est_cost_usd;
+      const qVal = quotaCalibration ? calibratedModelPeriodCost(m, period, quotaCalibration) : m.est_cost_usd;
+      g.quota_cost_usd = (g.quota_cost_usd || 0) + (isNum(qVal) ? qVal : m.est_cost_usd);
+    } else if (num(m.calls) > 0) {
+      g.cost_partial = true;
+    }
     if (m.cost_estimated) g.cost_estimated = true;
     if (m.cost_partial) g.cost_partial = true;
   }

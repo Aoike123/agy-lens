@@ -6,6 +6,7 @@ import {
   errorBox,
   esc,
   fmtCost,
+  fmtCycleDuration,
   fmtCycleSpan,
   fmtDeltaPct,
   fmtInt,
@@ -76,11 +77,45 @@ export function limitLabel(l, single, t) {
   return l.inferred && l.kind !== 'none' ? `≈${name}` : name;
 }
 
+// Restrained instrument-grade semantic stops (coral-red -> terracotta -> amber -> sage-emerald).
+// 68%–100% stays in one cohesive mineral-emerald family so healthy bars never clash on screen.
+const QUOTA_COLOR_STOPS = [
+  [0.0, [218, 84, 88]],
+  [0.2, [214, 120, 68]],
+  [0.42, [206, 154, 58]],
+  [0.68, [72, 160, 114]],
+  [1.0, [58, 160, 114]],
+];
+
+const toHexByte = (n) => Math.round(n).toString(16).padStart(2, '0');
+
+/** Map remaining quota fraction [0..1] to an instrument-grade coral-red -> amber -> mineral-emerald hex color. */
+export function quotaColor(f) {
+  if (!isNum(f)) return '#3aa072';
+  const x = Math.min(1, Math.max(0, f));
+  for (let i = 1; i < QUOTA_COLOR_STOPS.length; i += 1) {
+    const [x0, c0] = QUOTA_COLOR_STOPS[i - 1];
+    const [x1, c1] = QUOTA_COLOR_STOPS[i];
+    if (x <= x1) {
+      const t = x1 > x0 ? (x - x0) / (x1 - x0) : 0;
+      const r = c0[0] + t * (c1[0] - c0[0]);
+      const g = c0[1] + t * (c1[1] - c0[1]);
+      const b = c0[2] + t * (c1[2] - c0[2]);
+      return `#${toHexByte(r)}${toHexByte(g)}${toHexByte(b)}`;
+    }
+  }
+  const last = QUOTA_COLOR_STOPS[QUOTA_COLOR_STOPS.length - 1][1];
+  return `#${toHexByte(last[0])}${toHexByte(last[1])}${toHexByte(last[2])}`;
+}
+
 export function meterHtml(f, name) {
-  const on = f == null ? 0 : Math.round(f * 20);
+  const on = f == null ? 0 : (f > 0 ? Math.max(1, Math.round(f * 20)) : 0);
+  const color = quotaColor(f);
   let dots = '';
-  for (let i = 0; i < 20; i += 1) dots += `<i class="${i < on ? 'on' : ''}"></i>`;
-  return `<div class="meter" role="progressbar" aria-label="${esc(name)}" aria-valuemin="0" aria-valuemax="100"${f != null ? ` aria-valuenow="${Math.round(f * 100)}"` : ''}>${dots}</div>`;
+  for (let i = 0; i < 20; i += 1) {
+    dots += i < on ? '<i class="on"></i>' : '<i></i>';
+  }
+  return `<div class="meter" style="--mc:${color}" role="progressbar" aria-label="${esc(name)}" aria-valuemin="0" aria-valuemax="100"${f != null ? ` aria-valuenow="${Math.round(f * 100)}"` : ''}>${dots}</div>`;
 }
 
 export function poolWeeklyValuationHtml(category, l, historyData, t, lang) {
@@ -90,18 +125,31 @@ export function poolWeeklyValuationHtml(category, l, historyData, t, lang) {
   const list = Array.isArray(cyclesMap[category]) ? cyclesMap[category] : [];
   const curCy = list.find((cy) => cy.is_current || (l.reset_time && tsOf(cy.reset_time) === tsOf(l.reset_time))) || null;
   const refVal = num(weeklyValueUsd[category]);
+
   if (curCy && isNum(curCy.weekly_value_usd) && curCy.weekly_value_usd > 0) {
-    const spentStr = fmtCost(curCy.cycle_cost_usd || curCy.observed_cost_usd, { estimated: !!curCy.cost_estimated, partial: !!curCy.cost_partial }) || '$0.00';
     const estStr = fmtUsd(curCy.weekly_value_usd);
     const dStr = fmtDeltaPct(curCy.change_pct);
     const dLvl = deltaLevel(curCy.change_pct);
     const dTip = isNum(curCy.prev_weekly_value_usd) ? t('deltaTip', fmtUsd(curCy.prev_weekly_value_usd)) : '';
     const deltaHtml = dStr ? `<span class="wdelta${dLvl ? ` ${dLvl}` : ''}"${dTip ? ` title="${esc(dTip)}"` : ''}>${esc(dStr)}</span>` : '';
-    return `<div class="wbudget-val num"><span>${esc(t('cycleSpent', spentStr))}</span><span>${esc(t('weeklyEstValue', estStr))}${deltaHtml}</span></div>`;
+    let leftTxt;
+    if (curCy.valuation_method === 'delta') {
+      const obsCostStr = fmtCost(curCy.observed_cost_usd, { estimated: !!curCy.cost_estimated, partial: !!curCy.cost_partial }) || '$0.00';
+      leftTxt = t('deltaSpent', obsCostStr);
+    } else {
+      const spentStr = fmtCost(curCy.cycle_cost_usd || curCy.observed_cost_usd, { estimated: !!curCy.cost_estimated, partial: !!curCy.cost_partial }) || '$0.00';
+      const durStr = fmtCycleDuration(curCy.cycle_duration_ms, lang);
+      leftTxt = durStr ? `${t('cycleSpent', spentStr)} · ${durStr}` : t('cycleSpent', spentStr);
+    }
+    return `<div class="wbudget-val num"><span>${esc(leftTxt)}</span><span>${esc(t('weeklyEstValue', estStr))}${deltaHtml}</span></div>`;
   }
-  if (curCy && num(curCy.used_fraction) > 0) {
-    const rightVal = refVal > 0 ? t('weeklyPrevRef', fmtUsd(refVal)) : t('weeklyCollecting');
-    return `<div class="wbudget-val num"><span>${esc(t('cycleLowUsage'))}</span><span>${esc(rightVal)}</span></div>`;
+  if (curCy && (curCy.valuation_method === 'delta' || num(curCy.used_fraction) > 0)) {
+    const spentVal = curCy.cycle_cost_usd || curCy.observed_cost_usd;
+    const leftTxt = spentVal > 0
+      ? t('cycleSpent', fmtCost(spentVal, { estimated: !!curCy.cost_estimated, partial: !!curCy.cost_partial }) || '$0.00')
+      : t('cycleLowUsage');
+    const rightVal = refVal > 0 ? t('weeklyPrevRef', fmtUsd(refVal)) : t('weeklyEstimating');
+    return `<div class="wbudget-val num"><span>${esc(leftTxt)}</span><span>${esc(rightVal)}</span></div>`;
   }
   if (refVal > 0) {
     return `<div class="wbudget-val num"><span>${esc(t('weeklyPrevRef', fmtUsd(refVal)))}</span></div>`;
@@ -122,10 +170,12 @@ export function weeklyCyclesHtml(historyData, openKeys, t, lang) {
     if (!list.length) continue;
     maxWeeks = Math.max(maxWeeks, list.length);
     const rows = list.map((cy) => {
-      const span = fmtCycleSpan(cy.cycle_start, cy.reset_time, lang);
+      const endIso = cy.ended_at || cy.reset_time;
+      const span = fmtCycleSpan(cy.cycle_start, endIso, lang);
+      const durStr = fmtCycleDuration(cy.cycle_duration_ms, lang);
+      const durBadge = durStr ? `<span class="wdur">${esc(durStr)}</span>` : '';
       const curBadge = cy.is_current ? `<span class="wtag">${esc(t('cycleCurrent'))}</span>` : '';
       const usedPctStr = fmtPctNum(num(cy.used_fraction) * 100);
-      const costStr = fmtCost(cy.observed_cost_usd, { estimated: !!cy.cost_estimated, partial: !!cy.cost_partial });
       let rightHtml;
       if (isNum(cy.weekly_value_usd) && cy.weekly_value_usd > 0) {
         const valStr = fmtUsd(cy.weekly_value_usd);
@@ -133,20 +183,25 @@ export function weeklyCyclesHtml(historyData, openKeys, t, lang) {
         const dLvl = deltaLevel(cy.change_pct);
         const dTip = isNum(cy.prev_weekly_value_usd) ? t('deltaTip', fmtUsd(cy.prev_weekly_value_usd)) : '';
         const deltaHtml = dStr ? `<span class="wdelta${dLvl ? ` ${dLvl}` : ''}"${dTip ? ` title="${esc(dTip)}"` : ''}>${esc(dStr)}</span>` : '';
-        rightHtml = `${esc(usedPctStr)} · ${esc(costStr || '$0.00')} → <b>${esc(valStr)}</b>${deltaHtml}`;
+        rightHtml = `${esc(t('used', usedPctStr))} · <b>${esc(t('weeklyEstValue', valStr))}</b>${deltaHtml}`;
+      } else if (!cy.is_current) {
+        rightHtml = `${esc(t('used', usedPctStr))} · ${esc(t('cycleLowUsage'))}`;
       } else {
-        rightHtml = `${esc(usedPctStr)} · ${esc(t('weeklyCollecting'))}`;
+        rightHtml = `${esc(t('used', usedPctStr))} · ${esc(t('weeklyEstimating'))}`;
       }
-      const obsTxt = cy.eval_obs_at ? fmtTime(cy.eval_obs_at, true, lang) : fmtTime(cy.observed_at, true, lang);
-      const tip = t('cycleTip', fmtTime(cy.cycle_start, true, lang), fmtTime(cy.reset_time, true, lang), obsTxt);
-      return `<li title="${esc(tip)}"><span>${esc(span)}${curBadge}</span><span class="num dim">${rightHtml}</span></li>`;
+      const baseTip = cy.cycle_start
+        ? t('cycleTip', fmtTime(cy.cycle_start, true, lang), fmtTime(endIso, true, lang))
+        : t('cycleTipResetOnly', fmtTime(endIso, true, lang));
+      const tipCost = fmtCost(cy.cycle_cost_usd || cy.observed_cost_usd, { estimated: !!cy.cost_estimated, partial: !!cy.cost_partial });
+      const tip = tipCost ? `${baseTip} · ${t('cycleSpent', tipCost)}` : baseTip;
+      return `<li title="${esc(tip)}"><span>${esc(span)}${durBadge}${curBadge}</span><span class="num dim">${rightHtml}</span></li>`;
     }).join('');
     sections.push(`<div class="wcycles-pool"><div class="lbl">${esc(formatPoolName(pk, pn))}</div><ul class="mini">${rows}</ul></div>`);
   }
   if (!sections.length) return '';
   return `<details class="wcycles" data-key="weekly-cycles"${openKeys && openKeys.has('weekly-cycles') ? ' open' : ''}>
     <summary>${CHEV}<span>${esc(t('weeklyHistoryTitle', fmtInt(maxWeeks, lang)))}</span></summary>
-    <div class="wcycles-body">${sections.join('')}<p class="wcycles-note">${esc(t('weeklyHistoryNote'))}</p></div>
+    <div class="wcycles-body">${sections.join('')}</div>
   </details>`;
 }
 

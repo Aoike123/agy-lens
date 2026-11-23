@@ -206,6 +206,7 @@ function sessionWithSubagents(s, hd, conversationId) {
     d7_tokens: tot.d7_tokens,
     d7_by_pool: tot.d7_by_pool,
     cost_by_pool: tot.cost_by_pool,
+    quota_cost_by_pool: tot.quota_cost_by_pool || null,
     subagents: tot.subagents,
     self: { input: hc.input, output: hc.output, cache_read: hc.cache_read, calls: hc.calls, est_cost_usd: hc.est_cost_usd, cost_estimated: hc.cost_estimated },
   };
@@ -222,23 +223,24 @@ function sessionHtml(r, { historyData, conversationId = '', t, lang }) {
   const costStr = fmtCost(s.est_cost_usd, { estimated: !!s.cost_estimated, partial: !!s.cost_partial });
   const costTip = pricingTip(s.pricing_source, null, { partial: !!s.cost_partial }, t, lang);
   const weeklyValueUsd = (hd && hd.weekly_value_usd) || null;
+  const quotaCalibration = (hd && hd.quota_calibration) || null;
   let weeklyHtml = '';
   let poolRows = '';
   if (hasAnyWeeklyValue(weeklyValueUsd)) {
     const sCtx = s.model || !(Array.isArray(s.by_model) && s.by_model[0])
       ? s
       : { ...s, model: s.by_model[0].model, display_name: s.by_model[0].display_name };
-    const wTag = convWeeklyLabel(sCtx, { compact: true, weeklyValueUsd, t });
+    const wTag = convWeeklyLabel(sCtx, { compact: true, weeklyValueUsd, quotaCalibration, t });
     if (wTag) {
       weeklyHtml = `<div class="session-weekly dim num" title="${esc(t('weeklySizeTip'))}">${esc(wTag)}</div>`;
     }
     const cPools = s.cost_by_pool || {};
-    const activePools = sortActivePools(s, weeklyValueUsd);
+    const activePools = sortActivePools(s, weeklyValueUsd, quotaCalibration);
     const pn = t('poolShort');
     if (activePools.length > 1) {
       poolRows = `<div class="session-pools"><ul class="mini">${activePools.map((pk) => {
         const cost = num(cPools[pk]);
-        const lbl = poolRowLabel(s, pk, { weeklyValueUsd, t });
+        const lbl = poolRowLabel(s, pk, { weeklyValueUsd, quotaCalibration, t });
         return `<li><span class="dim">${esc(formatPoolName(pk, pn))}</span><span class="num dim">${esc(fmtUsd(cost))}${lbl ? ` · ${esc(lbl)}` : ''}</span></li>`;
       }).join('')}</ul></div>`;
     }

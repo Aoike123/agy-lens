@@ -96,6 +96,29 @@ button:disabled { opacity: .6; cursor: default; transform: none; }
 }
 .pane { padding: 16px 16px 28px; }
 
+.update-banner {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px 12px; flex-wrap: wrap;
+  padding: 8px 16px; border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  font-size: 12px; line-height: 16px; color: var(--fg);
+}
+.update-msg { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.update-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex: none; }
+.update-acts { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; }
+.update-cmd-btn {
+  padding: 4px 8px; font-size: 12px; line-height: 16px; color: var(--fg);
+  border-color: color-mix(in srgb, var(--fg) 18%, transparent);
+}
+.update-link {
+  font-size: 12px; line-height: 16px; color: var(--dim);
+  text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 2px;
+}
+.update-link:hover { color: var(--fg); text-decoration-color: var(--dim); }
+.update-dismiss {
+  border: 0; border-radius: 4px; width: 20px; height: 20px; padding: 0;
+  font-size: 14px; line-height: 20px; text-align: center;
+}
+
 section { border-top: 1px solid var(--line); margin-top: 24px; padding-top: 20px; }
 h2 {
   font-size: 12px; line-height: 16px; font-weight: 500; color: var(--dim); margin: 0 0 12px;
@@ -211,14 +234,12 @@ summary.spd-row:hover .chev { color: var(--fg); }
 .limit-body { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: center; margin-top: 10px; }
 .limit-pct { font-size: 15px; font-weight: 500; text-align: right; min-width: 48px; }
 .limit-pct .lbl { display: block; font-weight: 400; }
-/* quota meter: 20 dots, 5% each — the same dot as the context gauge */
-.meter { display: grid; grid-template-columns: repeat(20, 1fr); gap: 3px; max-width: 280px; }
+/* quota meter: 20 dots, 5% each — muted green -> amber -> coral-red health progression */
+.meter { display: grid; grid-template-columns: repeat(20, 1fr); gap: 4px; max-width: 280px; }
 .meter i { aspect-ratio: 1; border-radius: 50%; background: var(--empty); }
-.meter i.on { background: var(--fg); opacity: .8; }
-.limit.warn .meter i.on, .limit.warn .limit-pct { color: var(--warn); }
-.limit.warn .meter i.on { background: var(--warn); opacity: 1; }
-.limit.crit .meter i.on, .limit.crit .limit-pct { color: var(--crit); }
-.limit.crit .meter i.on { background: var(--crit); opacity: 1; }
+.meter i.on { opacity: 1; background: color-mix(in srgb, var(--mc, var(--ok)) 84%, var(--fg)); }
+.limit.warn .limit-pct { color: var(--warn); }
+.limit.crit .limit-pct { color: var(--crit); }
 .limit.free .meter i.on { background: var(--empty); opacity: 1; }
 .tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
 .tag { font-size: 12px; line-height: 16px; background: var(--raise); border-radius: 4px; padding: 3px 8px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -285,6 +306,13 @@ summary.spd-row:hover .chev { color: var(--fg); }
 .inline-link.on { color: var(--fg); }
 .inline-link.txt-warn { color: var(--warn); }
 .inline-link.txt-crit { color: var(--crit); }
+.hero-stat-sub { font-size: 11px; line-height: 15px; color: var(--dim); margin-top: 2px; }
+.hero-weekly-pools {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 6px 12px; flex-wrap: wrap;
+  margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line);
+  font-size: 12px; line-height: 16px; color: var(--dim);
+}
+.hero-weekly-pools b { font-weight: 500; color: var(--fg); }
 
 /* per-pool weekly quota bars, implied weekly dollar value & cycle history */
 .wbudget { margin-top: 16px; display: flex; flex-direction: column; gap: 10px; }
@@ -312,7 +340,7 @@ summary.spd-row:hover .chev { color: var(--fg); }
 .wcycles-pool .mini li { height: auto; padding: 3px 0; align-items: baseline; gap: 8px; }
 .wcycles-pool .mini li b { font-weight: 500; color: var(--fg); }
 .wtag { display: inline-block; margin-left: 6px; padding: 0 5px; border-radius: 4px; font-size: 10.5px; line-height: 15px; color: var(--fg); background: var(--raise); }
-.wcycles-note { margin: 0; font-size: 11.5px; line-height: 16px; color: var(--dim); }
+.wdur { display: inline-block; margin-left: 5px; padding: 0 4px; border-radius: 4px; font-size: 10.5px; line-height: 15px; color: var(--dim); background: var(--raise); }
 
 /* activity: period-adaptive granularity & density */
 .heat { display: grid; gap: 4px; align-items: center; }
@@ -402,6 +430,11 @@ summary.spd-row:hover .chev { color: var(--fg); }
   color: var(--fg);
 }
 .conv-top { display: grid; grid-template-columns: 12px minmax(0, 1fr) auto; align-items: center; gap: 6px; }
+.conv-title-wrap { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.sub-badge {
+  flex: none; padding: 0 5px; border-radius: 4px; font-size: 10.5px; line-height: 15px;
+  color: var(--dim); background: var(--raise); border: 1px solid var(--line);
+}
 .conv-sum:hover .conv-title, .conv-sum:hover .chev { color: var(--fg); }
 .conv-val { font-size: 13px; font-weight: 500; white-space: nowrap; }
 .conv-meta {
