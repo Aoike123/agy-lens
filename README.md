@@ -95,7 +95,7 @@ Each tab owns a distinct view without duplicating controls across pages:
 
 - Official **weekly** and **5-hour** limits for each model pool reported by your plan (such as Gemini, Claude / GPT-OSS, or separate Claude Opus / Sonnet buckets, plus Tab completion), read from the app's local language server, with 20-dot meters and live reset countdowns.
 - **Implied 100% quota cycle dollar value**: measures true cycle length from consecutive reset timestamps (`last reset − previous reset`, never hardcoding 7 days) and uses in-cycle sample deltas before two resets are observed — scaling partial-usage cycles by actual `%` consumed (with a 5% sample floor and pre-saturation lock so post-limit AI credits don't skew the baseline).
-- **Quota value history**: archives every completed cycle with measured duration and shows cycle-over-cycle `%` change so you can spot quota cuts across resets.
+- **Cycle valuations & baseline diff chart**: renders an always-open per-pool adaptive `1:1` square-grid bar chart (`This month / 3 months / All`, steady height across densities) with top refresh dates, Peak + Current pool headers, reset & early-reset counts, and current-cycle baseline diff shading (coral-red caps preserving intensity depth above current for shrinkage; borderless soft green fill below current for growth), while keeping unlimited pools (such as Tab completion) cleanly below.
 
 ### History: where your tokens went
 
