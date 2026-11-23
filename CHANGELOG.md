@@ -4,6 +4,20 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **GitHub Release update checker & in-panel banner** (`sidecars/agy-lens/lib/updater.mjs`, `GET /api/update`, `web/app.js`, `bin/cli.mjs`): 6-hour cached anonymous check against GitHub Releases (falling back to raw `plugin.json`) with a dismissible top banner (one-click copy install command + release link), cached text-mode CLI notice, and `AGY_LENS_NO_UPDATE_CHECK=1` opt-out.
+- **Period-adaptive Share Card activity charts** (`sidecars/agy-lens/web/views/share-card.js`): `Today` now plots 24-hour (`00:00`–`23:00`) activity from `hourly_today`, `7d` draws labeled weekday columns, `30d` renders a timeline with `MM-DD` ticks, and `All` renders a multi-week 7-row calendar heatmap; model sorting now strictly ranks by displayed `input + output` tokens.
+- **Period weekly quota estimate in History Totals** (`sidecars/agy-lens/web/format.js`, `web/views/history.js`): Totals now estimates the active period's weekly quota usage (`≈ X%`, clickable to Quota, with an inline multi-pool breakdown row when multiple pools are used) alongside live/recorded sync status.
+- **Empirical quota ratio calibration & external-usage filtering** (`sidecars/agy-lens/lib/calibration.mjs`, `lib/pricing.mjs`, `lib/history.mjs`, `web/views/quota.js`): partitions cycles into non-overlapping incremental segments, filters off-machine consumption drops (`delta >= 0.5%` with zero local calls) from weekly benchmarks, and fits internal quota multipliers across full model IDs, `(input, output, cache_read)` splits, or joint `(model, token_type)` ratios via Ridge WLS + Leave-One-Out CV anti-overfitting gates.
+
+### Fixed
+
+- **Dynamic quota cycle intervals instead of hardcoded 7-day / 100% assumptions** (`sidecars/agy-lens/lib/quota.mjs`, `lib/history.mjs`, `web/views/quota.js`): bumped `quota-cycles.json` to v2, deriving `cycle_start` and `cycle_duration_ms` dynamically from consecutive reset timestamps (`last_reset - prev_reset`, guarding against mid-cycle shifts and offline multi-cycle gaps) rather than `reset_time - 7d`, relaxing `inferLimit` `'weekly'` up to 31 days, using precision-aware in-cycle sample deltas (`valuation_method: 'delta'`, ≥0.2% fine / ≥1% coarse) before two resets exist, forcing live quota sync on manual History refresh, and presenting partial-usage / sampling states clearly across Quota and History Totals.
+- **Tree-grouped subagent classification in History Session List** (`sidecars/agy-lens/web/views/history.js`): nested child subagents inside expandable parent conversation trees in the default `Session list` view, badged standalone/matched subagents with `.sub-badge` (plus parent links in search results), and kept `Hide subagents` filtering intact.
+
 ## [2.2.0] - 2026-11-22
 
 Renamed to **Agy Lens** (`agy-lens`) and repositioned as an English-first, zero-dependency cockpit for Antigravity 2.0.

@@ -94,15 +94,15 @@ Each tab owns a distinct view without duplicating controls across pages:
 ### Quota: before you hit the wall (and track shrinkage)
 
 - Official **weekly** and **5-hour** limits for each model pool reported by your plan (such as Gemini, Claude / GPT-OSS, or separate Claude Opus / Sonnet buckets, plus Tab completion), read from the app's local language server, with 20-dot meters and live reset countdowns.
-- **Implied 100% weekly quota dollar value**: aligns local spend strictly to each official 7-day cycle `[reset_time - 7d, reset_time)` (with a 5% usage floor and pre-saturation high-water lock so post-limit AI credits don't skew the baseline).
-- **Weekly quota value history**: archives every completed cycle and shows week-over-week `%` change so you can spot quota cuts across resets.
+- **Implied 100% quota cycle dollar value**: measures true cycle length from consecutive reset timestamps (`last reset − previous reset`, never hardcoding 7 days) and uses in-cycle sample deltas before two resets are observed — scaling partial-usage cycles by actual `%` consumed (with a 5% sample floor and pre-saturation lock so post-limit AI credits don't skew the baseline).
+- **Quota value history**: archives every completed cycle with measured duration and shows cycle-over-cycle `%` change so you can spot quota cuts across resets.
 
 ### History: where your tokens went
 
-- Desktop **and** CLI conversations across `Today / 7d / 30d / All`, with an adaptive activity heatmap and **period-scoped model leaderboard** (`By model` updates tokens, cost, and `≈ X% weekly` to match the selected window).
+- Desktop **and** CLI conversations across `Today / 7d / 30d / All`, with an estimated period weekly quota usage readout in Totals (plus multi-pool breakdown when active), an adaptive activity heatmap, and **period-scoped model leaderboard** (`By model` updates tokens, cost, and `≈ X% weekly` to match the selected window).
 - **Pruned conversation recovery & compaction accounting**: keeps usage after Antigravity deletes old conversation databases (importing older local caches once), resolves checkpoint/compaction model enums across databases, and matches generation timestamps by response ID.
-- **By session (project trees)**: top-level conversations ranked with multi-level subagent rollups, usage-by-level split (`self` vs `subagents`), per-pool dollar breakdown, and **per-project `≈ X% weekly` sizing** (`cost ÷ implied 100% weekly value`, unclamped past 100% for multi-week projects).
-- **Share card**: copy a sanitized aggregate usage card (PNG image or SVG) straight to your clipboard for one-click pasting. Conversation titles and file paths are never included.
+- **By session (project trees)**: top-level conversations ranked with multi-level subagent rollups, usage-by-level split (`self` vs `subagents`), per-pool dollar breakdown, and **per-project `≈ X% weekly` sizing** (`cost ÷ implied 100% cycle value`, unclamped past 100% for multi-cycle projects).
+- **Share card**: copy a sanitized aggregate usage card (PNG image or SVG) straight to your clipboard with **period-adaptive activity charts** (`Today` 24-hour clock chart, `7d` labeled columns, `30d` bar timeline, `All` calendar heatmap). Conversation titles and file paths are never included.
 
 <img src="docs/img/en/share-card.png" alt="Agy Lens share card: 30-day tokens, cost, model mix as a 100-dot grid, daily activity" width="100%">
 
@@ -117,9 +117,9 @@ npx github:Aoike123/agy-lens --json   # machine-readable output
 
 ## Privacy
 
-- **Local by default.** All numbers come from files on your machine. No telemetry, no uploads.
+- **Local by default.** All usage and quota numbers come from files and the local language server on your machine. No telemetry, no uploads.
 - **Read-only.** Conversation databases are opened read-only. The app is never patched; Agy Lens only uses the official plugin/sidecar mechanism.
-- **One optional network call.** Prices are estimated from a built-in table. Only if you click **Sync prices** does Agy Lens download the public LiteLLM price list (with OpenRouter as fallback). No credentials or local data are sent.
+- **Anonymous public checks.** **Sync prices** downloads the public LiteLLM / OpenRouter price list on request, and the cached release check queries GitHub Releases every 6 hours for an in-panel update banner (set `AGY_LENS_NO_UPDATE_CHECK=1` to disable). No credentials or local data are sent.
 
 ## FAQ
 
