@@ -388,6 +388,13 @@ summary.spd-row:hover .chev { color: var(--fg); }
 .cy-cols.dense .cbar .cell { border-radius: 1.5px; }
 .cbar:not(.ghost):hover { outline: 1px solid var(--fg); outline-offset: 0; }
 .cbar.unvalued .cell:last-child { box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--dim) 55%, transparent); }
+.cbar .cell.diff-shrink { --heat-c: var(--crit); }
+.cbar .cell.diff-grow { background: color-mix(in srgb, var(--ok) 26%, transparent); }
+.cy-leg { display: inline-flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.cy-leg-item { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.cy-leg .cell { width: 10px; height: 10px; border-radius: 2px; flex: none; background: var(--cell-empty); }
+.cy-leg .cell.diff-shrink { background: var(--crit); }
+.cy-leg .cell.diff-grow { background: color-mix(in srgb, var(--ok) 28%, transparent); }
 
 /* activity: period-adaptive granularity & density */
 .heat { display: grid; gap: 4px; align-items: center; }
@@ -417,7 +424,7 @@ summary.spd-row:hover .chev { color: var(--fg); }
 .cell.l3 { background: color-mix(in srgb, var(--heat-c, var(--accent)) 78%, transparent); }
 .cell.l4 { background: var(--heat-c, var(--accent)); }
 .heat .cell:not(.future):hover, .d7-item .cell:hover { outline: 1px solid var(--fg); outline-offset: 0; }
-.heat-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 12px; font-size: 12px; color: var(--dim); }
+.heat-foot { display: flex; justify-content: space-between; align-items: center; gap: 4px 8px; flex-wrap: wrap; margin-top: 12px; font-size: 12px; color: var(--dim); }
 .scale { display: flex; align-items: center; gap: 3px; }
 .scale .cell { width: 10px; height: 10px; border-radius: 2px; background: var(--cell-empty); }
 .scale .cell.l1 { background: color-mix(in srgb, var(--heat-c, var(--accent)) 32%, transparent); }
