@@ -77,21 +77,21 @@ export function limitLabel(l, single, t) {
   return l.inferred && l.kind !== 'none' ? `≈${name}` : name;
 }
 
-// Restrained instrument-grade semantic stops (coral-red -> terracotta -> amber -> sage-emerald).
-// 68%–100% stays in one cohesive mineral-emerald family so healthy bars never clash on screen.
+// Luminous Google-tonal semantic stops aligned with Overview's dot grid palette.
+// 68%–100% stays cohesive in emerald green so healthy bars never clash on screen.
 const QUOTA_COLOR_STOPS = [
-  [0.0, [218, 84, 88]],
-  [0.2, [214, 120, 68]],
-  [0.42, [206, 154, 58]],
-  [0.68, [72, 160, 114]],
-  [1.0, [58, 160, 114]],
+  [0.0, [242, 95, 92]],
+  [0.2, [245, 132, 52]],
+  [0.42, [249, 171, 0]],
+  [0.68, [70, 198, 126]],
+  [1.0, [56, 194, 124]],
 ];
 
 const toHexByte = (n) => Math.round(n).toString(16).padStart(2, '0');
 
-/** Map remaining quota fraction [0..1] to an instrument-grade coral-red -> amber -> mineral-emerald hex color. */
+/** Map remaining quota fraction [0..1] to a luminous coral-red -> amber -> emerald-green hex color. */
 export function quotaColor(f) {
-  if (!isNum(f)) return '#3aa072';
+  if (!isNum(f)) return '#38c27c';
   const x = Math.min(1, Math.max(0, f));
   for (let i = 1; i < QUOTA_COLOR_STOPS.length; i += 1) {
     const [x0, c0] = QUOTA_COLOR_STOPS[i - 1];

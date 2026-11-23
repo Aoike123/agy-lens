@@ -115,7 +115,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
       const linkHtml = safeUrl
         ? `<a class="update-link" href="${esc(safeUrl)}" target="_blank" rel="noopener noreferrer">${esc(t('viewRelease'))}</a>`
         : '';
-      el.innerHTML = `<span class="update-msg"><span class="update-dot" aria-hidden="true"></span><span>${esc(t('updateAvailable', latest, current))}</span></span>`
+      el.innerHTML = `<span class="update-msg num"><span class="update-dot" aria-hidden="true"></span><span class="ellipsis">${esc(t('updateAvailable', latest, current))}</span></span>`
         + `<span class="update-acts"><button type="button" class="update-cmd-btn" data-copy-update>${esc(t('copyUpdateCmd'))}</button>${linkHtml}`
         + `<button type="button" class="update-dismiss" data-dismiss-update aria-label="${esc(t('dismissUpdate'))}" title="${esc(t('dismissUpdate'))}">&times;</button></span>`;
       el.hidden = false;
