@@ -38,6 +38,7 @@ export function formatPoolName(pk, dict) {
 }
 export const TABS = ['overview', 'quota', 'history'];
 export const PERIODS = ['today', 'd7', 'd30', 'all'];
+export const CYCLE_PERIODS = ['month', 'm3', 'all'];
 export const HISTORY_VIEWS = ['totals', 'sessions', 'list'];
 export const SESSION_PERIODS = ['all', 'd30', 'd7', 'today'];
 export const LIST_SORTS = ['recent', 'tokens', 'calls'];

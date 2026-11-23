@@ -2,6 +2,7 @@
 
 import {
   CHEV,
+  CYCLE_PERIODS,
   deltaLevel,
   errorBox,
   esc,
@@ -22,6 +23,7 @@ import {
   makeLoader,
   num,
   parseDate,
+  parseDay,
   pctText,
   QUOTA_STALE_MS,
   resetText,
@@ -138,8 +140,7 @@ export function poolWeeklyValuationHtml(category, l, historyData, t, lang) {
       leftTxt = t('deltaSpent', obsCostStr);
     } else {
       const spentStr = fmtCost(curCy.cycle_cost_usd || curCy.observed_cost_usd, { estimated: !!curCy.cost_estimated, partial: !!curCy.cost_partial }) || '$0.00';
-      const durStr = fmtCycleDuration(curCy.cycle_duration_ms, lang);
-      leftTxt = durStr ? `${t('cycleSpent', spentStr)} · ${durStr}` : t('cycleSpent', spentStr);
+      leftTxt = t('cycleSpent', spentStr);
     }
     return `<div class="wbudget-val num"><span>${esc(leftTxt)}</span><span>${esc(t('weeklyEstValue', estStr))}${deltaHtml}</span></div>`;
   }
@@ -157,52 +158,320 @@ export function poolWeeklyValuationHtml(category, l, historyData, t, lang) {
   return '';
 }
 
-export function weeklyCyclesHtml(historyData, openKeys, t, lang) {
+const BAR_ROWS_MIN = 3;
+const BAR_ROWS_MAX = 12;
+const BAR_ASPECT_RATIO = 0.29;
+const BAR_COLS_MONTH = 10;
+const BAR_COLS_M3 = 14;
+const BAR_COLS_ALL_MIN = 24;
+const BAR_COLS_ALL_MAX = 52;
+const EARLY_CYCLE_MS = 6.5 * 86400_000;
+
+const POOL_COLORS = {
+  gemini: 'var(--c-agent)',
+  claude_gpt: 'var(--c-tool)',
+  claude_opus: 'var(--c-custom)',
+  claude_sonnet: 'var(--c-sysmsg)',
+};
+const EXTRA_POOL_COLORS = ['var(--c-user)', 'var(--c-custom)', 'var(--c-sysmsg)', 'var(--c-system)'];
+
+function poolColor(pk, idx) {
+  return POOL_COLORS[pk] || EXTRA_POOL_COLORS[idx % EXTRA_POOL_COLORS.length];
+}
+
+function toLocalDay(iso) {
+  const d = parseDate(iso);
+  return d ? new Date(d.getFullYear(), d.getMonth(), d.getDate()) : null;
+}
+
+function isEarlyResetCycle(cy) {
+  if (!cy || !cy.ended_at) return false;
+  const resetMs = tsOf(cy.reset_time);
+  const endedMs = tsOf(cy.ended_at);
+  if (Number.isFinite(resetMs) && Number.isFinite(endedMs) && resetMs - endedMs > 3600_000) return true;
+  return isNum(cy.cycle_duration_ms) && cy.cycle_duration_ms > 0 && cy.cycle_duration_ms < EARLY_CYCLE_MS;
+}
+
+function resolveAnchorDay(historyData, cyclesMap, orderedPools, anchorIso) {
+  const daily = Array.isArray(historyData && historyData.daily) ? historyData.daily : [];
+  if (daily.length) {
+    const last = parseDay(daily[daily.length - 1].date);
+    if (!Number.isNaN(last.getTime())) return last;
+  }
+  const scanned = historyData && historyData.scanned_at ? toLocalDay(historyData.scanned_at) : null;
+  if (scanned) return scanned;
+  const fetched = anchorIso ? toLocalDay(anchorIso) : null;
+  if (fetched) return fetched;
+  let latest = null;
+  for (const pk of orderedPools) {
+    for (const cy of cyclesMap[pk] || []) {
+      for (const iso of [cy && cy.observed_at, cy && cy.cycle_start, cy && cy.ended_at, cy && cy.reset_time]) {
+        const d = iso ? toLocalDay(iso) : null;
+        if (d && (!latest || d.getTime() > latest.getTime())) latest = d;
+      }
+    }
+  }
+  if (latest) return latest;
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+}
+
+function cycleHeatLevel(val, maxVal) {
+  if (!isNum(val) || val <= 0 || !isNum(maxVal) || maxVal <= 0) return 0;
+  const r = val / maxVal;
+  return r >= 0.85 ? 4 : r >= 0.6 ? 3 : r >= 0.35 ? 2 : 1;
+}
+
+function cycleRangeStats(cyclesList, allList) {
+  let maxInRange = 0;
+  let totalVal = 0;
+  let valuedCount = 0;
+  let early = 0;
+  for (const cy of cyclesList) {
+    if (isEarlyResetCycle(cy)) early += 1;
+    if (isNum(cy.weekly_value_usd) && cy.weekly_value_usd > 0) {
+      maxInRange = Math.max(maxInRange, cy.weekly_value_usd);
+      totalVal += cy.weekly_value_usd;
+      valuedCount += 1;
+    }
+  }
+  const allMax = Math.max(0, ...allList.map((cy) => (isNum(cy.weekly_value_usd) && cy.weekly_value_usd > 0 ? cy.weekly_value_usd : 0)));
+  const count = Array.isArray(cyclesList) ? cyclesList.length : cyclesList.size;
+  return {
+    count,
+    early,
+    maxVal: maxInRange > 0 ? maxInRange : allMax,
+    totalVal,
+    valuedCount,
+  };
+}
+
+function cycleHeatFooter(summary, summaryTip, t) {
+  const scale = `<span class="scale"><span class="t">${esc(t('less'))}</span>${[0, 1, 2, 3, 4].map((l) => `<span class="cell l${l}"></span>`).join('')}<span class="t">${esc(t('more'))}</span></span>`;
+  return `<div class="heat-foot"><span class="num"${summaryTip ? ` title="${esc(summaryTip)}"` : ''}>${esc(summary)}</span>${scale}</div>`;
+}
+
+function fmtAxisUsd(v) {
+  if (!isNum(v) || v <= 0) return '0';
+  if (v >= 1000) return `$${(v / 1000).toFixed(1).replace(/\.0$/, '')}k`;
+  if (v >= 10) return `$${Math.round(v)}`;
+  return `$${v.toFixed(1).replace(/\.0$/, '')}`;
+}
+
+function fmtAxisDate(iso) {
+  const d = parseDate(iso);
+  return d ? `${d.getMonth() + 1}/${d.getDate()}` : '';
+}
+
+function cycleOverlapsRange(cy, minDay, endDay) {
+  if (!cy) return false;
+  if (cy.is_current) return true;
+  const startRaw = toLocalDay(cy.cycle_start || cy.first_seen_at || cy.observed_at || cy.ended_at || cy.reset_time);
+  if (!startRaw) return false;
+  const endRaw = toLocalDay(cy.ended_at || cy.reset_time || cy.observed_at) || startRaw;
+  return endRaw.getTime() >= minDay.getTime() && startRaw.getTime() <= endDay.getTime();
+}
+
+function cycleBarTip(cy, t, lang) {
+  const endIso = cy.ended_at || cy.reset_time;
+  const span = fmtCycleSpan(cy.cycle_start, endIso, lang);
+  const durStr = fmtCycleDuration(cy.cycle_duration_ms, lang);
+  const usedPctStr = fmtPctNum(num(cy.used_fraction) * 100);
+  const hasVal = isNum(cy.weekly_value_usd) && cy.weekly_value_usd > 0;
+  const spentVal = cy.cycle_cost_usd || cy.observed_cost_usd;
+  const tipCost = fmtCost(spentVal, { estimated: !!cy.cost_estimated, partial: !!cy.cost_partial });
+  const badge = cy.is_current ? t('cycleCurrent') : (isEarlyResetCycle(cy) ? t('cycleEarlyMark') : '');
+  return [
+    badge,
+    span,
+    durStr,
+    hasVal ? t('weeklyEstValue', fmtUsd(cy.weekly_value_usd)) : (cy.is_current ? t('weeklyEstimating') : t('cycleLowUsage')),
+    tipCost ? t('cycleSpentShort', tipCost) : '',
+    t('used', usedPctStr),
+  ].filter(Boolean).join(' · ');
+}
+
+function cycleBarXAxis(cols, shown, modeCls) {
+  if (!shown.length) return '';
+  const startCol = cols - shown.length + 1;
+  const dateOf = (cy) => fmtAxisDate((cy && (cy.cycle_start || cy.observed_at || cy.ended_at || cy.reset_time)) || '');
+  let ticks = '';
+  if (cols <= 10) {
+    for (let i = 0; i < shown.length; i += 1) {
+      const lbl = dateOf(shown[i]);
+      if (lbl) ticks += `<span class="ax c" style="grid-column:${startCol + i}">${esc(lbl)}</span>`;
+    }
+  } else if (cols <= 18) {
+    const rightCol = Math.max(1, cols - 1);
+    if (shown.length >= 2 && rightCol - startCol >= 3) {
+      const leftLbl = dateOf(shown[0]);
+      if (leftLbl) ticks += `<span class="ax" style="grid-column:${startCol} / span 2">${esc(leftLbl)}</span>`;
+      if (rightCol - startCol >= 6) {
+        const step = Math.max(3, Math.ceil(shown.length / 3));
+        for (let i = step; i < shown.length - 1; i += step) {
+          const col = startCol + i;
+          if (col + 2 > rightCol - 1) break;
+          const lbl = dateOf(shown[i]);
+          if (lbl) ticks += `<span class="ax" style="grid-column:${col} / span 2">${esc(lbl)}</span>`;
+        }
+      }
+    }
+    const rightLbl = dateOf(shown[shown.length - 1]);
+    if (rightLbl) {
+      ticks += `<span class="ax r" style="grid-column:${rightCol} / span ${Math.min(2, cols)}">${esc(rightLbl)}</span>`;
+    }
+  } else {
+    const rightCol = Math.max(1, cols - 3);
+    if (shown.length >= 2 && rightCol - startCol >= 4) {
+      const leftLbl = dateOf(shown[0]);
+      if (leftLbl) ticks += `<span class="ax" style="grid-column:${startCol} / span 4">${esc(leftLbl)}</span>`;
+      if (shown.length >= 12) {
+        const step = Math.max(6, Math.ceil(shown.length / 4));
+        for (let i = step; i < shown.length - 1; i += step) {
+          const col = startCol + i;
+          if (col + 4 > rightCol - 1) break;
+          const lbl = dateOf(shown[i]);
+          if (lbl) ticks += `<span class="ax" style="grid-column:${col} / span 4">${esc(lbl)}</span>`;
+        }
+      }
+    }
+    const rightLbl = dateOf(shown[shown.length - 1]);
+    if (rightLbl) {
+      ticks += `<span class="ax r" style="grid-column:${rightCol} / span ${Math.min(4, cols)}">${esc(rightLbl)}</span>`;
+    }
+  }
+  if (!ticks) return '';
+  return `<div class="cy-x${modeCls ? ` ${modeCls}` : ''}" style="--cols:${cols}">${ticks}</div>`;
+}
+
+function cycleBarRows(cols) {
+  return Math.max(BAR_ROWS_MIN, Math.min(BAR_ROWS_MAX, Math.round(cols * BAR_ASPECT_RATIO)));
+}
+
+function cycleBarChart(list, endDay, period, t, lang) {
+  let source = list;
+  if (period === 'month') {
+    const minDay = new Date(endDay.getFullYear(), endDay.getMonth(), 1);
+    source = list.filter((cy) => cycleOverlapsRange(cy, minDay, endDay));
+  } else if (period === 'm3') {
+    const minDay = new Date(endDay.getFullYear(), endDay.getMonth() - 3, endDay.getDate() + 1);
+    source = list.filter((cy) => cycleOverlapsRange(cy, minDay, endDay));
+  }
+  const chrono = [...source].reverse();
+  const shown = chrono.slice(-BAR_COLS_ALL_MAX);
+  const cols = period === 'all'
+    ? Math.min(BAR_COLS_ALL_MAX, Math.max(BAR_COLS_ALL_MIN, shown.length))
+    : period === 'm3'
+      ? Math.min(BAR_COLS_ALL_MAX, Math.max(BAR_COLS_M3, shown.length))
+      : Math.min(BAR_COLS_ALL_MAX, Math.max(BAR_COLS_MONTH, shown.length));
+  const rows = cycleBarRows(cols);
+  const modeCls = cols > 32 ? 'all dense' : cols >= 19 ? 'all' : cols >= 11 ? 'm3' : '';
+  const stats = cycleRangeStats(shown, list);
+
+  const emptyCells = '<span class="cell l0"></span>'.repeat(rows);
+  let barsHtml = '';
+  const ghostCols = Math.max(0, cols - shown.length);
+  for (let i = 0; i < ghostCols; i += 1) {
+    barsHtml += `<div class="cbar ghost" aria-hidden="true">${emptyCells}</div>`;
+  }
+  for (const cy of shown) {
+    const hasVal = isNum(cy.weekly_value_usd) && cy.weekly_value_usd > 0 && stats.maxVal > 0;
+    const litRows = hasVal ? Math.max(1, Math.min(rows, Math.round((cy.weekly_value_usd / stats.maxVal) * rows))) : 0;
+    const lvl = hasVal ? cycleHeatLevel(cy.weekly_value_usd, stats.maxVal) : 0;
+    let cells = '';
+    for (let r = rows - 1; r >= 0; r -= 1) {
+      cells += r < litRows ? `<span class="cell l${lvl}"></span>` : '<span class="cell l0"></span>';
+    }
+    const tip = cycleBarTip(cy, t, lang);
+    barsHtml += `<div class="cbar${cy.is_current ? ' cur' : ''}${!hasVal ? ' unvalued' : ''}" title="${esc(tip)}">${cells}</div>`;
+  }
+
+  const yHtml = stats.maxVal > 0
+    ? `<div class="cy-y" aria-hidden="true"><span>${esc(fmtAxisUsd(stats.maxVal))}</span><span>${esc(fmtAxisUsd(stats.maxVal / 2))}</span><span>0</span></div>`
+    : '<div class="cy-y" aria-hidden="true"></div>';
+  const xHtml = cycleBarXAxis(cols, shown, modeCls);
+  const summary = period === 'all'
+    ? t('cycleAllResets', fmtInt(stats.count, lang), stats.early)
+    : period === 'm3'
+      ? t('cycleInMonths', fmtInt(stats.count, lang), 3, stats.early)
+      : t('cycleInMonth', fmtInt(stats.count, lang), stats.early);
+  const summaryTip = stats.valuedCount > 0
+    ? t('cycleSummaryTip', fmtUsd(stats.totalVal), fmtUsd(stats.totalVal / stats.valuedCount))
+    : '';
+  return {
+    html: `<div class="cy-chart">${xHtml}${yHtml}<div class="cy-cols${modeCls ? ` ${modeCls}` : ''}" style="--cols:${cols};--rows:${rows}">${barsHtml}</div></div>${cycleHeatFooter(summary, summaryTip, t)}`,
+    maxVal: stats.maxVal,
+  };
+}
+
+export function weeklyCyclesHtml(historyData, _openKeys, t, lang, poolOrder = null, { period = 'month', anchorIso = null } = {}) {
   const cyclesMap = historyData && !historyData.error && historyData.weekly_cycles && typeof historyData.weekly_cycles === 'object'
     ? historyData.weekly_cycles
     : null;
   if (!cyclesMap) return '';
-  const pn = t('poolShort');
-  const sections = [];
-  let maxWeeks = 0;
+  const seenPools = new Set();
+  const orderedPools = [];
+  for (const pk of Array.isArray(poolOrder) ? poolOrder : []) {
+    if (pk && !seenPools.has(pk) && Array.isArray(cyclesMap[pk]) && cyclesMap[pk].length) {
+      seenPools.add(pk);
+      orderedPools.push(pk);
+    }
+  }
   for (const pk of knownQuotaPools(cyclesMap)) {
-    const list = Array.isArray(cyclesMap[pk]) ? cyclesMap[pk] : [];
-    if (!list.length) continue;
-    maxWeeks = Math.max(maxWeeks, list.length);
-    const rows = list.map((cy) => {
-      const endIso = cy.ended_at || cy.reset_time;
-      const span = fmtCycleSpan(cy.cycle_start, endIso, lang);
-      const durStr = fmtCycleDuration(cy.cycle_duration_ms, lang);
-      const durBadge = durStr ? `<span class="wdur">${esc(durStr)}</span>` : '';
-      const curBadge = cy.is_current ? `<span class="wtag">${esc(t('cycleCurrent'))}</span>` : '';
-      const usedPctStr = fmtPctNum(num(cy.used_fraction) * 100);
-      let rightHtml;
-      if (isNum(cy.weekly_value_usd) && cy.weekly_value_usd > 0) {
-        const valStr = fmtUsd(cy.weekly_value_usd);
-        const dStr = fmtDeltaPct(cy.change_pct);
-        const dLvl = deltaLevel(cy.change_pct);
-        const dTip = isNum(cy.prev_weekly_value_usd) ? t('deltaTip', fmtUsd(cy.prev_weekly_value_usd)) : '';
-        const deltaHtml = dStr ? `<span class="wdelta${dLvl ? ` ${dLvl}` : ''}"${dTip ? ` title="${esc(dTip)}"` : ''}>${esc(dStr)}</span>` : '';
-        rightHtml = `${esc(t('used', usedPctStr))} · <b>${esc(t('weeklyEstValue', valStr))}</b>${deltaHtml}`;
-      } else if (!cy.is_current) {
-        rightHtml = `${esc(t('used', usedPctStr))} · ${esc(t('cycleLowUsage'))}`;
-      } else {
-        rightHtml = `${esc(t('used', usedPctStr))} · ${esc(t('weeklyEstimating'))}`;
-      }
-      const baseTip = cy.cycle_start
-        ? t('cycleTip', fmtTime(cy.cycle_start, true, lang), fmtTime(endIso, true, lang))
-        : t('cycleTipResetOnly', fmtTime(endIso, true, lang));
-      const tipCost = fmtCost(cy.cycle_cost_usd || cy.observed_cost_usd, { estimated: !!cy.cost_estimated, partial: !!cy.cost_partial });
-      const tip = tipCost ? `${baseTip} · ${t('cycleSpent', tipCost)}` : baseTip;
-      return `<li title="${esc(tip)}"><span>${esc(span)}${durBadge}${curBadge}</span><span class="num dim">${rightHtml}</span></li>`;
+    if (!seenPools.has(pk) && Array.isArray(cyclesMap[pk]) && cyclesMap[pk].length) {
+      seenPools.add(pk);
+      orderedPools.push(pk);
+    }
+  }
+  if (!orderedPools.length) return '';
+
+  const p = CYCLE_PERIODS.includes(period) ? period : 'month';
+  const endDay = resolveAnchorDay(historyData, cyclesMap, orderedPools, anchorIso);
+  const pn = t('poolShort');
+  const pillLabels = t('cyclePills');
+  const pills = CYCLE_PERIODS.map((k) => {
+    const on = k === p;
+    return `<button class="pill" type="button" role="tab" data-qperiod="${k}" aria-selected="${on}" tabindex="${on ? 0 : -1}">${esc(pillLabels[k])}</button>`;
+  }).join('');
+
+  const sections = [];
+  for (let poolIdx = 0; poolIdx < orderedPools.length; poolIdx += 1) {
+    const pk = orderedPools[poolIdx];
+    const list = cyclesMap[pk];
+    const color = poolColor(pk, poolIdx);
+    const chart = cycleBarChart(list, endDay, p, t, lang);
+
+    const latest = list[0] || null;
+    const peakStr = chart.maxVal > 0 ? t('cyclePeak', fmtUsd(chart.maxVal)) : '';
+    const peakHtml = peakStr ? `<span>${esc(peakStr)}</span>` : '';
+    const curHtml = list.filter((cy) => cy.is_current).map((cy) => {
+      const valHtml = isNum(cy.weekly_value_usd) && cy.weekly_value_usd > 0
+        ? `<span class="wcy-cur">${esc(fmtUsd(cy.weekly_value_usd))}</span>`
+        : '';
+      return `<span class="wcy-cur-grp"><span class="wtag">${esc(t('cycleCurrent'))}</span>${valHtml}</span>`;
     }).join('');
-    sections.push(`<div class="wcycles-pool"><div class="lbl">${esc(formatPoolName(pk, pn))}</div><ul class="mini">${rows}</ul></div>`);
+    const dStr = latest ? fmtDeltaPct(latest.change_pct) : '';
+    const dLvl = latest ? deltaLevel(latest.change_pct) : '';
+    const dTip = latest && isNum(latest.prev_weekly_value_usd) ? t('deltaTip', fmtUsd(latest.prev_weekly_value_usd)) : '';
+    const deltaHtml = dStr ? `<span class="wdelta${dLvl ? ` ${dLvl}` : ''}"${dTip ? ` title="${esc(dTip)}"` : ''}>${esc(dStr)}</span>` : '';
+    const joinedMeta = [peakHtml, curHtml].filter(Boolean).join('<span class="wcy-sep" aria-hidden="true">·</span>');
+    const metaHtml = joinedMeta || deltaHtml
+      ? `<div class="wcy-pool-meta num">${joinedMeta}${deltaHtml}</div>`
+      : '';
+
+    sections.push(`<div class="wcy-pool" style="--heat-c:${color}">`
+      + `<div class="wcy-pool-head"><div class="wcy-pool-title"><span class="mark" style="background:${color}"></span><span>${esc(formatPoolName(pk, pn))}</span></div>${metaHtml}</div>`
+      + chart.html
+      + '</div>');
   }
   if (!sections.length) return '';
-  return `<details class="wcycles" data-key="weekly-cycles"${openKeys && openKeys.has('weekly-cycles') ? ' open' : ''}>
-    <summary>${CHEV}<span>${esc(t('weeklyHistoryTitle', fmtInt(maxWeeks, lang)))}</span></summary>
+  return `<section class="wcycles" aria-label="${esc(t('cycleHistoryHeading'))}">
+    <div class="wcycles-head">
+      <div class="pool-label">${esc(t('cycleHistoryHeading'))}</div>
+      <div class="period-bar" role="tablist" aria-label="${esc(t('periodBarAria'))}">${pills}</div>
+    </div>
     <div class="wcycles-body">${sections.join('')}</div>
-  </details>`;
+  </section>`;
 }
 
 export function limitHtml(l, single, t, lang, extraHtml = '') {
@@ -220,7 +489,13 @@ export function limitHtml(l, single, t, lang, extraHtml = '') {
   </div>`;
 }
 
-export function poolHtml(p, { openKeys, historyData = null, t, lang }) {
+export function isUnlimitedPool(p, lang = 'en') {
+  if (!p) return false;
+  const limits = poolLimits(p, lang);
+  return limits.length > 0 && limits.every((l) => isUnlimited(l));
+}
+
+export function poolHtml(p, { openKeys, historyData = null, free = false, t, lang }) {
   const limits = poolLimits(p, lang);
   const localizedCat = p.category && p.category !== 'other' ? t('categoriesQuota')[p.category] : '';
   const label = localizedCat || (lang === 'zh' ? p.label_zh : p.label) || p.label || (p.category === 'other' ? t('categoriesQuota').other : '') || p.id || '?';
@@ -233,7 +508,7 @@ export function poolHtml(p, { openKeys, historyData = null, t, lang }) {
   const more = hidden.length
     ? `<details class="more" data-key="${esc(key)}"${openKeys && openKeys.has(key) ? ' open' : ''}><summary>${CHEV}<span>${esc(t('moreModels', hidden.length))}</span></summary><div class="tags">${hidden.map(tag).join('')}</div></details>`
     : '';
-  return `<div class="pool">
+  return `<div class="pool${free ? ' pool-free' : ''}">
     <div class="pool-label">${esc(label)}</div>
     ${limits.map((l) => limitHtml(l, limits.length === 1, t, lang, poolWeeklyValuationHtml(p.category, l, historyData, t, lang))).join('')}
     ${shownList.length ? `<div class="tags">${shownList.map(tag).join('')}</div>` : ''}
@@ -241,7 +516,7 @@ export function poolHtml(p, { openKeys, historyData = null, t, lang }) {
   </div>`;
 }
 
-export function renderQuotaHtml({ data, historyData = null, error, openKeys, t, lang }) {
+export function renderQuotaHtml({ data, historyData = null, error, openKeys, cyclePeriod = 'month', t, lang }) {
   let meta = '';
   let tip = '';
   let body = '';
@@ -266,10 +541,18 @@ export function renderQuotaHtml({ data, historyData = null, error, openKeys, t, 
     meta = quotaMetaHtml(data, { t, lang });
     tip = data.fetched_at ? t('fetchedAt', fmtTime(data.fetched_at, true, lang)) : '';
     const pools = Array.isArray(data.pools) ? data.pools : [];
-    const cyclesHtml = weeklyCyclesHtml(historyData, openKeys, t, lang);
+    const limitedPools = pools.filter((p) => !isUnlimitedPool(p, lang));
+    const unlimitedPools = pools.filter((p) => isUnlimitedPool(p, lang));
+    const poolOrder = limitedPools.map((p) => p && p.category).filter(Boolean);
+    const cyclesHtml = weeklyCyclesHtml(historyData, openKeys, t, lang, poolOrder, {
+      period: cyclePeriod,
+      anchorIso: data.fetched_at,
+    });
     if (!error) {
       body = pools.length
-        ? pools.map((p) => poolHtml(p, { openKeys, historyData, t, lang })).join('') + cyclesHtml
+        ? limitedPools.map((p) => poolHtml(p, { openKeys, historyData, t, lang })).join('')
+          + cyclesHtml
+          + unlimitedPools.map((p) => poolHtml(p, { openKeys, historyData, free: true, t, lang })).join('')
         : `<p class="empty">${esc(t('noPools'))}</p>${cyclesHtml}`;
     }
   }
@@ -278,6 +561,7 @@ export function renderQuotaHtml({ data, historyData = null, error, openKeys, t, 
 
 export function createQuotaController({
   pane,
+  store = null,
   openKeys,
   getTab,
   getHistoryData = () => null,
@@ -291,6 +575,9 @@ export function createQuotaController({
 }) {
   const resetFired = new Set();
   let resetTimer = null;
+  let cyclePeriod = store && CYCLE_PERIODS.includes(store.get('ctx.cyclePeriod', 'month'))
+    ? store.get('ctx.cyclePeriod', 'month')
+    : 'month';
 
   function paint() {
     const html = renderQuotaHtml({
@@ -298,10 +585,22 @@ export function createQuotaController({
       historyData: getHistoryData(),
       error: loader.error,
       openKeys,
+      cyclePeriod,
       t: getT(),
       lang: getLang(),
     });
     keepScroll(() => { pane.innerHTML = html; });
+  }
+
+  function setCyclePeriod(k, focusBtn = false) {
+    if (!CYCLE_PERIODS.includes(k) || k === cyclePeriod) return;
+    cyclePeriod = k;
+    if (store) store.set('ctx.cyclePeriod', k);
+    if (loader.data || loader.error) paint();
+    if (focusBtn) {
+      const btn = pane.querySelector(`.pill[data-qperiod="${k}"]`);
+      if (btn) btn.focus();
+    }
   }
 
   const loader = makeLoader('/api/quota', QUOTA_STALE_MS, {
@@ -352,5 +651,7 @@ export function createQuotaController({
     loader,
     paint,
     tickCountdowns,
+    getCyclePeriod: () => cyclePeriod,
+    setCyclePeriod,
   };
 }

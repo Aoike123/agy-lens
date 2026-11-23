@@ -7,6 +7,7 @@ import {
   normalizeLang,
 } from './i18n.js';
 import {
+  CYCLE_PERIODS,
   esc,
   getJson as fetchJson,
   HISTORY_VIEWS,
@@ -209,6 +210,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
 
     quota = createQuotaController({
       pane: panes.quota,
+      store,
       openKeys,
       getTab: () => tab,
       getHistoryData: () => (history ? history.loader.data : null),
@@ -412,8 +414,19 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
       if (e.target.closest('[data-more-sessions]')) { history.moreSessions(); return; }
       if (e.target.closest('[data-more-list]')) { history.moreList(); return; }
 
+      const qp = e.target.closest('[data-qperiod]');
+      if (qp) { quota.setCyclePeriod(qp.dataset.qperiod, false); return; }
+
       const pBtn = e.target.closest('[data-period]');
       if (pBtn) history.setPeriod(pBtn.dataset.period, false);
+    });
+
+    panes.quota.addEventListener('keydown', (e) => {
+      if (e.target.closest && e.target.closest('.period-bar') && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+        e.preventDefault();
+        const i = CYCLE_PERIODS.indexOf(quota.getCyclePeriod()) + (e.key === 'ArrowRight' ? 1 : -1);
+        quota.setCyclePeriod(CYCLE_PERIODS[(i + CYCLE_PERIODS.length) % CYCLE_PERIODS.length], true);
+      }
     });
 
     panes.history.addEventListener('input', (e) => {
