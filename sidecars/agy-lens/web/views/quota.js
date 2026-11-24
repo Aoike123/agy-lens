@@ -306,55 +306,59 @@ export function pickDefaultSegIndex(segments) {
 }
 
 export function renderSegmentFootHtml(seg, totalSegs, t, lang = 'en') {
-  if (!seg) return `<div class="seg-foot-row"><span class="seg-foot-item">${esc(t('cycleDrillNoSegs'))}</span></div>`;
+  if (!seg) return `<span class="sf-empty">${esc(t('cycleDrillNoSegs'))}</span>`;
   const span = formatSegSpan(seg.start_at, seg.end_at, lang);
   const usedStr = fmtPctNum(num(seg.used_delta) * 100);
   if (seg.kind === 'external') {
-    const r1 = `<div class="seg-foot-row"><span class="seg-foot-item">${esc(span)}</span><span class="seg-foot-item seg-foot-val">${esc(t('cycleDrillExternal'))}</span></div>`;
-    const r2 = `<div class="seg-foot-row"><span class="seg-foot-item">${esc(t('cycleDrillUsed', usedStr))}</span></div>`;
-    return `${r1}${r2}`;
+    return `<span class="sf-val is-ext"><span class="seg-foot-val">${esc(t('cycleDrillExternal'))}</span></span>`
+      + '<span class="sf-tag"></span>'
+      + `<span class="sf-span">${esc(span)}</span>`
+      + `<span class="sf-spend"><span class="sf-used">${esc(t('cycleDrillUsed', usedStr))}</span></span>`
+      + '<span class="sf-conc"></span>';
   }
-  let valHtml = '';
+  let valInner = '<span class="seg-foot-val dim">&mdash;</span>';
   if (isNum(seg.implied_weekly_usd) && seg.implied_weekly_usd > 0) {
     const ratioStr = isNum(seg.burn_ratio) ? seg.burn_ratio.toFixed(1).replace(/\.0$/, '') : '';
     const badge = seg.kind === 'surge' && ratioStr
-      ? ` <span class="seg-foot-surge">(${esc(t('cycleDrillSurge', ratioStr))})</span>`
+      ? `<span class="seg-foot-surge">${esc(t('cycleDrillSurge', ratioStr))}</span>`
       : '';
-    valHtml = `<span class="seg-foot-item"><span class="seg-foot-val">${esc(fmtUsd(seg.implied_weekly_usd))}</span>${badge}</span>`;
+    valInner = `<span class="seg-foot-val">${esc(fmtUsd(seg.implied_weekly_usd))}</span>${badge}`;
   }
+  const tagText = seg.is_gap
+    ? t('cycleDrillGap')
+    : ((seg.one_sample || (totalSegs === 1 && !seg.low_confidence))
+      ? t('cycleDrillOneSample')
+      : (seg.low_confidence ? t('cycleDrillLowSample') : ''));
   const spendStr = fmtCost(seg.cost_usd, { partial: Boolean(seg.cost_partial) }) || fmtUsd(seg.cost_usd || 0);
-  const left2 = `<span class="seg-foot-item">${esc(spendStr)} · ${esc(t('cycleDrillUsed', usedStr))}</span>`;
-  const right2Items = [];
-  if (seg.peak_concurrency > 0) {
-    right2Items.push(`<span class="seg-foot-item">${esc(t('cycleDrillConc', seg.peak_concurrency, seg.p90_concurrency || 0))}</span>`);
-  }
-  if (seg.is_gap) {
-    right2Items.push(`<span class="seg-foot-gap">${esc(t('cycleDrillGap'))}</span>`);
-  } else if (seg.one_sample || (totalSegs === 1 && !seg.low_confidence)) {
-    right2Items.push(`<span class="seg-foot-gap">${esc(t('cycleDrillOneSample'))}</span>`);
-  } else if (seg.low_confidence) {
-    right2Items.push(`<span class="seg-foot-gap">${esc(t('cycleDrillLowSample'))}</span>`);
-  }
-  const r1 = `<div class="seg-foot-row"><span class="seg-foot-item">${esc(span)}</span>${valHtml}</div>`;
-  const r2 = `<div class="seg-foot-row">${left2}${right2Items.length ? `<span class="seg-foot-right">${right2Items.join('')}</span>` : ''}</div>`;
-  return `${r1}${r2}`;
+  const concText = seg.peak_concurrency > 0
+    ? t('cycleDrillConc', seg.peak_concurrency, seg.p90_concurrency || 0)
+    : '';
+  return `<span class="sf-val">${valInner}</span>`
+    + `<span class="sf-tag">${tagText ? `<span class="seg-foot-gap">${esc(tagText)}</span>` : ''}</span>`
+    + `<span class="sf-span">${esc(span)}</span>`
+    + `<span class="sf-spend"><span class="sf-cost">${esc(spendStr)}</span><span class="sf-sep" aria-hidden="true">·</span><span class="sf-used">${esc(t('cycleDrillUsed', usedStr))}</span></span>`
+    + `<span class="sf-conc">${concText ? esc(concText) : ''}</span>`;
 }
 
 export function renderDrillHeaderHtml(cy, poolRefVal, t) {
   const dateLabel = fmtAxisDate(cy && (cy.cycle_start || cy.observed_at || cy.ended_at || cy.reset_time)) || '—';
   const refBase = (cy && cy.segment_baseline_usd) || poolRefVal || 0;
   const compactUsd = (v) => (v >= 100 ? `$${Math.round(v).toLocaleString('en')}` : fmtUsd(v));
-  const bits = [
-    `<button type="button" class="cy-back-btn" data-cy-back>&larr; ${esc(t('cycleDrillBack'))}</button>`,
-    `<span class="cy-drill-title">${esc(t('cycleDrillTitle', dateLabel))}</span>`,
-  ];
+  const navHtml = '<span class="wcy-drill-nav">'
+    + `<button type="button" class="cy-back-btn" data-cy-back>&larr; ${esc(t('cycleDrillBack'))}</button>`
+    + `<span class="cy-drill-title">${esc(t('cycleDrillTitle', dateLabel))}</span>`
+    + '</span>';
+  const statBits = [];
   if (cy && isNum(cy.weekly_value_usd) && cy.weekly_value_usd > 0) {
-    bits.push(`<span>${esc(t('cycleDrillAvg', compactUsd(cy.weekly_value_usd)))}</span>`);
+    statBits.push(`<span>${esc(t('cycleDrillAvg', compactUsd(cy.weekly_value_usd)))}</span>`);
   }
   if (refBase > 0) {
-    bits.push(`<span>${esc(t('cycleDrillBase', compactUsd(refBase)))}</span>`);
+    statBits.push(`<span>${esc(t('cycleDrillBase', compactUsd(refBase)))}</span>`);
   }
-  return `<div class="wcy-head-drill num">${bits.join('')}</div>`;
+  const statsHtml = statBits.length
+    ? `<span class="wcy-drill-stats">${statBits.join('<span class="wcy-sep" aria-hidden="true">·</span>')}</span>`
+    : '';
+  return `<div class="wcy-head-drill num">${navHtml}${statsHtml}</div>`;
 }
 
 export function renderCycleDrillHtml(cy, poolRefVal = 0, activeIdx = -1, t, lang = 'en') {

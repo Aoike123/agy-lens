@@ -3592,7 +3592,13 @@ test('SelfUpdater: URL allowlist, SHA-256 sums, PKZIP safety, install modes & at
 
 test('CycleDrilldown: observation boundary retention, settled segments with concurrency, and drill-down HTML', async () => {
   const { MAX_OBS_PER_CYCLE, normalizeObservations } = await import('../sidecars/agy-lens/lib/quota.mjs');
-  const { renderQuotaHtml, renderCycleDrillHtml, pickDefaultSegIndex } = await import('../sidecars/agy-lens/web/views/quota.js');
+  const {
+    renderQuotaHtml,
+    renderCycleDrillHtml,
+    renderSegmentFootHtml,
+    renderDrillHeaderHtml,
+    pickDefaultSegIndex,
+  } = await import('../sidecars/agy-lens/web/views/quota.js');
   const { createTranslator } = await import('../sidecars/agy-lens/web/i18n.js');
 
   assert.equal(MAX_OBS_PER_CYCLE, 300);
@@ -3750,6 +3756,25 @@ test('CycleDrilldown: observation boundary retention, settled segments with conc
       }],
     }, 2043, 0, tZh, 'zh');
     assert.ok(oneSampleHtml.includes('仅 1 次记录') && !oneSampleHtml.includes('NaN'));
+
+    // Invariant 5-slot segment inspector + structured drill header + responsive CSS rules
+    for (const segHtml of [
+      renderSegmentFootHtml(cyOut.segments[1], cyOut.segments.length, tZh, 'zh'), // surge + gap
+      renderSegmentFootHtml(cyOut.segments[0], cyOut.segments.length, tZh, 'zh'), // normal (no tag)
+      renderSegmentFootHtml(cyOut.segments[2], cyOut.segments.length, tZh, 'zh'), // external
+    ]) {
+      for (const cls of ['sf-val', 'sf-tag', 'sf-span', 'sf-spend', 'sf-conc']) {
+        assert.ok(segHtml.includes(`class="${cls}`), `expected ${cls} slot in ${segHtml}`);
+      }
+    }
+    const drillHeadHtml = renderDrillHeaderHtml(cyOut, cyOut.segment_baseline_usd, tZh);
+    assert.ok(drillHeadHtml.includes('class="wcy-head-drill num"'));
+    assert.ok(drillHeadHtml.includes('class="wcy-drill-nav"') && drillHeadHtml.includes('class="wcy-drill-stats"'));
+    const cssText = readFileSync(resolve(import.meta.dirname, '../sidecars/agy-lens/web/styles.css'), 'utf8');
+    assert.ok(cssText.includes('container-name: cy-stage'));
+    assert.ok(cssText.includes('@container cy-stage'));
+    assert.match(cssText, /\.seg-foot-gap\s*\{[^}]*white-space:\s*nowrap/);
+    assert.match(cssText, /\.wcy-pool\.is-drill\s+\.cy-drill\s*\{[^}]*position:\s*relative/);
 
     // 4. Sawtooth ~1% in-flight reservation jitter does not trigger fake surge/slow alerts and snaps to settled valleys.
     const sawDir = join(dir, 'saw');
