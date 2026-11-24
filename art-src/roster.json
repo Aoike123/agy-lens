@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "grid": {
+    "sprite": [100, 100],
+    "idleCell": [192, 128],
+    "idleBaseline": 114,
+    "bodyHeight": 90,
+    "idleFps": 24,
+    "idleFrames": 192,
+    "facing": "right",
+    "note": "All characters are scaled to the novices' ~90-cell crown-to-sole height. Sprites are 100x100; idles are 192x128 cells, 8 s at 24 fps."
+  },
+  "files": {
+    "starter-male / starter-female / mid / late": "characters/<id>/<stage>.png, normalized 100x100 sprite",
+    "idle-<stage>": "characters/<id>/idle-<stage>.webp, final transparent 192x128 animation",
+    "original-<stage>": "characters/<id>/original-<stage>.webp, 512x512 approved source painting (input of normalize-growth.py)"
+  },
+  "characters": [
+    { "id": "novice", "name": "新手", "stages": {
+      "starter-male": { "idle": "调整握尺" },
+      "starter-female": { "idle": "扶包抬尺" },
+      "late": {} } },
+    { "id": "alchemist", "name": "炼金术士", "stages": { "mid": { "idle": "默数滴数" }, "late": { "idle": "侧耳听釜" } } },
+    { "id": "berserker", "name": "狂战士", "stages": { "mid": { "idle": "掂斧" }, "late": { "idle": "验刃" } } },
+    { "id": "bard", "name": "吟游诗人", "stages": { "mid": { "idle": "试音" }, "late": { "idle": "扫弦止音" } } },
+    { "id": "knight", "name": "骑士", "stages": { "mid": { "idle": "举盾行礼" }, "late": { "idle": "持盾调息" } } },
+    { "id": "mage", "name": "法师", "stages": { "mid": { "idle": "练指节奏" }, "late": { "idle": "立杖整袖" } } },
+    { "id": "monk", "name": "苦行僧", "stages": { "mid": { "idle": "推掌" }, "late": { "idle": "收功" } } },
+    { "id": "diver", "name": "海港潜水匠", "stages": { "mid": { "idle": "查绳钩" }, "late": { "idle": "检视头盔" } } },
+    { "id": "kite", "name": "纸鸢信使", "stages": { "mid": { "idle": "迎风收线" }, "late": { "idle": "放线收线" } } },
+    { "id": "surveyor", "name": "雪岭测绘师", "stages": { "mid": { "idle": "沿尺瞄准" }, "late": { "idle": "稳架读数" } } },
+    { "id": "clockmaker", "name": "钟楼修表匠", "stages": { "mid": { "idle": "转件看齿" }, "late": { "idle": "调校听时" } } },
+    { "id": "dancer", "name": "盐路刀舞者", "stages": { "mid": { "idle": "托鼓打拍" }, "late": { "idle": "持刀示拍" } } },
+    { "id": "glassblower", "name": "玻璃吹制师", "stages": { "mid": { "idle": "滚管验料" }, "late": { "idle": "吹坯定形" } } }
+  ],
+  "arenas": [
+    "archive-garden", "caravan", "foundry", "lantern-academy", "observatory",
+    "pearl-quay", "salt-canyon", "thunderrail", "vault", "windmill"
+  ]
+}
