@@ -100,9 +100,9 @@ Each tab owns a distinct view without duplicating controls across pages:
 
 ### History: where your tokens went
 
-- Desktop **and** CLI conversations across `Today / 7d / 30d / All`, with an estimated period weekly quota usage readout in Totals (plus multi-pool breakdown when active), an adaptive activity heatmap, and **period-scoped model leaderboard** (`By model` updates tokens, cost, and `≈ X% weekly` to match the selected window).
+- Desktop **and** CLI conversations across `Today / 7d / 30d / All`, with **segmented time-locked weekly quota totals** that sum official per-cycle usage on each period's own scale alongside unpolled tails and earlier unrecorded calls (`exact` when 100% official, `≈` with breakdown when estimated, plus multi-pool breakdown when active), an adaptive activity heatmap, and **period-scoped model leaderboard** (`By model` updates tokens, cost, and time-locked `X% weekly` to match the selected window).
 - **Pruned conversation recovery & compaction accounting**: keeps usage after Antigravity deletes old conversation databases (importing older local caches once), resolves checkpoint/compaction model enums across databases, and matches generation timestamps by response ID.
-- **By session (project trees)**: top-level conversations ranked with multi-level subagent rollups, usage-by-level split (`self` vs `subagents`), per-pool dollar breakdown, and **per-project `≈ X% weekly` sizing** (`cost ÷ implied 100% cycle value`, unclamped past 100% for multi-cycle projects).
+- **By session (project trees)**: top-level conversations ranked with multi-level subagent rollups, usage-by-level split (`self` vs `subagents`), per-pool dollar breakdown, and **time-locked per-period `≈ X% weekly` sizing** (locked to the cycle/segment prices when each project's calls ran, summing across multi-cycle projects cleanly).
 - **Share card**: copy a sanitized aggregate usage card (PNG image or SVG) straight to your clipboard with **period-adaptive activity charts** (`Today` 24-hour clock chart, `7d` labeled columns, `30d` bar timeline, `All` calendar heatmap). Conversation titles and file paths are never included.
 
 <img src="docs/img/en/share-card.png" alt="Agy Lens share card: 30-day tokens, cost, model mix as a 100-dot grid, daily activity" width="100%">

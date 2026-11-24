@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [2.6.0] - 2026-11-24
+
+### Changed
+
+- **Segmented time-locked per-cycle weekly quota accounting** (`sidecars/agy-lens/lib/history.mjs`, `sidecars/agy-lens/web/{format.js,views/history.js,views/overview.js,i18n.js}`): separated USD-to-quota cycle pricing (scoped under Quota → **Cycle valuations**) from History accounting so `Today / 7d / 30d / All` strictly sum official per-cycle consumption (`period_quota`) on each period's own real scale rather than flattening past cycles against the latest `weekly_value_usd`. Includes per-cycle capped unpolled tail estimation (for both ended cycles and active live cycles after the last poll), pre-tracking and inter-cycle gap estimation anchored to the earliest/nearest known cycle so historical usage never drops to `0%`, neutral muted `Live` / `官方同步` status styling without false red/yellow budget alerts, exact `≈`-free readouts when 100% officially observed, and composable observed + tail + earlier-unrecorded tooltip breakdowns.
+- **Segment-locked conversation & model quota attribution** (`sidecars/agy-lens/lib/history.mjs`, `sidecars/agy-lens/web/{format.js,views/overview.js}`): credits each conversation subtree (`total.quota_pct_by_pool`) and per-period model row (`by_model[].periods[].quota_pct`) at the settled segment or cycle price when its calls ran (summing cleanly across multi-cycle projects and preserving full conservation against `period_quota`), while seamlessly falling back per pool to `weekly_value_usd` so session weekly quota labels remain visible across all pools.
+
 ## [2.5.0] - 2026-11-24
 
 ### Added
