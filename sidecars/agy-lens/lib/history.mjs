@@ -247,10 +247,94 @@ export async function parseDb(dbPath) {
   return { calls, names: { ...names }, enums: Object.fromEntries(enumModels), first_input: firstInput };
 }
 
+function parseWorkspaceUris(raw) {
+  if (typeof raw !== 'string') return [];
+  const s = raw.trim();
+  if (!s) return [];
+  if (s.startsWith('[')) {
+    try {
+      const arr = JSON.parse(s);
+      if (Array.isArray(arr)) return arr.map((x) => (typeof x === 'string' ? x.trim() : '')).filter(Boolean);
+    } catch { /* fallback to scalar */ }
+  }
+  return [s];
+}
+
+function decodeFileUriPath(uri) {
+  if (typeof uri !== 'string') return '';
+  let s = uri.trim();
+  if (!s) return '';
+  if (s.startsWith('file://')) {
+    s = s.slice(7);
+    if (s.startsWith('/') && /^\/[a-zA-Z](?::|%3[aA])/.test(s)) s = s.slice(1);
+  }
+  try { s = decodeURIComponent(s); } catch { /* keep raw */ }
+  s = s.replace(/\\/g, '/').replace(/\/+$/, '');
+  if (/^\/[a-zA-Z]:/.test(s)) s = s.slice(1);
+  return s;
+}
+
+function workspaceBasename(uri) {
+  const p = decodeFileUriPath(uri);
+  if (!p) return '';
+  const idx = p.lastIndexOf('/');
+  return idx >= 0 ? p.slice(idx + 1) : p;
+}
+
+function normalizeWorkspaceKey(uri) {
+  const p = decodeFileUriPath(uri);
+  if (!p) return '';
+  return /^[a-zA-Z]:/.test(p) ? p.toLowerCase() : p;
+}
+
+function loadProjectNames(roots) {
+  const dirs = [];
+  const candidates = [join(defaultGeminiDir(), 'config', 'projects')];
+  for (const [rawRoot] of roots) {
+    const r = resolve(expandHome(rawRoot));
+    candidates.push(join(dirname(r), 'config', 'projects'));
+    candidates.push(join(dirname(dirname(r)), 'config', 'projects'));
+  }
+  const seenDirs = new Set();
+  for (const d of candidates) {
+    let rp;
+    try {
+      const st = statSync(d);
+      if (!st.isDirectory()) continue;
+      rp = realpathSync(d);
+    } catch {
+      continue;
+    }
+    if (seenDirs.has(rp)) continue;
+    seenDirs.add(rp);
+    dirs.push(rp);
+  }
+  const names = new Map();
+  for (const dir of dirs) {
+    let files;
+    try { files = readdirSync(dir); } catch { continue; }
+    for (const f of files) {
+      if (!f.endsWith('.json')) continue;
+      try {
+        const obj = JSON.parse(readFileSync(join(dir, f), 'utf8'));
+        if (!obj || typeof obj !== 'object' || obj.sidecar) continue;
+        const pid = typeof obj.id === 'string' && obj.id.trim() ? obj.id.trim() : f.slice(0, -5);
+        const name = typeof obj.name === 'string' ? obj.name.trim() : '';
+        if (pid && name && !names.has(pid)) names.set(pid, name);
+      } catch { /* ignore invalid project file */ }
+    }
+  }
+  return names;
+}
+
 export async function loadTitles(roots) {
   const titles = new Map();
   const agents = new Map();
   const parents = new Map(); // conversation id -> parent conversation id (subagents)
+  const projects = new Map(); // conversation id -> { id, name }
+  const projectNames = loadProjectNames(roots);
+  const pidBestName = new Map(); // pid -> { mtime, name }
+  const rawProjRows = []; // { id, pid, firstWs, ftsName }
   const seen = new Set();
   for (const [root] of roots) {
     const p = join(dirname(resolve(expandHome(root))), 'conversation_summaries.db');
@@ -265,7 +349,15 @@ export async function loadTitles(roots) {
       const conn = await openReadOnlyDb(p);
       try {
         const cols = new Set(conn.prepare('PRAGMA table_info(conversation_summaries)').all().map((r) => r.name));
-        const sel = ['conversation_id', 'title', 'preview', 'agent_name', 'parent_conversation_id']
+        const ftsProject = new Map();
+        try {
+          for (const frow of conn.prepare("SELECT conversation_id, project, workspace FROM conversations_fts WHERE project != '' OR workspace != ''").iterate()) {
+            const fid = frow.conversation_id ? String(frow.conversation_id) : '';
+            const pname = (frow.project && String(frow.project).trim()) || (frow.workspace && String(frow.workspace).trim()) || '';
+            if (fid && pname && !ftsProject.has(fid)) ftsProject.set(fid, pname);
+          }
+        } catch { /* FTS table optional */ }
+        const sel = ['conversation_id', 'title', 'preview', 'agent_name', 'parent_conversation_id', 'project_id', 'workspace_uris', 'last_modified_time']
           .map((c, i) => (cols.has(c) ? c : `'' AS c${i}`))
           .join(', ');
         for (const row of conn.prepare(`SELECT ${sel} FROM conversation_summaries`).iterate()) {
@@ -275,6 +367,9 @@ export async function loadTitles(roots) {
           const preview = row.preview ?? vals[2];
           const agent = row.agent_name ?? vals[3];
           const parent = row.parent_conversation_id ?? vals[4];
+          const projectId = row.project_id ?? vals[5];
+          const wsUris = row.workspace_uris ?? vals[6];
+          const modTime = String(row.last_modified_time ?? vals[7] ?? '');
           if (!cid) continue;
           const id = String(cid);
           const t = truncateTitle(title || preview || '');
@@ -283,6 +378,18 @@ export async function loadTitles(roots) {
           if (a && !agents.has(id)) agents.set(id, a);
           const pid = parent != null ? String(parent).trim() : '';
           if (pid && pid !== id && !parents.has(id)) parents.set(id, pid);
+
+          const rawPid = projectId != null ? String(projectId).trim() : '';
+          const firstWs = parseWorkspaceUris(wsUris != null ? String(wsUris) : '')[0] || '';
+          const ftsName = ftsProject.get(id) || '';
+          if (rawPid && rawPid !== 'outside-of-project') {
+            const cand = ftsName || workspaceBasename(firstWs);
+            if (cand) {
+              const prev = pidBestName.get(rawPid);
+              if (!prev || (modTime && modTime >= prev.mtime)) pidBestName.set(rawPid, { mtime: modTime, name: cand });
+            }
+          }
+          if (rawPid || firstWs) rawProjRows.push({ id, pid: rawPid, firstWs, ftsName });
         }
         // Newer builds also keep links in a dedicated table.
         try {
@@ -299,7 +406,22 @@ export async function loadTitles(roots) {
       continue;
     }
   }
-  return [titles, agents, parents];
+  for (const r of rawProjRows) {
+    if (projects.has(r.id)) continue;
+    if (r.pid === 'outside-of-project') {
+      projects.set(r.id, { id: 'outside-of-project', name: null });
+    } else if (r.pid) {
+      const name = projectNames.get(r.pid) || (pidBestName.get(r.pid)?.name) || r.pid.slice(0, 8);
+      projects.set(r.id, { id: r.pid, name });
+    } else if (r.firstWs) {
+      const wsKey = normalizeWorkspaceKey(r.firstWs);
+      if (wsKey) {
+        const name = r.ftsName || workspaceBasename(r.firstWs) || null;
+        projects.set(r.id, { id: `ws:${wsKey}`, name });
+      }
+    }
+  }
+  return [titles, agents, parents, projects, projectNames];
 }
 
 /**
@@ -1449,18 +1571,37 @@ export async function scan(roots, {
   const archivedCount = archived.size;
   st.imported = importedCount;
 
-  // Subagent links (conversation_summaries) are stored on entries too, so a
-  // conversation keeps its place in the tree after Antigravity deletes it.
-  const [titles, agents, summaryParents] = perDb.length ? await loadTitles(roots) : [new Map(), new Map(), new Map()];
+  // Subagent links & project tags (conversation_summaries) are stored on entries
+  // too, so a conversation keeps its tree place and project after pruning.
+  const [titles, agents, summaryParents, summaryProjects, projectNames] = perDb.length
+    ? await loadTitles(roots)
+    : [new Map(), new Map(), new Map(), new Map(), new Map()];
   const parentOf = new Map();
+  const projectOf = new Map();
   for (const [, entry, , stem] of perDb) {
     const pid = summaryParents.get(stem);
     if (pid) entry.parent = pid;
     const agent = agents.get(stem);
     if (agent) entry.agent = agent;
+    const proj = summaryProjects.get(stem);
+    if (proj) {
+      entry.project_id = proj.id;
+      if (proj.name) entry.project_name = proj.name;
+      else delete entry.project_name;
+    } else if (typeof entry.project_id === 'string' && entry.project_id) {
+      const official = projectNames.get(entry.project_id);
+      if (official) entry.project_name = official;
+    }
+    if (typeof entry.project_id === 'string' && entry.project_id) {
+      projectOf.set(stem, {
+        id: entry.project_id,
+        name: typeof entry.project_name === 'string' && entry.project_name ? entry.project_name : null,
+      });
+    }
     if (typeof entry.parent === 'string' && entry.parent && entry.parent !== stem) parentOf.set(stem, entry.parent);
   }
   for (const [id, pid] of summaryParents) if (!parentOf.has(id)) parentOf.set(id, pid);
+  for (const [id, proj] of summaryProjects) if (!projectOf.has(id)) projectOf.set(id, proj);
 
   const globalEnums = new Map();
   if (oldEnums && typeof oldEnums === 'object') {
@@ -2382,6 +2523,8 @@ export async function scan(roots, {
     id,
     source: null,
     title: null,
+    project_id: null,
+    project_name: null,
     model: null,
     display_name: null,
     pool: 'other',
@@ -2408,6 +2551,12 @@ export async function scan(roots, {
     _modelParts: new Map(),
     _first_input: null,
   }));
+  const rootProjectOf = new Map();
+  for (const c of capped) {
+    const rid = c.root_id || rootOf(c.id);
+    const ownProj = projectOf.get(c.id);
+    if (ownProj && !rootProjectOf.has(rid)) rootProjectOf.set(rid, ownProj);
+  }
   for (const c of capped) {
     const cmodels = Array.from(c._models.values());
     for (const cm of cmodels) {
@@ -2441,6 +2590,10 @@ export async function scan(roots, {
     c.agent = agent;
     c.is_subagent = Boolean(c.parent_id) || Boolean(agent);
     c.title = titles.get(c.id) || c._first_input || (agent && agent !== 'self' ? `@${agent}` : null);
+    const rid = c.root_id || c.id;
+    const proj = projectOf.get(rid) || projectOf.get(c.id) || rootProjectOf.get(rid) || null;
+    c.project_id = proj ? proj.id : null;
+    c.project_name = proj && proj.name ? proj.name : null;
     if (c.total) {
       const tot = c.total;
       if (tot.est_cost_usd !== null) tot.est_cost_usd = roundN(tot.est_cost_usd, 4);

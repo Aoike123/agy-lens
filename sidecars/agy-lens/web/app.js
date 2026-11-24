@@ -529,11 +529,20 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
       const sp = e.target.closest('[data-speriod]');
       if (sp) { history.setSessionsPeriod(sp.dataset.speriod); return; }
 
+      const sg = e.target.closest('[data-sgroup]');
+      if (sg) { history.setSessionsGroup(sg.dataset.sgroup); return; }
+
+      const sproj = e.target.closest('[data-sproj]');
+      if (sproj) { history.setSessionsProject(sproj.dataset.sproj); return; }
+
       const hs = e.target.closest('[data-hsort]');
       if (hs) { history.setListSort(hs.dataset.hsort); return; }
 
       const hsrc = e.target.closest('[data-hsource]');
       if (hsrc) { history.setListSource(hsrc.dataset.hsource); return; }
+
+      const lproj = e.target.closest('[data-lproj]');
+      if (lproj) { history.setListProject(lproj.dataset.lproj); return; }
 
       if (e.target.closest('[data-hide-sub]')) { history.toggleHideSubagents(); return; }
       if (e.target.closest('#history-search-clear')) { history.setSearchQuery('', { clearInput: true }); return; }

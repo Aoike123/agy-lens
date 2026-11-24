@@ -51,7 +51,10 @@ import { openShareCardModal, refreshShareCardModal } from './share-card.js';
 
 const HEAT_ALL_MIN_WEEKS = 26;
 const HEAT_ALL_MAX_WEEKS = 52;
+const OUTSIDE_PROJECT = 'outside-of-project';
+const SESSION_GROUPS = ['project', 'flat'];
 const SHARE_ICON = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.5v7.5"/><path d="M5 5.5L8 2.5l3 3"/><path d="M3 10.5v2a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-2"/></svg>';
+const FOLDER_ICON = '<svg class="proj-icon" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h3l1.3 1.5h4.7A1.5 1.5 0 0 1 14 6v5.5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 11.5z"/></svg>';
 
 export function historyKey(d) {
   if (!d || typeof d !== 'object') return '';
@@ -59,9 +62,142 @@ export function historyKey(d) {
   return JSON.stringify(rest);
 }
 
+export function convProjectKey(c) {
+  return c && c.project_id ? String(c.project_id) : OUTSIDE_PROJECT;
+}
+
+export function convProjectLabel(c, t = createTranslator('en')) {
+  return (c && c.project_name) ? String(c.project_name) : t('outsideProject');
+}
+
+export function hasProjectMetadata(data) {
+  const all = Array.isArray(data && data.by_conversation) ? data.by_conversation : [];
+  return all.some((c) => c && (Boolean(c.project_id) || Boolean(c.project_name)));
+}
+
+export function collectProjectOptions(convs, t = createTranslator('en'), { useSubtree = true } = {}) {
+  const groups = new Map();
+  for (const raw of convs || []) {
+    if (!raw) continue;
+    const c = useSubtree ? withSubtree(raw) : raw;
+    const key = convProjectKey(raw);
+    let g = groups.get(key);
+    if (!g) {
+      g = {
+        key,
+        label: convProjectLabel(raw, t),
+        tokens: 0,
+        count: 0,
+        outside: key === OUTSIDE_PROJECT && !raw.project_name,
+      };
+      groups.set(key, g);
+    }
+    if (raw.project_name) {
+      g.label = String(raw.project_name);
+      g.outside = false;
+    }
+    g.tokens += newTok(c);
+    g.count += 1;
+  }
+  return Array.from(groups.values()).sort((a, b) => {
+    if (a.outside !== b.outside) return a.outside ? 1 : -1;
+    return (b.tokens - a.tokens) || a.label.localeCompare(b.label);
+  });
+}
+
+export function groupConversationsByProject(topConvs, data, t = createTranslator('en')) {
+  const hasCal = Boolean(
+    data && data.quota_calibration && typeof data.quota_calibration === 'object'
+    && Object.values(data.quota_calibration).some((q) => q && q.calibrated),
+  );
+  const map = new Map();
+  for (const raw of topConvs || []) {
+    if (!raw) continue;
+    const v = withSubtree(raw);
+    const key = convProjectKey(raw);
+    let g = map.get(key);
+    if (!g) {
+      g = {
+        key,
+        label: convProjectLabel(raw, t),
+        outside: key === OUTSIDE_PROJECT && !raw.project_name,
+        convs: [],
+        subagents: 0,
+        input: 0,
+        output: 0,
+        cache_read: 0,
+        thinking: 0,
+        calls: 0,
+        est_cost_usd: null,
+        cost_estimated: false,
+        cost_partial: false,
+        cost_by_pool: {},
+        quota_cost_by_pool: hasCal ? {} : null,
+        quota_pct_by_pool: null,
+        pool: v.pool || 'other',
+        last_at: v.last_at || null,
+        _lastTs: tsOf(v.last_at),
+      };
+      map.set(key, g);
+    }
+    if (raw.project_name) {
+      g.label = String(raw.project_name);
+      g.outside = false;
+    }
+    g.convs.push(raw);
+    g.subagents += num(raw.total && raw.total.subagents);
+    g.input += num(v.input);
+    g.output += num(v.output);
+    g.cache_read += num(v.cache_read);
+    g.thinking += num(v.thinking);
+    g.calls += num(v.calls);
+    if (isNum(v.est_cost_usd)) g.est_cost_usd = (g.est_cost_usd ?? 0) + v.est_cost_usd;
+    if (v.cost_estimated) g.cost_estimated = true;
+    if (v.cost_partial) g.cost_partial = true;
+    for (const [pk, cv] of Object.entries(v.cost_by_pool || {})) {
+      if (num(cv) > 0) g.cost_by_pool[pk] = (g.cost_by_pool[pk] || 0) + num(cv);
+    }
+    if (hasCal) {
+      const qSrc = (v.quota_cost_by_pool && typeof v.quota_cost_by_pool === 'object') ? v.quota_cost_by_pool : v.cost_by_pool;
+      for (const [pk, qv] of Object.entries(qSrc || {})) {
+        if (num(qv) > 0) g.quota_cost_by_pool[pk] = (g.quota_cost_by_pool[pk] || 0) + num(qv);
+      }
+    }
+    if (v.quota_pct_by_pool && typeof v.quota_pct_by_pool === 'object') {
+      if (!g.quota_pct_by_pool) g.quota_pct_by_pool = {};
+      for (const [pk, pv] of Object.entries(v.quota_pct_by_pool)) {
+        if (isNum(pv) && pv > 0) g.quota_pct_by_pool[pk] = (g.quota_pct_by_pool[pk] || 0) + pv;
+      }
+    }
+    const cTs = tsOf(v.last_at);
+    if (cTs > g._lastTs) {
+      g._lastTs = cTs;
+      g.last_at = v.last_at;
+    }
+  }
+  for (const g of map.values()) {
+    let bestPool = 'other';
+    let bestCost = 0;
+    for (const [pk, cv] of Object.entries(g.cost_by_pool)) {
+      if (cv > bestCost) { bestCost = cv; bestPool = pk; }
+    }
+    g.pool = bestPool;
+    g.convs.sort((a, b) => {
+      const ta = withSubtree(a);
+      const tb = withSubtree(b);
+      return newTok(tb) - newTok(ta) || tsOf(tb.last_at) - tsOf(ta.last_at) || String(a.id || '').localeCompare(String(b.id || ''));
+    });
+  }
+  return Array.from(map.values()).sort((a, b) => {
+    if (a.outside !== b.outside) return a.outside ? 1 : -1;
+    return newTok(b) - newTok(a) || b._lastTs - a._lastTs || a.label.localeCompare(b.label);
+  });
+}
+
 export function matchesQuery(c, q) {
   if (!q) return true;
   if (String(c.title || '').toLowerCase().includes(q)) return true;
+  if (String(c.project_name || '').toLowerCase().includes(q)) return true;
   if (String(c.display_name || '').toLowerCase().includes(q)) return true;
   if (String(c.model || '').toLowerCase().includes(q)) return true;
   if (String(c.id || '').toLowerCase().includes(q)) return true;
@@ -236,6 +372,7 @@ function convDetailHtml(c, data, { tree = false, maxTok = 0, openKeys, t, lang }
   const last = c.last_at ? fmtTime(c.last_at, true, lang) : '';
   const spanText = first && last && first !== last ? t('span', first, last) : (last || first);
   const metaBits = [];
+  if (c.project_name || c.project_id === OUTSIDE_PROJECT) metaBits.push(esc(convProjectLabel(c, t)));
   if (c.source) metaBits.push(esc(sourceLabel(c.source, t)));
   if (isSubagent(c)) metaBits.push(esc(t('agentSub')));
   if (c.id) metaBits.push(`<span class="mono" title="${esc(c.id)}">${esc(String(c.id).slice(0, 8))}</span>`);
@@ -309,7 +446,7 @@ function convDetailHtml(c, data, { tree = false, maxTok = 0, openKeys, t, lang }
 
 // tree: show the conversation with all its subagents (totals) and let it
 // expand into its direct subagents; otherwise its own usage only.
-function convItemHtml(raw, i, maxTok, data, { tree = false, parentTitle = '', showSubBadge = false, openKeys, t, lang } = {}) {
+function convItemHtml(raw, i, maxTok, data, { tree = false, parentTitle = '', showSubBadge = false, hideProject = false, openKeys, t, lang } = {}) {
   const c = tree ? withSubtree(raw) : raw;
   const id = String(c.id || i);
   const key = `conv:${id}`;
@@ -317,12 +454,13 @@ function convItemHtml(raw, i, maxTok, data, { tree = false, parentTitle = '', sh
   const muted = !title || title.startsWith('@') || Boolean(c.is_subagent);
   const shown = title || `${t('untitled')} · ${id.slice(0, 8)}`;
   const subN = num(raw.total && raw.total.subagents);
+  const projTag = !hideProject && c.project_name ? String(c.project_name) : '';
   const agentTag = raw.agent && raw.agent !== 'self' && raw.parent_id && !title.startsWith('@') ? `@${raw.agent}` : '';
   const parentBit = parentTitle ? t('subagentOf', parentTitle) : '';
   const treeTag = subN > 0
     ? (tree ? t('inclSubs', fmtInt(subN, lang)) : t('treeTotal', fmtInt(subN, lang), fmtCost(raw.total.est_cost_usd, { estimated: !!raw.total.cost_estimated }) || fmtTok(newTok(raw.total))))
     : '';
-  const subLeft = [agentTag, parentBit, c.display_name || c.model, treeTag, fmtAgo(c.last_at, lang)].filter(Boolean).join(' · ');
+  const subLeft = [projTag, agentTag, parentBit, c.display_name || c.model, treeTag, fmtAgo(c.last_at, lang)].filter(Boolean).join(' · ');
   const wTag = convWeeklyLabel(c, {
     compact: true,
     weeklyValueUsd: (data && data.weekly_value_usd) || null,
@@ -356,6 +494,120 @@ function convItemHtml(raw, i, maxTok, data, { tree = false, parentTitle = '', sh
   </details></li>`;
 }
 
+function projectItemHtml(proj, maxProjTok, data, { forceOpen = false, openKeys, t, lang } = {}) {
+  const pKey = `proj:${proj.key}`;
+  const isOpen = forceOpen || (openKeys && openKeys.has(pKey));
+  const maxConvTok = Math.max(1, newTok(withSubtree(proj.convs[0])));
+  const wTag = convWeeklyLabel(proj, {
+    compact: true,
+    weeklyValueUsd: (data && data.weekly_value_usd) || null,
+    quotaCalibration: (data && data.quota_calibration) || null,
+    t,
+  });
+  const costStr = fmtCost(proj.est_cost_usd, { estimated: !!proj.cost_estimated, partial: !!proj.cost_partial && isNum(proj.est_cost_usd) });
+  const rightBits = [];
+  if (costStr) rightBits.push(costStr);
+  if (wTag) rightBits.push(wTag);
+  if (!rightBits.length) rightBits.push(t('calls', fmtInt(proj.calls, lang)));
+  const leftBits = [
+    t('projConvs', fmtInt(proj.convs.length, lang)),
+    proj.subagents > 0 ? t('inclSubs', fmtInt(proj.subagents, lang)) : '',
+    fmtAgo(proj.last_at, lang),
+  ].filter(Boolean).join(' · ');
+  let bar = '';
+  if (maxProjTok > 0) {
+    const seg = (v, cls) => (v > 0 ? `<span class="${cls}" style="width:${(v / maxProjTok * 100).toFixed(2)}%"></span>` : '');
+    bar = `<div class="hbar conv-bar">${seg(num(proj.input), 'seg-in')}${seg(num(proj.output), 'seg-out')}</div>`;
+  }
+  const convRows = proj.convs.map((c, i) => convItemHtml(c, i, maxConvTok, data, {
+    tree: true,
+    hideProject: true,
+    openKeys,
+    t,
+    lang,
+  })).join('');
+  return `<li class="conv-item proj-item"><details data-key="${esc(pKey)}"${isOpen ? ' open' : ''}>
+    <summary class="proj-sum">
+      <div class="conv-top">
+        ${CHEV}
+        <span class="conv-title-wrap">${FOLDER_ICON}<span class="proj-title ellipsis${proj.outside ? ' dim' : ''}" title="${esc(proj.label)}">${esc(proj.label)}</span></span>
+        <span class="conv-val num" title="${esc(fmtInt(newTok(proj), lang))}">${fmtTok(newTok(proj))}</span>
+      </div>
+      <div class="conv-meta"><span class="ellipsis">${esc(leftBits)}</span><span class="num">${esc(rightBits.join(' · '))}</span></div>
+      ${bar}
+    </summary>
+    <div class="proj-body"><ul class="conv-list proj-convs">${convRows}</ul></div>
+  </details></li>`;
+}
+
+export function renderSessionsBodyHtml(data, {
+  sessionsPeriod = 'all',
+  sessionsGroup = 'project',
+  sessionsProject = 'all',
+  sessionsLimit = CONV_VISIBLE,
+  openKeys = new Set(),
+  t = createTranslator('en'),
+  lang = 'en',
+} = {}) {
+  const all = Array.isArray(data && data.by_conversation) ? data.by_conversation : [];
+  const idx = convIndex(data);
+  const cutoff = periodCutoff(sessionsPeriod);
+  const tops = all.filter((c) => {
+    if (c.parent_id && idx.has(String(c.parent_id))) return false;
+    if (sessionsPeriod !== 'all' && tsOf(withSubtree(c).last_at) < cutoff) return false;
+    return true;
+  });
+  const hasProjects = hasProjectMetadata(data);
+  const filtered = (sessionsProject !== 'all'
+    ? tops.filter((c) => convProjectKey(c) === sessionsProject)
+    : tops
+  ).slice().sort((a, b) => {
+    const ta = withSubtree(a);
+    const tb = withSubtree(b);
+    return newTok(tb) - newTok(ta) || tsOf(tb.last_at) - tsOf(ta.last_at) || String(a.id || '').localeCompare(String(b.id || ''));
+  });
+  if (!filtered.length) {
+    return `<p class="empty">${esc(all.length ? t('noMatches') : t('noConversations'))}</p>`;
+  }
+
+  let tok = 0;
+  let calls = 0;
+  let subs = 0;
+  for (const c of filtered) {
+    const v = withSubtree(c);
+    tok += newTok(v);
+    calls += num(v.calls);
+    subs += num(c.total && c.total.subagents);
+  }
+  const legend = `<div class="legend" style="margin-top:12px"><span><i class="seg-in"></i>${esc(t('legInput'))}</span><span><i class="seg-out"></i>${esc(t('legOutput'))}</span></div>`;
+
+  if (hasProjects && sessionsGroup === 'project') {
+    const projects = groupConversationsByProject(filtered, data, t);
+    const maxProjTok = Math.max(1, newTok(projects[0]));
+    const summaryText = subs > 0
+      ? t('summaryProjects', fmtInt(projects.length, lang), fmtInt(filtered.length, lang), fmtInt(subs, lang), fmtTok(tok), fmtInt(calls, lang))
+      : t('summaryProjectsNoSubs', fmtInt(projects.length, lang), fmtInt(filtered.length, lang), fmtTok(tok), fmtInt(calls, lang));
+    const summary = `<div class="summary num">${esc(summaryText)}</div>`;
+    const rows = projects.slice(0, sessionsLimit).map((p) => projectItemHtml(p, maxProjTok, data, {
+      forceOpen: sessionsProject !== 'all',
+      openKeys,
+      t,
+      lang,
+    })).join('');
+    const rest = projects.length - sessionsLimit;
+    const more = rest > 0 ? `<button type="button" class="quiet-btn" data-more-sessions>${CHEV}<span>${esc(t('moreConvs', Math.min(rest, CONV_VISIBLE * 2)))}</span></button>` : '';
+    return summary + legend + `<ul class="conv-list proj-list">${rows}</ul>` + more;
+  }
+
+  const maxTok = Math.max(1, newTok(withSubtree(filtered[0])));
+  const hideProject = sessionsProject !== 'all';
+  const rows = filtered.slice(0, sessionsLimit).map((c, i) => convItemHtml(c, i, maxTok, data, { tree: true, hideProject, openKeys, t, lang })).join('');
+  const rest = filtered.length - sessionsLimit;
+  const more = rest > 0 ? `<button type="button" class="quiet-btn" data-more-sessions>${CHEV}<span>${esc(t('moreConvs', Math.min(rest, CONV_VISIBLE * 2)))}</span></button>` : '';
+  const summary = `<div class="summary num">${esc(t('summaryTree', fmtInt(filtered.length, lang), fmtInt(subs, lang), fmtTok(tok), fmtInt(calls, lang)))}</div>`;
+  return summary + legend + `<ul class="conv-list">${rows}</ul>` + more;
+}
+
 function summarizeConvs(list, t, lang) {
   let tok = 0;
   let calls = 0;
@@ -377,6 +629,7 @@ function sortListItems(list, sortKey, useTree = true) {
 export function renderListBodyHtml(data, {
   listSort = 'recent',
   listSource = 'all',
+  listProject = 'all',
   hideSubagents = false,
   searchQuery = '',
   listLimit = CONV_VISIBLE,
@@ -387,6 +640,8 @@ export function renderListBodyHtml(data, {
   const all = Array.isArray(data && data.by_conversation) ? data.by_conversation : [];
   const cli = hasCliSources(data);
   const srcFilter = cli ? listSource : 'all';
+  const projFilter = hasProjectMetadata(data) ? listProject : 'all';
+  const hideProject = projFilter !== 'all';
   const q = String(searchQuery || '').trim().toLowerCase();
   const idx = convIndex(data);
 
@@ -394,12 +649,13 @@ export function renderListBodyHtml(data, {
     const filtered = sortListItems(all.filter((c) => {
       if (isSubagent(c)) return false;
       if (srcFilter !== 'all' && (c.source || 'desktop') !== srcFilter) return false;
+      if (projFilter !== 'all' && convProjectKey(c) !== projFilter) return false;
       return matchesQuery(c, q);
     }), listSort, false);
     if (!filtered.length) {
       return `<p class="empty">${esc(all.length ? t('noMatches') : t('noConversations'))}</p>`;
     }
-    const rows = filtered.slice(0, listLimit).map((c, i) => convItemHtml(c, i, 0, data, { tree: false, openKeys, t, lang })).join('');
+    const rows = filtered.slice(0, listLimit).map((c, i) => convItemHtml(c, i, 0, data, { tree: false, hideProject, openKeys, t, lang })).join('');
     const rest = filtered.length - listLimit;
     const more = rest > 0 ? `<button type="button" class="quiet-btn" data-more-list>${CHEV}<span>${esc(t('moreConvs', Math.min(rest, CONV_VISIBLE * 2)))}</span></button>` : '';
     return summarizeConvs(filtered, t, lang) + `<ul class="conv-list">${rows}</ul>` + more;
@@ -408,6 +664,7 @@ export function renderListBodyHtml(data, {
   if (q) {
     const filtered = sortListItems(all.filter((c) => {
       if (srcFilter !== 'all' && (c.source || 'desktop') !== srcFilter) return false;
+      if (projFilter !== 'all' && convProjectKey(c) !== projFilter) return false;
       return matchesQuery(c, q);
     }), listSort, true);
     if (!filtered.length) {
@@ -420,6 +677,7 @@ export function renderListBodyHtml(data, {
         tree: Boolean(c.children && c.children.length),
         parentTitle,
         showSubBadge: true,
+        hideProject,
         openKeys,
         t,
         lang,
@@ -435,6 +693,7 @@ export function renderListBodyHtml(data, {
   const tops = sortListItems(all.filter((c) => {
     if (c.parent_id && idx.has(String(c.parent_id))) return false;
     if (srcFilter !== 'all' && (c.source || 'desktop') !== srcFilter) return false;
+    if (projFilter !== 'all' && convProjectKey(c) !== projFilter) return false;
     return true;
   }), listSort, true);
   if (!tops.length) {
@@ -455,6 +714,7 @@ export function renderListBodyHtml(data, {
   const rows = tops.slice(0, listLimit).map((c, i) => convItemHtml(c, i, 0, data, {
     tree: true,
     showSubBadge: true,
+    hideProject,
     openKeys,
     t,
     lang,
@@ -480,9 +740,13 @@ export function createHistoryController({
   onDataChange,
 }) {
   let listHasCli = false;
+  let listProjectSig = '';
   let period = PERIODS.includes(store.get('ctx.period', 'd30')) ? store.get('ctx.period', 'd30') : 'd30';
   let historyView = HISTORY_VIEWS.includes(store.get('ctx.historyView', 'totals')) ? store.get('ctx.historyView', 'totals') : 'totals';
   let sessionsPeriod = 'all';
+  let sessionsGroup = SESSION_GROUPS.includes(store.get('ctx.sessionsGroup', 'project')) ? store.get('ctx.sessionsGroup', 'project') : 'project';
+  let sessionsProject = 'all';
+  let listProject = 'all';
   let hideSubagents = false;
   let showAllModels = false;
   let listSort = 'recent';
@@ -753,52 +1017,55 @@ export function createHistoryController({
     slot.dataset.filled = '1';
   }
 
-  // By usage: top-level conversations ranked by usage including all their
-  // subagents; each expands into its subagents, level by level.
-  function sessionsBodyHtml(data) {
-    const t = getT();
-    const lang = getLang();
+  function projectChipsHtml(options, activeKey, attrName, t) {
+    if (options.length < 2) return '';
+    const chips = [
+      `<button class="fchip" type="button" ${attrName}="all" aria-pressed="${activeKey === 'all'}">${esc(t('allProjects'))}</button>`,
+      ...options.map((o) => `<button class="fchip proj-chip" type="button" ${attrName}="${esc(o.key)}" aria-pressed="${o.key === activeKey}" title="${esc(o.label)}">${esc(o.label)}</button>`),
+    ].join('');
+    return `<div class="filters proj-filters">${chips}</div>`;
+  }
+
+  function sessionsOptions(data, t) {
+    if (!hasProjectMetadata(data)) return [];
     const all = Array.isArray(data && data.by_conversation) ? data.by_conversation : [];
     const idx = convIndex(data);
     const cutoff = periodCutoff(sessionsPeriod);
-    const tops = all.filter((c) => !(c.parent_id && idx.has(String(c.parent_id))));
-    const filtered = tops.filter((c) => {
-      if (sessionsPeriod !== 'all') {
-        const ts = tsOf(withSubtree(c).last_at);
-        if (ts < cutoff) return false;
-      }
+    const periodTops = all.filter((c) => {
+      if (c.parent_id && idx.has(String(c.parent_id))) return false;
+      if (sessionsPeriod !== 'all' && tsOf(withSubtree(c).last_at) < cutoff) return false;
       return true;
-    }).sort((a, b) => {
-      const ta = withSubtree(a);
-      const tb = withSubtree(b);
-      return newTok(tb) - newTok(ta) || tsOf(tb.last_at) - tsOf(ta.last_at) || String(a.id || '').localeCompare(String(b.id || ''));
     });
-    if (!filtered.length) {
-      return `<p class="empty">${esc(all.length ? t('noMatches') : t('noConversations'))}</p>`;
-    }
-    const maxTok = Math.max(1, newTok(withSubtree(filtered[0])));
-    const legend = `<div class="legend" style="margin-top:12px"><span><i class="seg-in"></i>${esc(t('legInput'))}</span><span><i class="seg-out"></i>${esc(t('legOutput'))}</span></div>`;
-    const rows = filtered.slice(0, sessionsLimit).map((c, i) => convItemHtml(c, i, maxTok, data, { tree: true, openKeys, t, lang })).join('');
-    const rest = filtered.length - sessionsLimit;
-    const more = rest > 0 ? `<button type="button" class="quiet-btn" data-more-sessions>${CHEV}<span>${esc(t('moreConvs', Math.min(rest, CONV_VISIBLE * 2)))}</span></button>` : '';
-    let tok = 0;
-    let calls = 0;
-    let subs = 0;
-    for (const c of filtered) {
-      const v = withSubtree(c);
-      tok += newTok(v);
-      calls += num(v.calls);
-      subs += num(c.total && c.total.subagents);
-    }
-    const summary = `<div class="summary num">${esc(t('summaryTree', fmtInt(filtered.length, lang), fmtInt(subs, lang), fmtTok(tok), fmtInt(calls, lang)))}</div>`;
-    return summary + legend + `<ul class="conv-list">${rows}</ul>` + more;
+    return collectProjectOptions(periodTops, t, { useSubtree: true });
+  }
+
+  // By usage: grouped by project or flat top-level conversation trees.
+  function sessionsBodyHtml(data) {
+    return renderSessionsBodyHtml(data, {
+      sessionsPeriod,
+      sessionsGroup,
+      sessionsProject,
+      sessionsLimit,
+      openKeys,
+      t: getT(),
+      lang: getLang(),
+    });
   }
 
   function sessionsViewHtml(data) {
     const t = getT();
+    const hasProjects = hasProjectMetadata(data);
+    const pOpts = sessionsOptions(data, t);
+    if (sessionsProject !== 'all' && !pOpts.some((o) => o.key === sessionsProject)) {
+      sessionsProject = 'all';
+    }
     const pBtns = SESSION_PERIODS.map((k) => `<button class="fchip" type="button" data-speriod="${k}" aria-pressed="${k === sessionsPeriod}">${esc(t('shortPeriods')[k])}</button>`).join('');
-    const controls = `<div class="filters"><div class="fgroup">${pBtns}</div></div>`;
-    return controls + `<div id="history-sessions-body">${sessionsBodyHtml(data)}</div>`;
+    const gBtns = hasProjects
+      ? `<div class="fgroup">${SESSION_GROUPS.map((k) => `<button class="fchip" type="button" data-sgroup="${k}" aria-pressed="${k === sessionsGroup}">${esc(k === 'project' ? t('groupByProject') : t('groupFlat'))}</button>`).join('')}</div>`
+      : '';
+    const controls = `<div class="filters"><div class="fgroup">${pBtns}</div>${gBtns}</div>`;
+    const projBar = projectChipsHtml(pOpts, sessionsProject, 'data-sproj', t);
+    return controls + projBar + `<div id="history-sessions-body">${sessionsBodyHtml(data)}</div>`;
   }
 
   function updateSessionsBody() {
@@ -806,6 +1073,16 @@ export function createHistoryController({
     const body = pane.querySelector('#history-sessions-body');
     if (body) keepScroll(() => { body.innerHTML = sessionsBodyHtml(loader.data); });
     else paint();
+    pane.querySelectorAll('[data-sgroup]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.sgroup === sessionsGroup)));
+    pane.querySelectorAll('[data-sproj]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.sproj === sessionsProject)));
+  }
+
+  function listProjectOptions(data, t) {
+    if (!hasProjectMetadata(data)) return [];
+    const all = Array.isArray(data && data.by_conversation) ? data.by_conversation : [];
+    const idx = convIndex(data);
+    const tops = all.filter((c) => !(c.parent_id && idx.has(String(c.parent_id))));
+    return collectProjectOptions(tops, t, { useSubtree: true });
   }
 
   function listBodyHtml(data) {
@@ -813,6 +1090,7 @@ export function createHistoryController({
     return renderListBodyHtml(data, {
       listSort,
       listSource,
+      listProject,
       hideSubagents,
       searchQuery,
       listLimit,
@@ -827,6 +1105,11 @@ export function createHistoryController({
     const cli = hasCliSources(data);
     listHasCli = cli;
     if (!cli && listSource !== 'all') listSource = 'all';
+    const pOpts = listProjectOptions(data, t);
+    listProjectSig = pOpts.map((o) => o.key).join('\0');
+    if (listProject !== 'all' && !pOpts.some((o) => o.key === listProject)) {
+      listProject = 'all';
+    }
     const search = `<div class="search-box">
       <input id="history-search" class="search-input" type="search" value="${esc(searchQuery)}" placeholder="${esc(t('searchPlaceholder'))}" aria-label="${esc(t('searchPlaceholder'))}" autocomplete="off">
       <button id="history-search-clear" class="search-clear" type="button" title="${esc(t('clearSearch'))}" aria-label="${esc(t('clearSearch'))}"${searchQuery ? '' : ' hidden'}>&times;</button>
@@ -837,7 +1120,8 @@ export function createHistoryController({
       : '';
     const subBtn = `<button class="fchip" type="button" data-hide-sub aria-pressed="${hideSubagents}">${esc(t('hideSubagents'))}</button>`;
     const controls = `<div class="filters"><div class="fgroup">${sortBtns}</div>${srcBtns}${subBtn}</div>`;
-    return search + controls + `<div id="history-list-body">${listBodyHtml(data)}</div>`;
+    const projBar = projectChipsHtml(pOpts, listProject, 'data-lproj', t);
+    return search + controls + projBar + `<div id="history-list-body">${listBodyHtml(data)}</div>`;
   }
 
   function updateListBody() {
@@ -848,11 +1132,13 @@ export function createHistoryController({
     if (clr) clr.hidden = !searchQuery;
     pane.querySelectorAll('[data-hsort]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.hsort === listSort)));
     pane.querySelectorAll('[data-hsource]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.hsource === listSource)));
+    pane.querySelectorAll('[data-lproj]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.lproj === listProject)));
     pane.querySelectorAll('[data-hide-sub]').forEach((b) => b.setAttribute('aria-pressed', String(hideSubagents)));
   }
 
   function onSilent(data) {
-    if (historyView === 'list' && pane.querySelector('#history-search') && pane.querySelector('#history-list-body') && hasCliSources(data) === listHasCli) {
+    const nextProjSig = listProjectOptions(data, getT()).map((o) => o.key).join('\0');
+    if (historyView === 'list' && pane.querySelector('#history-search') && pane.querySelector('#history-list-body') && hasCliSources(data) === listHasCli && nextProjSig === listProjectSig) {
       setMeta('history', historyMetaHtml(data, false), historyMetaTip(data));
       updateListBody();
       const src = pane.querySelector('#history-sources');
@@ -970,6 +1256,23 @@ export function createHistoryController({
     }
   }
 
+  function setSessionsGroup(next) {
+    if (SESSION_GROUPS.includes(next) && next !== sessionsGroup) {
+      sessionsGroup = next;
+      store.set('ctx.sessionsGroup', next);
+      sessionsLimit = CONV_VISIBLE;
+      updateSessionsBody();
+    }
+  }
+
+  function setSessionsProject(next) {
+    if (next && next !== sessionsProject) {
+      sessionsProject = next;
+      sessionsLimit = CONV_VISIBLE;
+      updateSessionsBody();
+    }
+  }
+
   function setListSort(next) {
     if (LIST_SORTS.includes(next) && next !== listSort) {
       listSort = next;
@@ -981,6 +1284,14 @@ export function createHistoryController({
   function setListSource(next) {
     if (SOURCE_FILTERS.includes(next) && next !== listSource) {
       listSource = next;
+      listLimit = CONV_VISIBLE;
+      updateListBody();
+    }
+  }
+
+  function setListProject(next) {
+    if (next && next !== listProject) {
+      listProject = next;
       listLimit = CONV_VISIBLE;
       updateListBody();
     }
@@ -1089,8 +1400,11 @@ export function createHistoryController({
     getHistoryView: () => historyView,
     setHistoryView,
     setSessionsPeriod,
+    setSessionsGroup,
+    setSessionsProject,
     setListSort,
     setListSource,
+    setListProject,
     toggleHideSubagents,
     expandChildren,
     setSearchQuery,

@@ -996,7 +996,7 @@ test('ScannerTest: windows/totals, contract shape, by_model, display-only resolu
     assert.deepEqual(Object.keys(r.by_conversation[0]).sort(), [
       'agent', 'archived', 'by_model', 'cache_read', 'calls', 'children', 'cost_by_pool', 'cost_estimated', 'cost_partial', 'd7_by_pool', 'd7_tokens',
       'depth', 'display_name', 'est_cost_usd', 'first_at', 'id', 'input', 'is_subagent', 'last_at', 'model',
-      'output', 'parent_id', 'pool', 'root_id', 'source', 'thinking', 'title', 'total',
+      'output', 'parent_id', 'pool', 'project_id', 'project_name', 'root_id', 'source', 'thinking', 'title', 'total',
     ]);
     assert.deepEqual(Object.keys(r.by_conversation[0].by_model[0]).sort(), [
       'cache_read', 'calls', 'cost_estimated', 'display_name', 'est_cost_usd', 'input', 'model', 'output', 'thinking',
@@ -1893,10 +1893,10 @@ test('CostFix: usage of conversations deleted by Antigravity survives, compacted
 
 function makeSummariesDb(path, rows) {
   const db = new DatabaseSync(path);
-  db.exec("CREATE TABLE conversation_summaries (conversation_id text PRIMARY KEY, title text NOT NULL DEFAULT '', preview text NOT NULL DEFAULT '', agent_name text NOT NULL DEFAULT '', parent_conversation_id text NOT NULL DEFAULT '')");
+  db.exec("CREATE TABLE conversation_summaries (conversation_id text PRIMARY KEY, title text NOT NULL DEFAULT '', preview text NOT NULL DEFAULT '', agent_name text NOT NULL DEFAULT '', parent_conversation_id text NOT NULL DEFAULT '', project_id text NOT NULL DEFAULT '', workspace_uris text NOT NULL DEFAULT '')");
   for (const r of rows) {
-    db.prepare('INSERT INTO conversation_summaries (conversation_id, title, agent_name, parent_conversation_id) VALUES (?, ?, ?, ?)')
-      .run(r.id, r.title || '', r.agent || '', r.parent || '');
+    db.prepare('INSERT INTO conversation_summaries (conversation_id, title, agent_name, parent_conversation_id, project_id, workspace_uris) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(r.id, r.title || '', r.agent || '', r.parent || '', r.project_id || '', r.workspace_uris || '');
   }
   db.close();
 }
@@ -4541,6 +4541,154 @@ test('TimeLockedQuotaAccounting: strict official-scale cycle summation, segment-
     const convCross = rCross.by_conversation.find((c) => c.id === 'conv-cross');
     assert.equal(convCross.quota_pct_by_pool.gemini, 20); // $150/$1,000 (15%) + $150/$3,000 (5%) = 20%
     assert.equal(rCross.period_quota.d7.gemini.pct, 50); // 30% + 20%
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('ProjectClassification: project_id/config/workspace resolution, cache retention, grouped sessions & list filters', async () => {
+  const {
+    convProjectKey,
+    convProjectLabel,
+    hasProjectMetadata,
+    matchesQuery,
+    renderListBodyHtml,
+    renderSessionsBodyHtml,
+  } = await import('../sidecars/agy-lens/web/views/history.js');
+  const { createTranslator } = await import('../sidecars/agy-lens/web/i18n.js');
+  const tZh = createTranslator('zh');
+  const tEn = createTranslator('en');
+
+  const dir = mkdtempSync(join(tmpdir(), 'agy-unit-proj-'));
+  try {
+    const geminiDir = join(dir, 'gemini');
+    const appDir = join(geminiDir, 'antigravity');
+    const convDir = join(appDir, 'conversations');
+    const projCfgDir = join(geminiDir, 'config', 'projects');
+    mkdirSync(convDir, { recursive: true });
+    mkdirSync(projCfgDir, { recursive: true });
+
+    const pidOfficial = '11111111-1111-4111-8111-111111111111';
+    const pidFallback = '22222222-2222-4222-8222-222222222222';
+    const pidSidecar = '33333333-3333-4333-8333-333333333333';
+
+    writeFileSync(join(projCfgDir, `${pidOfficial}.json`), JSON.stringify({
+      id: pidOfficial,
+      name: 'agy-lens',
+    }));
+    // Internal sidecar project entries must be ignored even if they match a filename.
+    writeFileSync(join(projCfgDir, `${pidSidecar}.json`), JSON.stringify({
+      id: pidSidecar,
+      name: 'agy-lens/agy-lens',
+      sidecar: { sidecarId: 'agy-lens/agy-lens' },
+    }));
+
+    const day0Ms = new Date(2026, 10, 24, 10, 0, 0).getTime();
+    const now = new Date(day0Ms + 6 * 3600_000);
+    const cyStart = day0Ms;
+    const mk = (startMs, count) => Array.from({ length: count }, (_, i) => hCall(0, {
+      ts: Math.floor(startMs / 1000) + i * 20,
+      model: 'gemini-4-hydrogen-tiered-high',
+      display: 'Gemini 4 Hydrogen (High)',
+      input: 200_000,
+      output: 360_000, // $3/call
+      cache: 0,
+    }));
+
+    // 1. Renamed old path & new path sharing pidOfficial -> both classify as "agy-lens".
+    makeHistoryDb(join(convDir, 'conv-lens-old.db'), mk(day0Ms + 600_000, 10)); // $30 -> 3%
+    makeHistoryDb(join(convDir, 'conv-lens-new.db'), mk(day0Ms + 1200_000, 20)); // $60 -> 6%
+    makeHistoryDb(join(convDir, 'conv-lens-sub.db'), mk(day0Ms + 1500_000, 10)); // $30 -> 3% (subagent inheriting project)
+    // 2. Fallback project without JSON config -> basename from decoded workspace_uris ("File-Parsing").
+    makeHistoryDb(join(convDir, 'conv-ws-only.db'), mk(day0Ms + 2000_000, 20)); // $60 -> 6%
+    // 3. Outside-of-project chat -> project_name: null ("未归属项目" / "No project").
+    makeHistoryDb(join(convDir, 'conv-outside.db'), mk(day0Ms + 2600_000, 10)); // $30 -> 3%
+
+    makeSummariesDb(join(appDir, 'conversation_summaries.db'), [
+      { id: 'conv-lens-old', title: 'Old path task', project_id: pidOfficial, workspace_uris: '["file:///d%3A/Code/Plugin/desktop-context"]' },
+      { id: 'conv-lens-new', title: 'New path task', project_id: pidOfficial, workspace_uris: '["file:///d%3A/Code/Plugin/agy-lens"]' },
+      { id: 'conv-lens-sub', agent: 'research', parent: 'conv-lens-new', project_id: pidOfficial, workspace_uris: '["file:///d%3A/Code/Plugin/agy-lens"]' },
+      { id: 'conv-ws-only', title: 'Parser task', project_id: pidFallback, workspace_uris: '["file:///d%3A/Code/eMaker/%E9%9B%B6%E4%BB%B6%E5%B0%8F%E6%98%93/workflow/File-Parsing"]' },
+      { id: 'conv-outside', title: 'Quick question', project_id: 'outside-of-project', workspace_uris: '' },
+    ]);
+
+    const cycles = {
+      version: 2,
+      pools: {
+        gemini: [{
+          cycle_start: new Date(cyStart).toISOString(),
+          cycle_start_source: 'weekly_7d',
+          reset_time: new Date(cyStart + 7 * 86400_000).toISOString(),
+          first_seen_at: new Date(cyStart).toISOString(),
+          observed_at: new Date(day0Ms + 4 * 3600_000).toISOString(),
+          remaining_fraction: 0.79,
+          used_fraction: 0.21, // $210 total for 21% => $1,000/cycle
+          observations: [
+            { observed_at: new Date(cyStart).toISOString(), remaining_fraction: 1, used_fraction: 0 },
+            { observed_at: new Date(day0Ms + 4 * 3600_000).toISOString(), remaining_fraction: 0.79, used_fraction: 0.21 },
+          ],
+        }],
+      },
+    };
+
+    const cachePath = join(dir, 'history-cache.json');
+    const r1 = await scan([[convDir, 'desktop']], { now, quotaCycles: cycles, cachePath });
+    const byId = new Map(r1.by_conversation.map((c) => [c.id, c]));
+
+    assert.equal(byId.get('conv-lens-old').project_id, pidOfficial);
+    assert.equal(byId.get('conv-lens-old').project_name, 'agy-lens');
+    assert.equal(byId.get('conv-lens-new').project_name, 'agy-lens');
+    assert.equal(byId.get('conv-lens-sub').project_id, pidOfficial);
+    assert.equal(byId.get('conv-lens-sub').project_name, 'agy-lens');
+    assert.equal(byId.get('conv-ws-only').project_id, pidFallback);
+    assert.equal(byId.get('conv-ws-only').project_name, 'File-Parsing');
+    assert.equal(byId.get('conv-outside').project_id, 'outside-of-project');
+    assert.equal(byId.get('conv-outside').project_name, null);
+    assert.equal(convProjectKey(byId.get('conv-outside')), 'outside-of-project');
+    assert.equal(convProjectLabel(byId.get('conv-outside'), tZh), '未归属项目');
+
+    // Prune conv-lens-old & summaries DB -> cached archived entry retains project metadata.
+    rmSync(join(convDir, 'conv-lens-old.db'));
+    rmSync(join(appDir, 'conversation_summaries.db'));
+    const rArchived = await scan([[convDir, 'desktop']], { now, quotaCycles: cycles, cachePath });
+    const archOld = rArchived.by_conversation.find((c) => c.id === 'conv-lens-old');
+    assert.equal(archOld.archived, true);
+    assert.equal(archOld.project_id, pidOfficial);
+    assert.equal(archOld.project_name, 'agy-lens');
+
+    // Grouped sessions view combines conv-lens-old (3%) + conv-lens-new subtree (6%+3% = 9%) = 12% under "agy-lens".
+    assert.equal(hasProjectMetadata(r1), true);
+    const groupedZh = renderSessionsBodyHtml(r1, { sessionsGroup: 'project', t: tZh, lang: 'zh' });
+    assert.ok(groupedZh.includes('3 个项目'));
+    assert.ok(groupedZh.includes('proj-item'));
+    assert.ok(groupedZh.includes('agy-lens') && groupedZh.includes('≈ 周额度 12%'));
+    assert.ok(groupedZh.includes('File-Parsing') && groupedZh.includes('≈ 周额度 6%'));
+    assert.ok(groupedZh.includes('未归属项目') && groupedZh.includes('≈ 周额度 3%'));
+    // Expanding single selected project auto-opens its project details card.
+    const singleProj = renderSessionsBodyHtml(r1, { sessionsGroup: 'project', sessionsProject: pidFallback, t: tEn, lang: 'en' });
+    assert.ok(singleProj.includes(`data-key="proj:${pidFallback}" open`));
+    assert.ok(!singleProj.includes('Old path task'));
+    // Flat view filters & displays project tag in meta when all projects shown.
+    const flatEn = renderSessionsBodyHtml(r1, { sessionsGroup: 'flat', sessionsProject: 'all', t: tEn, lang: 'en' });
+    assert.ok(!flatEn.includes('proj-item'));
+    assert.ok(flatEn.includes('agy-lens') && flatEn.includes('File-Parsing'));
+
+    // Session list filters by project across default, hideSubagents, and search branches; matchesQuery matches project_name.
+    assert.equal(matchesQuery(byId.get('conv-ws-only'), 'file-parsing'), true);
+    const listFiltered = renderListBodyHtml(r1, { listProject: pidOfficial, hideSubagents: false, t: tEn, lang: 'en' });
+    assert.ok(listFiltered.includes('New path task') && listFiltered.includes('Old path task'));
+    assert.ok(!listFiltered.includes('Parser task') && !listFiltered.includes('Quick question'));
+    const listSearch = renderListBodyHtml(r1, { listProject: 'all', searchQuery: 'file-parsing', t: tEn, lang: 'en' });
+    assert.ok(listSearch.includes('Parser task') && !listSearch.includes('New path task'));
+
+    // Legacy fixtures with no project metadata keep flat chrome cleanly.
+    const noProj = {
+      ...r1,
+      by_conversation: r1.by_conversation.map(({ project_id: _pid, project_name: _pn, ...rest }) => rest),
+    };
+    assert.equal(hasProjectMetadata(noProj), false);
+    const fallbackFlat = renderSessionsBodyHtml(noProj, { sessionsGroup: 'project', t: tEn, lang: 'en' });
+    assert.ok(!fallbackFlat.includes('proj-item') && fallbackFlat.includes('top-level conversations'));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
