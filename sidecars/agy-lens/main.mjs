@@ -40,8 +40,13 @@ import {
 import {
   checkForUpdate,
   compareSemver,
+  detectInstallMode,
+  extractZipEntries,
+  installReleaseUpdate,
+  isAllowedUpdateUrl,
   parseGithubRelease,
   parseManifestRelease,
+  parseSha256Sums,
   readCurrentVersion,
   readUpdateMeta,
 } from './lib/updater.mjs';
@@ -53,7 +58,11 @@ export {
   checkForUpdate,
   compareSemver,
   computeWebJsStamp,
+  detectInstallMode,
+  extractZipEntries,
   inferLimit,
+  installReleaseUpdate,
+  isAllowedUpdateUrl,
   loadQuotaCycles,
   mergeQuotaObservation,
   parseGithubRelease,
@@ -62,6 +71,7 @@ export {
   parseOpenRouterPricing,
   parseQuota,
   parseQuotaSummary,
+  parseSha256Sums,
   readCurrentVersion,
   readUpdateMeta,
   recordQuotaCycles,
@@ -69,6 +79,7 @@ export {
 };
 
 const HERE = dirname(fileURLToPath(import.meta.url));
+const PLUGIN_ROOT = resolve(HERE, '../..');
 const WEB_DIR = join(HERE, 'web');
 const DATA_DIR = defaultDataDir();
 const CATALOG_PATH = join(DATA_DIR, 'model-catalog.json');
@@ -80,7 +91,7 @@ const HISTORY_CACHE_PATH = join(DATA_DIR, 'history-cache.json');
 const HISTORY_TTL_MS = 60 * 1000;
 const PRICING_PATH = join(DATA_DIR, 'pricing-cache.json');
 const UPDATE_CACHE_PATH = join(DATA_DIR, 'update-cache.json');
-const CURRENT_VERSION = readCurrentVersion(resolve(HERE, '../..'));
+const CURRENT_VERSION = readCurrentVersion(PLUGIN_ROOT);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // GET query parameters arrive as strings; JSON bodies as booleans.
@@ -150,15 +161,17 @@ async function pricing({ refresh = false, sync = false } = {}) {
   return pricingInFlight;
 }
 
-// --- update check cache -------------------------------------------------------
+// --- update check & self-update -----------------------------------------------
 
 let updateInFlight = null;
+let updateInstallInFlight = null;
 
 async function updateStatus({ refresh = false } = {}) {
+  const mode = detectInstallMode(PLUGIN_ROOT);
   if (!refresh) {
     const meta = readUpdateMeta(UPDATE_CACHE_PATH, CURRENT_VERSION);
     if (!meta.stale || truthy(process.env.AGY_LENS_NO_UPDATE_CHECK)) {
-      return truthy(process.env.AGY_LENS_NO_UPDATE_CHECK) ? { ...meta, disabled: true } : meta;
+      return truthy(process.env.AGY_LENS_NO_UPDATE_CHECK) ? { ...meta, ...mode, disabled: true } : { ...meta, ...mode };
     }
   }
   if (!updateInFlight) {
@@ -168,7 +181,30 @@ async function updateStatus({ refresh = false } = {}) {
       force: Boolean(refresh),
     }).finally(() => { updateInFlight = null; });
   }
-  return updateInFlight;
+  const res = await updateInFlight;
+  return { ...res, ...mode };
+}
+
+async function installUpdate(targetVersion = null) {
+  const mode = detectInstallMode(PLUGIN_ROOT);
+  if (!mode.can_self_update) {
+    return {
+      ok: false,
+      error: 'unsupported',
+      message: `Self-update is unavailable (${mode.install_mode})`,
+      ...mode,
+    };
+  }
+  if (!updateInstallInFlight) {
+    updateInstallInFlight = installReleaseUpdate({
+      rootDir: PLUGIN_ROOT,
+      dataDir: DATA_DIR,
+      updateCachePath: UPDATE_CACHE_PATH,
+      currentVersion: CURRENT_VERSION,
+      targetVersion,
+    }).finally(() => { updateInstallInFlight = null; });
+  }
+  return updateInstallInFlight;
 }
 
 // --- history cache ------------------------------------------------------------
@@ -431,9 +467,31 @@ if (!truthy(process.env.CONTEXT_PANEL_NO_SERVER)) {
     try {
       return await updateStatus({ refresh: truthy(data?.refresh) });
     } catch (err) {
-      return { ...readUpdateMeta(UPDATE_CACHE_PATH, CURRENT_VERSION), error: 'failed', message: err.message };
+      return {
+        ...readUpdateMeta(UPDATE_CACHE_PATH, CURRENT_VERSION),
+        ...detectInstallMode(PLUGIN_ROOT),
+        error: 'failed',
+        message: err.message,
+      };
     }
   }, 'GET');
+
+  app.api('/api/update/install', async (data) => {
+    try {
+      const res = await installUpdate(data?.version || null);
+      if (res && res.ok && res.updated && res.restarting) {
+        setTimeout(() => { process.exit(0); }, 300);
+      }
+      return res;
+    } catch (err) {
+      return {
+        ok: false,
+        error: 'install_failed',
+        message: err?.message || String(err),
+        ...detectInstallMode(PLUGIN_ROOT),
+      };
+    }
+  }, 'POST');
 
   app.run();
   refreshCatalog();

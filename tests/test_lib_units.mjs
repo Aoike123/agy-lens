@@ -3375,6 +3375,221 @@ test('Updater: semver comparisons, release parsers, URL sanitization, fallback &
   }
 });
 
+test('SelfUpdater: URL allowlist, SHA-256 sums, PKZIP safety, install modes & atomic rollback', async () => {
+  const { createHash } = await import('node:crypto');
+  const {
+    detectInstallMode,
+    extractZipEntries,
+    GITHUB_DOWNLOAD_BASE,
+    installReleaseUpdate,
+    isAllowedUpdateUrl,
+    parseGithubRelease,
+    parseSha256Sums,
+    readCurrentVersion,
+  } = await import('../sidecars/agy-lens/lib/updater.mjs');
+  const { buildZipBuffer } = await import('../scripts/build-release.mjs');
+
+  // 1. summarizeNotes skips leading markdown image banner lines
+  const relImg = parseGithubRelease({
+    tag_name: 'v2.3.1',
+    name: 'v2.3.1',
+    body: '![Agy Lens](https://raw.githubusercontent.com/Aoike123/agy-lens/main/docs/img/hero.png)\n\n## Highlights\n- In-panel update',
+  });
+  assert.equal(relImg.notes_summary, 'Highlights');
+
+  // 2. HTTPS + GitHub repo allowlist
+  assert.equal(isAllowedUpdateUrl('https://github.com/Aoike123/agy-lens/releases/download/v2.3.1/agy-lens-v2.3.1.zip'), true);
+  assert.equal(isAllowedUpdateUrl('https://api.github.com/repos/Aoike123/agy-lens/releases/latest'), true);
+  assert.equal(isAllowedUpdateUrl('https://raw.githubusercontent.com/Aoike123/agy-lens/main/plugin.json'), true);
+  assert.equal(isAllowedUpdateUrl('https://objects.githubusercontent.com/github-production-release-asset/123'), true);
+  assert.equal(isAllowedUpdateUrl('http://github.com/Aoike123/agy-lens/releases/download/v2.3.1/agy-lens.zip'), false);
+  assert.equal(isAllowedUpdateUrl('https://evil.example.com/agy-lens-v2.3.1.zip'), false);
+  assert.equal(isAllowedUpdateUrl('https://github.com/OtherOwner/agy-lens/releases/latest'), false);
+  assert.equal(isAllowedUpdateUrl('https://raw.githubusercontent.com/OtherOwner/repo/main/plugin.json'), false);
+
+  // 3. SHA256SUMS parser
+  const parsedSums = parseSha256Sums(
+    `# checksums\n${'A'.repeat(64)}  *agy-lens.zip\n${'b'.repeat(64)}  agy-lens-v2.3.1.zip\n`,
+  );
+  assert.equal(parsedSums.get('agy-lens.zip'), 'a'.repeat(64));
+  assert.equal(parsedSums.get('agy-lens-v2.3.1.zip'), 'b'.repeat(64));
+
+  // 4. ZIP extraction safety (round-trip, CRC check, zip-slip rejection, prefix check, symlink rejection)
+  const goodZip = buildZipBuffer([
+    { name: 'agy-lens/plugin.json', data: Buffer.from('{"name":"agy-lens","version":"2.3.1"}') },
+    { name: 'agy-lens/sidecars/agy-lens/main.mjs', data: Buffer.from('console.log("hi");\n'.repeat(20)) },
+  ]);
+  const extracted = extractZipEntries(goodZip, { topDir: 'agy-lens' });
+  assert.equal(extracted.size, 2);
+  assert.ok(extracted.get('plugin.json').toString('utf8').includes('2.3.1'));
+
+  const corruptedZip = Buffer.from(goodZip);
+  const firstPayloadIdx = 30 + 'agy-lens/plugin.json'.length + 5;
+  corruptedZip[firstPayloadIdx] ^= 0xff;
+  assert.throws(() => extractZipEntries(corruptedZip, { topDir: 'agy-lens' }), /CRC|Invalid|Corrupt|truncated|inflate/i);
+
+  const traversalZip = buildZipBuffer([
+    { name: 'agy-lens/../escape.txt', data: Buffer.from('nope') },
+  ]);
+  assert.throws(() => extractZipEntries(traversalZip, { topDir: 'agy-lens' }), /Unsafe ZIP entry traversal/);
+
+  const wrongPrefixZip = buildZipBuffer([
+    { name: 'other-plugin/plugin.json', data: Buffer.from('{}') },
+  ]);
+  assert.throws(() => extractZipEntries(wrongPrefixZip, { topDir: 'agy-lens' }), /Unexpected ZIP root prefix/);
+
+  const symlinkZip = Buffer.from(buildZipBuffer([
+    { name: 'agy-lens/badlink', data: Buffer.from('/etc/passwd') },
+  ]));
+  const eocdOff = symlinkZip.length - 22;
+  const cdOff = symlinkZip.readUInt32LE(eocdOff + 16);
+  symlinkZip.writeUInt32LE((0o120777 << 16) >>> 0, cdOff + 38);
+  assert.throws(() => extractZipEntries(symlinkZip, { topDir: 'agy-lens' }), /Symlink ZIP entries/);
+
+  // 5. detectInstallMode & installReleaseUpdate lifecycle (refuse git, SHA mismatch, rollback, happy install)
+  const { chmodSync } = await import('node:fs');
+  const rootTmp = mkdtempSync(join(tmpdir(), 'agy-self-upd-'));
+  const prevNoSelf = process.env.AGY_LENS_NO_SELF_UPDATE;
+  try {
+    delete process.env.AGY_LENS_NO_SELF_UPDATE;
+    const pluginDir = join(rootTmp, 'plugin');
+    const dataDir = join(rootTmp, 'data');
+    const cachePath = join(dataDir, 'update-cache.json');
+
+    const writeInstalledV230 = () => {
+      rmSync(pluginDir, { recursive: true, force: true });
+      mkdirSync(join(pluginDir, 'sidecars', 'agy-lens', 'lib'), { recursive: true });
+      mkdirSync(join(pluginDir, 'sidecars', 'agy-lens', 'web'), { recursive: true });
+      mkdirSync(join(pluginDir, 'sidecars', 'agy-lens', '.data'), { recursive: true });
+      mkdirSync(join(pluginDir, 'sidecars', 'agy-lens', 'node_modules', 'keep'), { recursive: true });
+      writeFileSync(join(pluginDir, 'plugin.json'), JSON.stringify({ name: 'agy-lens', version: '2.3.0' }));
+      writeFileSync(join(pluginDir, 'package.json'), JSON.stringify({ name: 'agy-lens', version: '2.3.0' }));
+      writeFileSync(join(pluginDir, 'sidecars', 'agy-lens', 'sidecar.json'), '{"command":"node","args":["main.mjs"]}');
+      writeFileSync(join(pluginDir, 'sidecars', 'agy-lens', 'main.mjs'), '// v2.3.0\n');
+      writeFileSync(join(pluginDir, 'sidecars', 'agy-lens', 'lib', 'old.mjs'), '// obsolete in 2.3.1\n');
+      writeFileSync(join(pluginDir, 'sidecars', 'agy-lens', 'web', 'index.html'), '<html>v2.3.0</html>');
+      writeFileSync(join(pluginDir, 'sidecars', 'agy-lens', 'web', 'app.js'), '// v2.3.0\n');
+      writeFileSync(join(pluginDir, 'sidecars', 'agy-lens', '.data', 'keep.json'), '{"ok":true}');
+      writeFileSync(join(pluginDir, 'sidecars', 'agy-lens', 'node_modules', 'keep', 'index.js'), 'module.exports=1;');
+    };
+
+    writeInstalledV230();
+    assert.deepEqual(detectInstallMode(pluginDir), { install_mode: 'installed', can_self_update: true });
+
+    if (process.platform !== 'win32' && typeof process.getuid === 'function' && process.getuid() !== 0) {
+      chmodSync(pluginDir, 0o555);
+      try {
+        assert.deepEqual(detectInstallMode(pluginDir), { install_mode: 'readonly', can_self_update: false });
+      } finally {
+        chmodSync(pluginDir, 0o755);
+      }
+    }
+
+    // Refuses git checkout
+    mkdirSync(join(pluginDir, '.git'), { recursive: true });
+    assert.deepEqual(detectInstallMode(pluginDir), { install_mode: 'git', can_self_update: false });
+    await assert.rejects(
+      () => installReleaseUpdate({ rootDir: pluginDir, dataDir, updateCachePath: cachePath }),
+      /install_mode="git"/,
+    );
+    rmSync(join(pluginDir, '.git'), { recursive: true, force: true });
+
+    // Refuses when AGY_LENS_NO_SELF_UPDATE=1
+    process.env.AGY_LENS_NO_SELF_UPDATE = '1';
+    assert.deepEqual(detectInstallMode(pluginDir), { install_mode: 'disabled', can_self_update: false });
+    delete process.env.AGY_LENS_NO_SELF_UPDATE;
+
+    // Prepare v2.3.1 release ZIP + valid SHA256SUMS.txt
+    const v231Zip = buildZipBuffer([
+      { name: 'agy-lens/plugin.json', data: Buffer.from(JSON.stringify({ name: 'agy-lens', version: '2.3.1' })) },
+      { name: 'agy-lens/package.json', data: Buffer.from(JSON.stringify({ name: 'agy-lens', version: '2.3.1' })) },
+      { name: 'agy-lens/bin/cli.mjs', data: Buffer.from('#!/usr/bin/env node\nconsole.log("2.3.1");\n') },
+      { name: 'agy-lens/sidecars/agy-lens/sidecar.json', data: Buffer.from('{"command":"node","args":["main.mjs"]}') },
+      { name: 'agy-lens/sidecars/agy-lens/main.mjs', data: Buffer.from('// v2.3.1\n') },
+      { name: 'agy-lens/sidecars/agy-lens/lib/updater.mjs', data: Buffer.from('// new updater\n') },
+      { name: 'agy-lens/sidecars/agy-lens/web/index.html', data: Buffer.from('<html>v2.3.1</html>') },
+      { name: 'agy-lens/sidecars/agy-lens/web/app.js', data: Buffer.from('// v2.3.1\n') },
+    ]);
+    const v231Sha = createHash('sha256').update(v231Zip).digest('hex');
+    const sumsTxt = `${v231Sha}  agy-lens.zip\n${v231Sha}  agy-lens-v2.3.1.zip\n`;
+
+    const expectedSumsUrl = `${GITHUB_DOWNLOAD_BASE}/v2.3.1/SHA256SUMS.txt`;
+    const expectedZipUrl = `${GITHUB_DOWNLOAD_BASE}/v2.3.1/agy-lens-v2.3.1.zip`;
+
+    // SHA-256 mismatch aborts untouched
+    await assert.rejects(
+      () => installReleaseUpdate({
+        rootDir: pluginDir,
+        dataDir,
+        updateCachePath: cachePath,
+        targetVersion: '2.3.1',
+        fetchBuffer: async (url) => {
+          if (url === expectedSumsUrl) return Buffer.from(`${'0'.repeat(64)}  agy-lens-v2.3.1.zip\n`);
+          if (url === expectedZipUrl) return v231Zip;
+          throw new Error(`Unexpected URL: ${url}`);
+        },
+      }),
+      /SHA-256 checksum mismatch/,
+    );
+    assert.equal(readCurrentVersion(pluginDir), '2.3.0');
+    assert.equal(readFileSync(join(pluginDir, 'sidecars', 'agy-lens', 'main.mjs'), 'utf8'), '// v2.3.0\n');
+    assert.equal(existsSync(join(pluginDir, 'sidecars', 'agy-lens', 'lib', 'old.mjs')), true);
+
+    // Mid-install write failure triggers full automatic rollback (including deleted old.mjs & new files)
+    await assert.rejects(
+      () => installReleaseUpdate({
+        rootDir: pluginDir,
+        dataDir,
+        updateCachePath: cachePath,
+        targetVersion: '2.3.1',
+        fetchBuffer: async (url) => (url === expectedSumsUrl ? Buffer.from(sumsTxt) : v231Zip),
+        writeFile: async (dest, data, _seq, rel) => {
+          if (rel === 'plugin.json') throw new Error('disk full simulation');
+          mkdirSync(join(dest, '..'), { recursive: true });
+          writeFileSync(dest, data);
+        },
+      }),
+      /disk full simulation/,
+    );
+    assert.equal(readCurrentVersion(pluginDir), '2.3.0');
+    assert.equal(readFileSync(join(pluginDir, 'sidecars', 'agy-lens', 'main.mjs'), 'utf8'), '// v2.3.0\n');
+    assert.equal(existsSync(join(pluginDir, 'sidecars', 'agy-lens', 'lib', 'old.mjs')), true);
+    assert.equal(existsSync(join(pluginDir, 'sidecars', 'agy-lens', 'lib', 'updater.mjs')), false);
+
+    // Happy path: upgrades 2.3.0 -> 2.3.1, prunes old.mjs, preserves .data & node_modules, updates cache
+    const res = await installReleaseUpdate({
+      rootDir: pluginDir,
+      dataDir,
+      updateCachePath: cachePath,
+      fetchJson: async () => ({ tag_name: 'v2.3.1', published_at: '2026-11-24T01:30:32Z', body: '## Fixes' }),
+      fetchBuffer: async (url) => {
+        if (url === expectedSumsUrl) return Buffer.from(sumsTxt);
+        if (url === expectedZipUrl) return v231Zip;
+        throw new Error(`Unexpected URL: ${url}`);
+      },
+    });
+    assert.equal(res.ok, true);
+    assert.equal(res.updated, true);
+    assert.equal(res.previous_version, '2.3.0');
+    assert.equal(res.version, '2.3.1');
+    assert.equal(res.restarting, true);
+    assert.equal(res.files_removed, 1);
+    assert.equal(readCurrentVersion(pluginDir), '2.3.1');
+    assert.equal(readFileSync(join(pluginDir, 'sidecars', 'agy-lens', 'main.mjs'), 'utf8'), '// v2.3.1\n');
+    assert.equal(existsSync(join(pluginDir, 'sidecars', 'agy-lens', 'lib', 'old.mjs')), false);
+    assert.equal(existsSync(join(pluginDir, 'sidecars', 'agy-lens', '.data', 'keep.json')), true);
+    assert.equal(existsSync(join(pluginDir, 'sidecars', 'agy-lens', 'node_modules', 'keep', 'index.js')), true);
+    if (process.platform !== 'win32') {
+      assert.ok((statSync(join(pluginDir, 'bin', 'cli.mjs')).mode & 0o111) !== 0, 'bin/cli.mjs should stay executable');
+    }
+    assert.equal(JSON.parse(readFileSync(cachePath, 'utf8')).latest_version, '2.3.1');
+  } finally {
+    if (prevNoSelf === undefined) delete process.env.AGY_LENS_NO_SELF_UPDATE;
+    else process.env.AGY_LENS_NO_SELF_UPDATE = prevNoSelf;
+    rmSync(rootTmp, { recursive: true, force: true });
+  }
+});
+
 test('HistoryTotalsWeekly: periodCostByPool, periodWeeklySummary & renderTotalsHeroHtml', async () => {
   const { periodCostByPool, periodWeeklySummary } = await import('../sidecars/agy-lens/web/format.js');
   const { renderTotalsHeroHtml } = await import('../sidecars/agy-lens/web/views/history.js');

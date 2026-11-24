@@ -621,6 +621,26 @@ export async function getJson(path, query, fetchFn) {
   return res.json();
 }
 
+export async function postJson(path, body, fetchFn) {
+  if (typeof fetchFn !== 'function') throw new Error('fetch function required');
+  const res = await fetchFn(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body || {}),
+  });
+  let payload = null;
+  try {
+    payload = await res.json();
+  } catch {
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    throw new Error('Invalid JSON response');
+  }
+  if (!res.ok) {
+    throw new Error((payload && (payload.message || payload.error)) || `HTTP ${res.status}`);
+  }
+  return payload;
+}
+
 export function makeLoader(path, staleMs, { getJson: getJsonFn, paint, keyOf, onMeta, onSilent, onBusyChange }) {
   const st = { data: null, lastKey: '', loading: false, manual: false, error: null, loadedAt: 0 };
   st.load = async ({ refresh = false, silent = false } = {}) => {

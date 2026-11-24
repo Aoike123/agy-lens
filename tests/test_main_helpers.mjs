@@ -1121,14 +1121,17 @@ function createMockDomSandbox({ navigatorLanguage = 'en-US', brokenStorage = fal
         removeItem: (k) => { storageMap.delete(k); },
       };
 
-  const fetchMock = async (rawUrl) => {
+  let reloadCalls = 0;
+
+  const fetchMock = async (rawUrl, opts = {}) => {
     const u = String(rawUrl);
     fetchedUrls.push(u);
     if (/\.(m?js)(\?|$)/i.test(u) || u.includes('/views/') || u.includes('/i18n') || u.includes('/format')) {
       throw new Error(`Unexpected sub-module network fetch: ${u}`);
     }
     const pathname = u.split('?')[0];
-    const bodyObj = fetchFixtures[pathname] || {};
+    const fixture = fetchFixtures[pathname];
+    const bodyObj = typeof fixture === 'function' ? await fixture(u, opts) : (fixture || {});
     return {
       ok: true,
       status: 200,
@@ -1139,7 +1142,7 @@ function createMockDomSandbox({ navigatorLanguage = 'en-US', brokenStorage = fal
   const sandbox = {
     console,
     navigator: { language: navigatorLanguage },
-    location: { search: '', href: 'http://127.0.0.1/' },
+    location: { search: '', href: 'http://127.0.0.1/', reload: () => { reloadCalls += 1; } },
     URL,
     URLSearchParams,
     DOMException,
@@ -1191,7 +1194,8 @@ function createMockDomSandbox({ navigatorLanguage = 'en-US', brokenStorage = fal
     sandbox,
     documentMock,
     fetchedUrls,
-    elements: { tabOverview, tabQuota, tabHistory, langEn, langZh, updateBanner, paneOverview, paneQuota, paneHistory },
+    getReloadCalls: () => reloadCalls,
+    elements: { tabOverview, tabQuota, tabHistory, refreshBtn, langEn, langZh, updateBanner, paneOverview, paneQuota, paneHistory },
     cleanup,
   };
 }
@@ -1327,29 +1331,130 @@ test('bundled /app.js executes in mocked browser VM (en-US & opaque zh-CN) witho
     vmZh.cleanup();
   }
 
-  // Scenario C: update banner displays when update_available is true and stays dismissed after dismiss click.
-  const updateFixtures = {
+  // Scenario C: one-click self-update, error fallback to Copy cmd, git mode, dismiss persistence & Refresh push check.
+  // C1. Installed mode renders "Update now", hides Copy cmd initially, installs on click & reloads after restart poll.
+  let pollUpdCount = 0;
+  let installedCalledWith = null;
+  const selfUpdateFixtures = {
     ...fetchFixtures,
-    '/api/update': {
-      current_version: '2.2.0',
-      latest_version: '2.3.0',
-      update_available: true,
-      release_url: 'https://github.com/Aoike123/agy-lens/releases/tag/v2.3.0',
+    '/api/update': () => {
+      pollUpdCount += 1;
+      if (installedCalledWith && pollUpdCount >= 2) {
+        return {
+          current_version: '2.3.1',
+          latest_version: '2.3.1',
+          update_available: false,
+          can_self_update: true,
+          install_mode: 'installed',
+          release_url: 'https://github.com/Aoike123/agy-lens/releases/tag/v2.3.1',
+        };
+      }
+      return {
+        current_version: '2.3.0',
+        latest_version: '2.3.1',
+        update_available: true,
+        can_self_update: true,
+        install_mode: 'installed',
+        release_url: 'https://github.com/Aoike123/agy-lens/releases/tag/v2.3.1',
+      };
+    },
+    '/api/update/install': (_url, opts) => {
+      assert.equal(opts.method, 'POST');
+      installedCalledWith = JSON.parse(opts.body || '{}');
+      pollUpdCount = 0;
+      return { ok: true, updated: true, previous_version: '2.3.0', version: '2.3.1', restarting: true };
     },
   };
-  const vmUpd = createMockDomSandbox({ navigatorLanguage: 'en-US', brokenStorage: false, fetchFixtures: updateFixtures });
+  const vmSelf = createMockDomSandbox({ navigatorLanguage: 'en-US', brokenStorage: false, fetchFixtures: selfUpdateFixtures });
   try {
-    vm.runInNewContext(bundled, vmUpd.sandbox, { filename: 'app.bundle.js' });
+    vm.runInNewContext(bundled, vmSelf.sandbox, { filename: 'app.bundle.js' });
     await flush();
-    assert.equal(vmUpd.elements.updateBanner.hidden, false);
-    assert.ok(vmUpd.elements.updateBanner.textContent.includes('2.3.0'));
-    const dismissBtn = vmUpd.elements.updateBanner.querySelector('[data-dismiss-update]');
-    assert.ok(dismissBtn);
-    dismissBtn.click();
-    assert.equal(vmUpd.elements.updateBanner.hidden, true);
-    assert.equal(vmUpd.sandbox.localStorage.getItem('ctx.dismissedUpdate'), '2.3.0');
+    assert.equal(vmSelf.elements.updateBanner.hidden, false);
+    assert.ok(vmSelf.elements.updateBanner.textContent.includes('2.3.1'));
+    assert.ok(vmSelf.elements.updateBanner.textContent.includes('Update now'));
+    const installBtn = vmSelf.elements.updateBanner.querySelector('[data-install-update]');
+    assert.ok(installBtn);
+    assert.equal(vmSelf.elements.updateBanner.querySelector('[data-copy-update]'), null);
+
+    installBtn.click();
+    assert.ok(vmSelf.elements.updateBanner.textContent.includes('Updating to v2.3.1'));
+    await new Promise((r) => setTimeout(r, 1500));
+    assert.deepEqual(installedCalledWith, { version: '2.3.1' });
+    assert.equal(vmSelf.getReloadCalls(), 1);
   } finally {
-    vmUpd.cleanup();
+    vmSelf.cleanup();
+  }
+
+  // C2. Self-update failure shows Retry + fallback Copy cmd + dismiss persistence.
+  const errFixtures = {
+    ...fetchFixtures,
+    '/api/update': {
+      current_version: '2.3.0',
+      latest_version: '2.3.1',
+      update_available: true,
+      can_self_update: true,
+      install_mode: 'installed',
+      release_url: 'https://github.com/Aoike123/agy-lens/releases/tag/v2.3.1',
+    },
+    '/api/update/install': () => ({ ok: false, error: 'install_failed', message: 'checksum mismatch' }),
+  };
+  const vmErr = createMockDomSandbox({ navigatorLanguage: 'en-US', brokenStorage: false, fetchFixtures: errFixtures });
+  try {
+    vm.runInNewContext(bundled, vmErr.sandbox, { filename: 'app.bundle.js' });
+    await flush();
+    vmErr.elements.updateBanner.querySelector('[data-install-update]').click();
+    await flush();
+    assert.equal(vmErr.elements.updateBanner.classList.contains('is-err'), true);
+    assert.ok(vmErr.elements.updateBanner.textContent.includes('checksum mismatch'));
+    assert.ok(vmErr.elements.updateBanner.textContent.includes('Retry'));
+    assert.ok(vmErr.elements.updateBanner.textContent.includes('Copy cmd'));
+    const retryBtn = vmErr.elements.updateBanner.querySelector('[data-install-update]');
+    const copyFallback = vmErr.elements.updateBanner.querySelector('[data-copy-update]');
+    assert.ok(retryBtn && copyFallback);
+
+    vmErr.elements.updateBanner.querySelector('[data-dismiss-update]').click();
+    assert.equal(vmErr.elements.updateBanner.hidden, true);
+    assert.equal(vmErr.sandbox.localStorage.getItem('ctx.dismissedUpdate'), '2.3.1');
+  } finally {
+    vmErr.cleanup();
+  }
+
+  // C3. Git checkout mode shows Copy cmd, and clicking Refresh detects newly released update live.
+  let latestAvailable = false;
+  const gitRefreshFixtures = {
+    ...fetchFixtures,
+    '/api/update': (url) => (latestAvailable
+      ? {
+          current_version: '2.3.0',
+          latest_version: '2.3.1',
+          update_available: true,
+          can_self_update: false,
+          install_mode: 'git',
+          release_url: 'https://github.com/Aoike123/agy-lens/releases/tag/v2.3.1',
+        }
+      : {
+          current_version: '2.3.0',
+          latest_version: '2.3.0',
+          update_available: false,
+          can_self_update: false,
+          install_mode: 'git',
+          saw_url: url,
+        }),
+  };
+  const vmGit = createMockDomSandbox({ navigatorLanguage: 'en-US', brokenStorage: false, fetchFixtures: gitRefreshFixtures });
+  try {
+    vm.runInNewContext(bundled, vmGit.sandbox, { filename: 'app.bundle.js' });
+    await flush();
+    assert.equal(vmGit.elements.updateBanner.hidden, true);
+    latestAvailable = true;
+    vmGit.elements.refreshBtn.click();
+    await flush();
+    assert.ok(vmGit.fetchedUrls.some((u) => u.startsWith('/api/update?refresh=true')));
+    assert.equal(vmGit.elements.updateBanner.hidden, false);
+    assert.equal(vmGit.elements.updateBanner.querySelector('[data-install-update]'), null);
+    assert.ok(vmGit.elements.updateBanner.querySelector('[data-copy-update]'));
+  } finally {
+    vmGit.cleanup();
   }
 });
 

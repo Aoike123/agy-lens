@@ -104,13 +104,23 @@ button:disabled { opacity: .6; cursor: default; transform: none; }
 }
 .update-msg { display: inline-flex; align-items: center; gap: 8px; min-width: 0; color: var(--dim); }
 .update-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex: none; }
+.update-dot.is-ok { background: var(--ok); }
+.update-dot.is-err { background: var(--crit); }
+.update-msg .spin { flex: none; margin-right: 0; }
+.update-banner.is-err .update-msg { color: var(--crit); }
 .update-acts { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; flex: none; }
+.update-install-btn {
+  border: 0; border-radius: 6px; padding: 4px 10px;
+  font-size: 12px; line-height: 16px; font-weight: 500;
+  color: var(--fg); background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+.update-install-btn:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 26%, transparent); }
 .update-cmd-btn {
   border: 0; border-radius: 6px; padding: 4px 8px;
   font-size: 12px; line-height: 16px; font-weight: 500;
   color: var(--fg); background: color-mix(in srgb, var(--fg) 10%, transparent);
 }
-.update-cmd-btn:hover { background: color-mix(in srgb, var(--fg) 16%, transparent); }
+.update-cmd-btn:hover:not(:disabled) { background: color-mix(in srgb, var(--fg) 16%, transparent); }
 .update-link {
   display: inline-flex; align-items: center; padding: 4px 8px; border-radius: 6px;
   font-size: 12px; line-height: 16px; color: var(--dim); text-decoration: none;

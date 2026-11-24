@@ -12,6 +12,7 @@ import {
   getJson as fetchJson,
   HISTORY_VIEWS,
   PERIODS,
+  postJson as sendJson,
   QUOTA_STALE_MS,
   HISTORY_STALE_MS,
   TABS,
@@ -22,6 +23,11 @@ import { createHistoryController } from './views/history.js';
 
 const POLL_MS = 3000;
 const AUTO_REFRESH_MS = 65 * 1000;
+const UPDATE_POLL_MS = 30 * 60 * 1000;
+const UPDATE_WAKE_THROTTLE_MS = 10 * 60 * 1000;
+const UPDATE_MANUAL_FORCE_COOLDOWN_MS = 60 * 1000;
+const UPDATE_RELOAD_POLL_MS = 600;
+const UPDATE_RELOAD_MAX_ATTEMPTS = 25;
 
 let t = null;
 let tab = 'overview';
@@ -74,6 +80,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
     const conversationId = (window.sidecar && window.sidecar.conversationId) || params.get('conversationId') || '';
     const doFetch = (window.sidecar && window.sidecar.fetch) || fetch;
     const getJson = (path, query) => fetchJson(path, query, doFetch);
+    const postJson = (path, body) => sendJson(path, body, doFetch);
 
     const $ = (id) => document.getElementById(id);
     const panes = { overview: $('overview'), quota: $('quota'), history: $('history') };
@@ -90,12 +97,18 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
     let workspace = '';
     const openKeys = new Set();
     let updateInfo = null;
+    let updateState = 'idle'; // 'idle' | 'installing' | 'reloading' | 'restart-needed' | 'error'
+    let updateError = '';
+    let updatingVersion = '';
+    let updatePreviousVersion = '';
+    let lastUpdateCheckAt = 0;
+    let lastManualUpdateForceAt = 0;
 
     function updateInstallCommand() {
       const plat = typeof navigator !== 'undefined'
         ? `${navigator.platform || ''} ${navigator.userAgent || ''}`
         : '';
-      return /win/i.test(plat)
+      return /\bwin(?:dows|32|64|nt)\b/i.test(plat)
         ? 'irm https://raw.githubusercontent.com/Aoike123/agy-lens/main/scripts/install.ps1 | iex'
         : 'curl -fsSL https://raw.githubusercontent.com/Aoike123/agy-lens/main/scripts/install.sh | bash';
     }
@@ -106,19 +119,57 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
       const latest = updateInfo && updateInfo.latest_version ? String(updateInfo.latest_version) : '';
       const current = updateInfo && updateInfo.current_version ? String(updateInfo.current_version) : '';
       const dismissed = store.get('ctx.dismissedUpdate', '');
+      const rawUrl = String((updateInfo && updateInfo.release_url) || '');
+      const safeUrl = /^https:\/\/github\.com\/Aoike123\/agy-lens(?:\/|$)/.test(rawUrl) ? rawUrl : '';
+      const linkHtml = safeUrl
+        ? `<a class="update-link" href="${esc(safeUrl)}" target="_blank" rel="noopener noreferrer">${esc(t('viewRelease'))}</a>`
+        : '';
+      const dismissBtn = `<button type="button" class="update-dismiss" data-dismiss-update aria-label="${esc(t('dismissUpdate'))}" title="${esc(t('dismissUpdate'))}">&times;</button>`;
+      el.classList.toggle('is-err', updateState === 'error');
+
+      if (updateState === 'installing') {
+        const ver = updatingVersion || latest;
+        el.innerHTML = `<span class="update-msg num"><span class="spin" aria-hidden="true"></span><span class="ellipsis">${esc(t('updatingTo', ver))}</span></span>`
+          + `<span class="update-acts"><button type="button" class="update-install-btn" disabled>${esc(t('updatingBtn'))}</button></span>`;
+        el.hidden = false;
+        return;
+      }
+
+      if (updateState === 'reloading') {
+        const ver = updatingVersion || latest;
+        el.innerHTML = `<span class="update-msg num"><span class="spin" aria-hidden="true"></span><span class="ellipsis">${esc(t('updateReloading', ver))}</span></span>`;
+        el.hidden = false;
+        return;
+      }
+
+      if (updateState === 'restart-needed') {
+        const ver = updatingVersion || latest;
+        el.innerHTML = `<span class="update-msg num"><span class="update-dot is-ok" aria-hidden="true"></span><span class="ellipsis">${esc(t('updateRestartNeeded', ver))}</span></span>`
+          + `<span class="update-acts"><button type="button" class="update-install-btn" data-reload-panel>${esc(t('updateReloadBtn'))}</button>${dismissBtn}</span>`;
+        el.hidden = false;
+        return;
+      }
+
+      if (updateState === 'error') {
+        const msgText = t('updateFailed', updateError);
+        el.innerHTML = `<span class="update-msg num" title="${esc(updateError || msgText)}"><span class="update-dot is-err" aria-hidden="true"></span><span class="ellipsis">${esc(msgText)}</span></span>`
+          + `<span class="update-acts"><button type="button" class="update-install-btn" data-install-update>${esc(t('updateRetry'))}</button>`
+          + `<button type="button" class="update-cmd-btn" data-copy-update>${esc(t('copyUpdateCmd'))}</button>${linkHtml}${dismissBtn}</span>`;
+        el.hidden = false;
+        return;
+      }
+
       if (!updateInfo || !updateInfo.update_available || !latest || dismissed === latest) {
         el.hidden = true;
         el.innerHTML = '';
         return;
       }
-      const rawUrl = String(updateInfo.release_url || '');
-      const safeUrl = /^https:\/\/github\.com\/Aoike123\/agy-lens(?:\/|$)/.test(rawUrl) ? rawUrl : '';
-      const linkHtml = safeUrl
-        ? `<a class="update-link" href="${esc(safeUrl)}" target="_blank" rel="noopener noreferrer">${esc(t('viewRelease'))}</a>`
-        : '';
+
+      const primaryBtn = updateInfo.can_self_update !== false
+        ? `<button type="button" class="update-install-btn" data-install-update>${esc(t('updateNow'))}</button>`
+        : `<button type="button" class="update-cmd-btn" data-copy-update>${esc(t('copyUpdateCmd'))}</button>`;
       el.innerHTML = `<span class="update-msg num"><span class="update-dot" aria-hidden="true"></span><span class="ellipsis">${esc(t('updateAvailable', latest, current))}</span></span>`
-        + `<span class="update-acts"><button type="button" class="update-cmd-btn" data-copy-update>${esc(t('copyUpdateCmd'))}</button>${linkHtml}`
-        + `<button type="button" class="update-dismiss" data-dismiss-update aria-label="${esc(t('dismissUpdate'))}" title="${esc(t('dismissUpdate'))}">&times;</button></span>`;
+        + `<span class="update-acts">${primaryBtn}${linkHtml}${dismissBtn}</span>`;
       el.hidden = false;
     }
 
@@ -150,11 +201,82 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
       }
     }
 
-    async function checkUpdate() {
+    function reloadPanel() {
+      if (typeof window !== 'undefined' && window.location && typeof window.location.reload === 'function') {
+        window.location.reload();
+        return true;
+      }
+      return false;
+    }
+
+    async function waitForUpdatedReload(targetVer, prevVer) {
+      await new Promise((r) => setTimeout(r, 500));
+      for (let i = 0; i < UPDATE_RELOAD_MAX_ATTEMPTS; i += 1) {
+        try {
+          const res = await getJson('/api/update');
+          if (res && typeof res === 'object' && !res.error) {
+            const cur = res.current_version ? String(res.current_version) : '';
+            if ((targetVer && cur === targetVer) || (!res.update_available && cur && cur !== prevVer)) {
+              if (reloadPanel()) return;
+              break;
+            }
+          }
+        } catch { /* sidecar restarting: ignore transient connection failures */ }
+        await new Promise((r) => setTimeout(r, UPDATE_RELOAD_POLL_MS));
+      }
+      updateState = 'restart-needed';
+      renderUpdateBanner();
+    }
+
+    async function installUpdate() {
+      if (updateState === 'installing' || updateState === 'reloading') return;
+      const targetVer = updateInfo && updateInfo.latest_version ? String(updateInfo.latest_version) : updatingVersion;
+      const prevVer = updateInfo && updateInfo.current_version ? String(updateInfo.current_version) : updatePreviousVersion;
+      updateState = 'installing';
+      updateError = '';
+      updatingVersion = targetVer || '';
+      updatePreviousVersion = prevVer || '';
+      store.remove('ctx.dismissedUpdate');
+      renderUpdateBanner();
       try {
-        const res = await getJson('/api/update');
-        if (res && typeof res === 'object' && !res.error && res.update_available && res.latest_version) {
+        const res = await postJson('/api/update/install', targetVer ? { version: targetVer } : {});
+        if (!res || res.error || !res.ok) {
+          throw new Error((res && (res.message || res.error)) || 'Update failed');
+        }
+        const resolvedVer = res.version ? String(res.version) : updatingVersion;
+        updatingVersion = resolvedVer;
+        if (!res.updated) {
+          if (!reloadPanel()) {
+            updateState = 'restart-needed';
+            renderUpdateBanner();
+          }
+          return;
+        }
+        updateState = 'reloading';
+        renderUpdateBanner();
+        await waitForUpdatedReload(resolvedVer, prevVer || (res.previous_version ? String(res.previous_version) : ''));
+      } catch (err) {
+        updateState = 'error';
+        updateError = (err && err.message) || String(err);
+        renderUpdateBanner();
+      }
+    }
+
+    async function checkUpdate({ refresh = false } = {}) {
+      if (updateState === 'installing' || updateState === 'reloading' || updateState === 'restart-needed') {
+        return;
+      }
+      const nowMs = Date.now();
+      lastUpdateCheckAt = nowMs;
+      if (refresh) lastManualUpdateForceAt = nowMs;
+      try {
+        const res = await getJson('/api/update', refresh ? { refresh: 'true' } : null);
+        if (res && typeof res === 'object' && !res.error) {
           updateInfo = res;
+          if (updateState === 'error' && !res.update_available) {
+            updateState = 'idle';
+            updateError = '';
+          }
           renderUpdateBanner();
         }
       } catch { /* update check is best-effort and never blocks panel startup */ }
@@ -324,6 +446,9 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
 
     function onWake() {
       if (document.hidden) return;
+      if (Date.now() - lastUpdateCheckAt >= UPDATE_WAKE_THROTTLE_MS) {
+        checkUpdate({ refresh: false });
+      }
       if (tab === 'overview') { overview.refresh(); return; }
       if (tab === 'quota') {
         quota.tickCountdowns();
@@ -349,6 +474,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
     });
 
     $('refresh').addEventListener('click', () => {
+      checkUpdate({ refresh: Date.now() - lastManualUpdateForceAt >= UPDATE_MANUAL_FORCE_COOLDOWN_MS });
       if (tab === 'overview') overview.refresh({ force: true });
       else if (tab === 'quota') {
         quota.loader.load({ refresh: true, silent: false });
@@ -366,13 +492,19 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
     });
 
     document.addEventListener('click', (e) => {
+      if (e.target.closest('[data-install-update]')) { installUpdate(); return; }
+      if (e.target.closest('[data-reload-panel]')) { reloadPanel(); return; }
+
       const copyUpd = e.target.closest('[data-copy-update]');
       if (copyUpd) { copyUpdateCommand(copyUpd); return; }
 
       if (e.target.closest('[data-dismiss-update]')) {
-        if (updateInfo && updateInfo.latest_version) {
-          store.set('ctx.dismissedUpdate', String(updateInfo.latest_version));
+        const ver = (updateInfo && updateInfo.latest_version) || updatingVersion || '';
+        if (ver) {
+          store.set('ctx.dismissedUpdate', String(ver));
         }
+        updateState = 'idle';
+        updateError = '';
         renderUpdateBanner();
         return;
       }
@@ -485,10 +617,13 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
       }
       setTab(tab);
       booted = true;
-      checkUpdate();
+      checkUpdate({ refresh: false });
       setInterval(() => overview.refresh(), POLL_MS);
       setInterval(() => quota.tickCountdowns(), 1000);
       setInterval(autoRefreshActive, AUTO_REFRESH_MS);
+      setInterval(() => {
+        if (!document.hidden) checkUpdate({ refresh: false });
+      }, UPDATE_POLL_MS);
     }
 
     start().catch(showBootError);
