@@ -3,7 +3,6 @@
 import { createTranslator, localeFor } from '../i18n.js';
 import {
   allTok,
-  budgetLevel,
   CHEV,
   CONV_VISIBLE,
   convWeeklyLabel,
@@ -37,7 +36,7 @@ import {
   periodCostByPool,
   periodCutoff,
   PERIODS,
-  periodWeeklySummary,
+  periodQuotaSummary,
   pricingSourceName,
   poolRowLabel,
   pricingTip,
@@ -99,32 +98,52 @@ export function renderTotalsHeroHtml(data, { period = 'd30', quotaData = null, p
   const valParts = poolList.filter((k) => num(weeklyValueUsd[k]) > 0).map((k) => `${formatPoolName(k, pc)} ${fmtUsd(num(weeklyValueUsd[k]))}`);
 
   const statusLabel = liveEntries.length ? t('liveSynced') : hasVal ? t('weeklyCached') : t('weeklyOffline');
-  let liveCls = '';
-  if (liveEntries.length) {
-    const worst = Math.max(...liveEntries.map((x) => x.eff.used));
-    const lvl = budgetLevel(worst / 100);
-    liveCls = lvl === 'crit' ? 'txt-crit' : lvl === 'warn' ? 'txt-warn' : '';
-  }
 
   const hasPeriodUsage = num(p.calls) > 0 || allTok(p) > 0 || (isNum(p.est_cost_usd) && p.est_cost_usd > 0);
   const quotaCalibration = (data && data.quota_calibration) || null;
-  const periodWeekly = hasPeriodUsage ? periodWeeklySummary(data && data.by_model, period, weeklyValueUsd, quotaCalibration) : [];
+  const periodQuotaMap = data && data.period_quota && typeof data.period_quota === 'object' ? data.period_quota[period] : null;
+  const hasTrackedPeriodQuota = Boolean(periodQuotaMap && Object.values(periodQuotaMap).some((v) => v && isNum(v.pct) && v.pct > 0));
+  const periodWeekly = (hasPeriodUsage || hasTrackedPeriodQuota)
+    ? periodQuotaSummary(data && data.period_quota, period, data && data.by_model, weeklyValueUsd, quotaCalibration)
+    : [];
+  const fmtQuotaPct = (x) => (x.exact ? fmtPctNum(x.pct) : `≈ ${fmtPctNum(x.pct)}`);
 
   let quotaVal;
   let quotaSub = '';
   let weeklyPoolsRow = '';
   if (periodWeekly.length) {
     const top = periodWeekly[0];
-    const estParts = periodWeekly.map((x) => `${formatPoolName(x.pool, pc)} ≈ ${fmtPctNum(x.pct)} (${fmtUsd(x.cost)})`);
-    const tipParts = [t('periodWeeklyTip', estParts.join(' · '), statusLabel)];
-    if (valParts.length) tipParts.push(t('weeklyRefTip', valParts.join(' · ')));
-    const tip = tipParts.join('\n');
-    quotaVal = `<button type="button" class="inline-link on" data-go-tab="quota" title="${esc(tip)}">≈ ${esc(fmtPctNum(top.pct))}</button>`;
-    quotaSub = `<div class="hero-stat-sub ellipsis" title="${esc(tip)}">${esc(formatPoolName(top.pool, pc))} · <span${liveCls ? ` class="${liveCls}"` : ''}>${esc(statusLabel)}</span></div>`;
+    let tip;
+    if (periodQuotaMap) {
+      const estParts = periodWeekly.map((x) => {
+        const name = formatPoolName(x.pool, pc);
+        const parts = [];
+        if (x.observed_pct >= 0.05 || (x.tail_est_pct < 0.05 && x.hist_est_pct < 0.05)) {
+          parts.push(t('periodQuotaObserved', fmtPctNum(x.observed_pct)));
+        }
+        if (x.tail_est_pct >= 0.05) {
+          parts.push(t('periodQuotaTailPart', fmtPctNum(x.tail_est_pct)));
+        }
+        if (x.hist_est_pct >= 0.05) {
+          parts.push(t('periodQuotaHistPart', fmtPctNum(x.hist_est_pct)));
+        }
+        return `${name}: ${parts.join(' + ')}`;
+      });
+      const untrackedTotal = periodWeekly.reduce((s, x) => s + num(x.untracked_cost_usd), 0);
+      if (untrackedTotal >= 0.01) estParts.push(t('periodQuotaUntracked', fmtUsd(untrackedTotal)));
+      tip = `${estParts.join('\n')}\n${statusLabel}`;
+    } else {
+      const estParts = periodWeekly.map((x) => `${formatPoolName(x.pool, pc)} ≈ ${fmtPctNum(x.pct)} (${fmtUsd(x.cost)})`);
+      const tipParts = [t('periodWeeklyTip', estParts.join(' · '), statusLabel)];
+      if (valParts.length) tipParts.push(t('weeklyRefTip', valParts.join(' · ')));
+      tip = tipParts.join('\n');
+    }
+    quotaVal = `<button type="button" class="inline-link on" data-go-tab="quota" title="${esc(tip)}">${esc(fmtQuotaPct(top))}</button>`;
+    quotaSub = `<div class="hero-stat-sub ellipsis" title="${esc(tip)}">${esc(formatPoolName(top.pool, pc))} · ${esc(statusLabel)}</div>`;
     if (periodWeekly.length >= 2) {
       weeklyPoolsRow = `<div class="hero-weekly-pools num" title="${esc(t('weeklySizeTip'))}">
         <span class="dim">${esc(t('weeklyEstPools'))}</span>
-        <span>${periodWeekly.map((x) => `${esc(formatPoolName(x.pool, pc))} <b>≈ ${esc(fmtPctNum(x.pct))}</b>`).join('<span class="dim"> · </span>')}</span>
+        <span>${periodWeekly.map((x) => `${esc(formatPoolName(x.pool, pc))} <b>${esc(fmtQuotaPct(x))}</b>`).join('<span class="dim"> · </span>')}</span>
       </div>`;
     }
   } else if (liveEntries.length) {
@@ -134,10 +153,10 @@ export function renderTotalsHeroHtml(data, { period = 'd30', quotaData = null, p
     if (isSampling) {
       const tip = t('weeklyEstimatingTip');
       quotaVal = `<button type="button" class="inline-link" data-go-tab="quota" title="${esc(tip)}">${esc(t('weeklyEstimating'))}</button>`;
-      quotaSub = `<div class="hero-stat-sub ellipsis" title="${esc(tip)}"><span${liveCls ? ` class="${liveCls}"` : ''}>${esc(statusLabel)}</span></div>`;
+      quotaSub = `<div class="hero-stat-sub ellipsis" title="${esc(tip)}">${esc(statusLabel)}</div>`;
     } else {
       const tip = valParts.length ? t('weeklyRefTip', valParts.join(' · ')) : t('liveWeeklyTip');
-      quotaVal = `<button type="button" class="inline-link on${liveCls ? ` ${liveCls}` : ''}" data-go-tab="quota" title="${esc(tip)}">${esc(statusLabel)}</button>`;
+      quotaVal = `<button type="button" class="inline-link on" data-go-tab="quota" title="${esc(tip)}">${esc(statusLabel)}</button>`;
     }
   } else if (hasVal) {
     const tip = valParts.length ? t('weeklyRefTip', valParts.join(' · ')) : t('weeklyCachedTip');
@@ -714,7 +733,9 @@ export function createHistoryController({
     const toggle = rest > 0
       ? `<button type="button" class="quiet-btn" data-toggle-models aria-expanded="${showAllModels}">${CHEV}<span>${esc(showAllModels ? t('showLess') : t('showMoreModels', rest))}</span></button>`
       : '';
-    const hint = hasAnyWeeklyValue(weeklyValueUsd) ? `${t('colTokens')} · ${t('weeklyQuota')}` : t('colTokens');
+    const hint = hasAnyWeeklyValue(weeklyValueUsd) || merged.some((m) => isNum(m.quota_pct) && m.quota_pct > 0)
+      ? `${t('colTokens')} · ${t('weeklyQuota')}`
+      : t('colTokens');
     return `<section id="history-models"><h2>${esc(t('byModel'))} <span class="hint">${esc(hint)}</span></h2>${legend}<ul class="rank">${rows}</ul>${toggle}</section>`;
   }
 

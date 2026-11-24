@@ -990,7 +990,7 @@ test('ScannerTest: windows/totals, contract shape, by_model, display-only resolu
     // 2. Contract shape
     assert.deepEqual(Object.keys(r).sort(), [
       'archived_conversations', 'by_conversation', 'by_model', 'd7_by_pool', 'daily', 'elapsed_ms', 'errors', 'hourly_today',
-      'pricing_fetched_at', 'pricing_source', 'quota_calibration', 'scanned_at', 'sources', 'totals', 'weekly_cycles', 'weekly_value_usd',
+      'period_quota', 'pricing_fetched_at', 'pricing_source', 'quota_calibration', 'scanned_at', 'sources', 'totals', 'weekly_cycles', 'weekly_value_usd',
     ]);
     assert.deepEqual(Object.keys(r.d7_by_pool).sort(), ['claude_gpt', 'gemini', 'other']);
     assert.deepEqual(Object.keys(r.by_conversation[0]).sort(), [
@@ -3948,22 +3948,23 @@ test('HistoryTotalsWeekly: periodCostByPool, periodWeeklySummary & renderTotalsH
     },
   };
 
-  // Single-pool today view (zh & en): shows ≈ 3.8%, pool + status, no .hero-weekly-pools strip, no .wbar/.wcycles.
+  // Single-pool today view (zh & en): shows ≈ 3.8%, neutral pool + status, no .hero-weekly-pools strip, no .wbar/.wcycles.
   const zhToday = renderTotalsHeroHtml(historyData, { period: 'today', quotaData: liveQuota, t: tZh, lang: 'zh' });
   assert.ok(zhToday.includes('≈ 3.8%'));
-  assert.ok(zhToday.includes('Gemini · <span class="txt-warn">官方同步</span>'));
+  assert.ok(zhToday.includes('Gemini · 官方同步'));
+  assert.ok(!zhToday.includes('txt-warn') && !zhToday.includes('txt-crit'));
   assert.ok(!zhToday.includes('hero-weekly-pools'));
   assert.ok(!zhToday.includes('class="wbar') && !zhToday.includes('class="wcycles'));
 
   const enToday = renderTotalsHeroHtml(historyData, { period: 'today', quotaData: liveQuota, t: tEn, lang: 'en' });
   assert.ok(enToday.includes('≈ 3.8%'));
-  assert.ok(enToday.includes('Gemini · <span class="txt-warn">Live</span>'));
+  assert.ok(enToday.includes('Gemini · Live'));
 
   // Multi-pool d30 view: headlines Claude/GPT ≈ 41.8% and renders compact .hero-weekly-pools strip.
   const zhMulti = renderTotalsHeroHtml(historyData, { period: 'd30', quotaData: liveQuota, t: tZh, lang: 'zh' });
   assert.ok(zhMulti.includes('≈ 41.8%'));
   assert.ok(zhMulti.includes('class="hero-weekly-pools'));
-  assert.ok(zhMulti.includes('各池周额度预估'));
+  assert.ok(zhMulti.includes('各池周额度'));
   assert.ok(zhMulti.includes('Claude/GPT <b>≈ 41.8%</b>'));
   assert.ok(zhMulti.includes('Gemini <b>≈ 18.5%</b>'));
 
@@ -4291,6 +4292,255 @@ test('Calibration: Ridge WLS + LOOCV across model / io / model_io splits, extern
       quotaCalibration: r.quota_calibration,
       t: tEn,
     }).includes('%'));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('TimeLockedQuotaAccounting: strict official-scale cycle summation, segment-level conversation lock, and untracked guard', async () => {
+  const { renderTotalsHeroHtml } = await import('../sidecars/agy-lens/web/views/history.js');
+  const { renderOverviewHtml } = await import('../sidecars/agy-lens/web/views/overview.js');
+  const { convWeeklyLabel, modelWeeklyLabel, periodQuotaSummary, withSubtree } = await import('../sidecars/agy-lens/web/format.js');
+  const { createTranslator } = await import('../sidecars/agy-lens/web/i18n.js');
+  const tZh = createTranslator('zh');
+  const tEn = createTranslator('en');
+
+  const dir = mkdtempSync(join(tmpdir(), 'agy-unit-timelock-'));
+  try {
+    const convDir = join(dir, 'conversations');
+    mkdirSync(convDir);
+    // Anchor on local midnight so `today` and `d7` behave identically across all timezones.
+    const day0Ms = new Date(2026, 10, 24, 0, 0, 0).getTime();
+    const now = new Date(day0Ms + 15 * 3600_000);
+    const cy3Start = day0Ms + 9 * 3600_000;          // today 09:00..15:00 (live)
+    const cy2Start = day0Ms - 3 * 86400_000;         // 3d ago -> cy3Start (d7)
+    const cy1Start = day0Ms - 5 * 86400_000;         // 5d ago -> cy2Start (d7)
+    const preMs = day0Ms - 6 * 86400_000 + 3600_000; // 6d ago (d7, BEFORE any cycle)
+
+    // Each call with inp=200k ($0.30) + out=360k ($2.70) costs $3.00 exactly.
+    const mk3 = (startMs, count, stepSec = 60, model = 'gemini-4-hydrogen-tiered-high') => (
+      Array.from({ length: count }, (_, i) => hCall(0, {
+        ts: Math.floor(startMs / 1000) + i * stepSec,
+        model,
+        display: model === 'gemini-4-neon' ? 'Gemini 4 Neon' : 'Gemini 4 Hydrogen (High)',
+        input: 200_000,
+        output: 360_000,
+        cache: 0,
+      }))
+    );
+
+    // Pre-tracking conversation: 23 calls * $6 (neon = 2x hydrogen) = $138 before cy1Start (never converted using later cycle prices).
+    makeHistoryDb(join(convDir, 'pre-conv.db'), mk3(preMs, 23, 30, 'gemini-4-neon'));
+
+    // Cycle 1: 24% observed over 28h ($480 -> $2,000/cycle), followed by unpolled $360 tail (= 18% -> 42% total).
+    makeHistoryDb(join(convDir, 'conv-c1-obs.db'), mk3(cy1Start + 3600_000, 160, 120));
+    makeHistoryDb(join(convDir, 'conv-c1-tail.db'), mk3(cy1Start + 29 * 3600_000, 120, 120));
+
+    // Cycle 2: 18% normal segment ($360 -> $2,000/cycle) + 48% 2x surge segment ($480 -> $1,000/cycle).
+    makeHistoryDb(join(convDir, 'conv-c2-norm.db'), mk3(cy2Start + 3600_000, 120, 120));
+    makeHistoryDb(join(convDir, 'conv-c2-surge.db'), mk3(cy2Start + 18 * 3600_000, 160, 120));
+
+    // Cycle 3 (live today): parent + subagent spend $90 + $90 = $180 for 9% ($2,000/cycle).
+    makeHistoryDb(join(convDir, 'conv-c3-main.db'), mk3(cy3Start + 3600_000, 30, 60));
+    makeHistoryDb(join(convDir, 'conv-c3-sub.db'), mk3(cy3Start + 2 * 3600_000, 30, 60));
+    makeSummariesDb(join(dir, 'conversation_summaries.db'), [
+      { id: 'conv-c3-main', title: 'Main C3' },
+      { id: 'conv-c3-sub', agent: 'worker', parent: 'conv-c3-main' },
+    ]);
+
+    const buildCycles = () => ({
+      version: 2,
+      pools: {
+        gemini: [
+          {
+            cycle_start: new Date(cy1Start).toISOString(),
+            cycle_start_source: 'explicit',
+            reset_time: new Date(cy1Start + 7 * 86400_000).toISOString(),
+            ended_at: new Date(cy2Start).toISOString(),
+            first_seen_at: new Date(cy1Start + 28 * 3600_000).toISOString(),
+            observed_at: new Date(cy1Start + 28 * 3600_000).toISOString(),
+            remaining_fraction: 0.76,
+            used_fraction: 0.24,
+            observations: [{ observed_at: new Date(cy1Start + 28 * 3600_000).toISOString(), remaining_fraction: 0.76, used_fraction: 0.24 }],
+          },
+          {
+            cycle_start: new Date(cy2Start).toISOString(),
+            cycle_start_source: 'explicit',
+            reset_time: new Date(cy2Start + 7 * 86400_000).toISOString(),
+            ended_at: new Date(cy3Start).toISOString(),
+            first_seen_at: new Date(cy2Start).toISOString(),
+            observed_at: new Date(cy2Start + 30 * 3600_000).toISOString(),
+            remaining_fraction: 0.34,
+            used_fraction: 0.66,
+            observations: [
+              { observed_at: new Date(cy2Start).toISOString(), remaining_fraction: 1, used_fraction: 0 },
+              { observed_at: new Date(cy2Start + 16 * 3600_000).toISOString(), remaining_fraction: 0.82, used_fraction: 0.18 },
+              { observed_at: new Date(cy2Start + 30 * 3600_000).toISOString(), remaining_fraction: 0.34, used_fraction: 0.66 },
+            ],
+          },
+          {
+            cycle_start: new Date(cy3Start).toISOString(),
+            cycle_start_source: 'weekly_7d',
+            reset_time: new Date(cy3Start + 7 * 86400_000).toISOString(),
+            first_seen_at: new Date(cy3Start).toISOString(),
+            observed_at: new Date(cy3Start + 4 * 3600_000).toISOString(),
+            remaining_fraction: 0.91,
+            used_fraction: 0.09,
+            observations: [
+              { observed_at: new Date(cy3Start).toISOString(), remaining_fraction: 1, used_fraction: 0 },
+              { observed_at: new Date(cy3Start + 4 * 3600_000).toISOString(), remaining_fraction: 0.91, used_fraction: 0.09 },
+            ],
+          },
+        ],
+      },
+    });
+
+    const r1 = await scan([[convDir, 'desktop']], { now, quotaCycles: buildCycles() });
+
+    // 1. Today is purely official (exact: true, no ≈); d7 sums all 3 cycles on their own scales (24+18+18+48+9 = 117%)
+    //    PLUS pre-tracking $138 anchored to earliest cycle cy1 ($2,000/cycle -> 6.9%) = 123.9% total.
+    assert.equal(r1.period_quota.today.gemini.pct, 9);
+    assert.equal(r1.period_quota.today.gemini.exact, true);
+    assert.equal(r1.period_quota.d7.gemini.observed_pct, 99);
+    assert.equal(r1.period_quota.d7.gemini.tail_est_pct, 18);
+    assert.equal(r1.period_quota.d7.gemini.hist_est_pct, 6.9);
+    assert.equal(r1.period_quota.d7.gemini.pct, 123.9);
+    assert.equal(r1.period_quota.d7.gemini.untracked_cost_usd, 0);
+    assert.equal(r1.period_quota.d7.gemini.exact, false);
+
+    // 2. Hero UI drops ≈ on exact today numbers, keeps ≈ on estimated d7 (with hist part), and keeps Live/官方同步 neutral.
+    const liveQ = { weekly: { gemini: { remaining_fraction: 0.05, reset_time: new Date(cy3Start + 7 * 86400_000).toISOString() } } };
+    const todayHero = renderTotalsHeroHtml(r1, { period: 'today', quotaData: liveQ, t: tZh, lang: 'zh' });
+    assert.ok(todayHero.includes('>9%<') && !todayHero.includes('≈ 9%'));
+    assert.ok(todayHero.includes('Gemini · 官方同步') && !todayHero.includes('txt-crit') && !todayHero.includes('txt-warn'));
+    const d7Hero = renderTotalsHeroHtml(r1, { period: 'd7', quotaData: liveQ, t: tZh, lang: 'zh' });
+    assert.ok(d7Hero.includes('≈ 124%') && d7Hero.includes('早期无记录估算'));
+    assert.equal(periodQuotaSummary(r1.period_quota, 'd7', r1.by_model, r1.weekly_value_usd)[0].pct, 123.9);
+
+    // 3. Conversations & models lock to their period/segment price; pre-tracking conversations anchor to cy1 and keep labels;
+    //    sum of per-model d7 quota_pct strictly conserves period_quota.d7.
+    const byId = new Map(r1.by_conversation.map((c) => [c.id, c]));
+    assert.equal(byId.get('pre-conv').quota_pct_by_pool.gemini, 6.9);
+    assert.equal(convWeeklyLabel(byId.get('pre-conv'), { weeklyValueUsd: r1.weekly_value_usd, compact: true, t: tEn }), '≈ 6.9% weekly');
+    assert.equal(byId.get('conv-c1-obs').quota_pct_by_pool.gemini, 24);
+    assert.equal(byId.get('conv-c1-tail').quota_pct_by_pool.gemini, 18);
+    assert.equal(byId.get('conv-c2-norm').quota_pct_by_pool.gemini, 18);  // at $2,000/100%
+    assert.equal(byId.get('conv-c2-surge').quota_pct_by_pool.gemini, 48); // at $1,000/100% surge rate!
+    assert.equal(byId.get('conv-c3-main').total.quota_pct_by_pool.gemini, 9);
+    assert.equal(withSubtree(byId.get('conv-c3-main')).quota_pct_by_pool.gemini, 9);
+    const neonModel = r1.by_model.find((m) => m.model === 'gemini-4-neon');
+    assert.equal(neonModel.quota_pct, 6.9);
+    assert.equal(modelWeeklyLabel(neonModel, { compact: true, weeklyValueUsd: r1.weekly_value_usd, t: tEn }), '≈ 6.9% weekly');
+    const modelD7Sum = r1.by_model
+      .filter((m) => m.pool === 'gemini')
+      .reduce((s, m) => s + (m.periods.d7?.quota_pct || 0), 0);
+    assert.ok(Math.abs(modelD7Sum - r1.period_quota.d7.gemini.pct) < 0.01, `Expected conservation ${modelD7Sum} === ${r1.period_quota.d7.gemini.pct}`);
+
+    // 3b. Single-cycle / Dev / Fresh-install scenario (only Cycle 3 recorded):
+    //     older usage before Cycle 3 ($1,818) is estimated at Cycle 3's price ($2,000/cycle -> 90.9%), never dropped to 0%,
+    //     and older conversations preserve their constant weekly quota labels.
+    const cyclesOnly3 = { version: 2, pools: { gemini: [buildCycles().pools.gemini[2]] } };
+    const rSingle = await scan([[convDir, 'desktop']], { now, quotaCycles: cyclesOnly3 });
+    assert.equal(rSingle.period_quota.d7.gemini.observed_pct, 9);
+    assert.equal(rSingle.period_quota.d7.gemini.hist_est_pct, 90.9);
+    assert.equal(rSingle.period_quota.d7.gemini.pct, 99.9);
+    const bySingle = new Map(rSingle.by_conversation.map((c) => [c.id, c]));
+    assert.equal(bySingle.get('pre-conv').quota_pct_by_pool.gemini, 6.9);
+    assert.equal(bySingle.get('conv-c1-obs').quota_pct_by_pool.gemini, 24);
+    assert.equal(bySingle.get('conv-c2-norm').quota_pct_by_pool.gemini, 18);
+    assert.ok(convWeeklyLabel(bySingle.get('pre-conv'), { weeklyValueUsd: rSingle.weekly_value_usd, compact: true, t: tEn }).includes('%'));
+    assert.ok(convWeeklyLabel(bySingle.get('conv-c1-obs'), { weeklyValueUsd: rSingle.weekly_value_usd, compact: true, t: tEn }).includes('%'));
+
+    // Overview session card also receives subtree quota_pct_by_pool cleanly.
+    const ovHtml = renderOverviewHtml({
+      model: 'gemini-4-hydrogen-tiered-high',
+      used_tokens: 1000,
+      limit_tokens: 1000000,
+      used_pct: 0.1,
+      free_tokens: 999000,
+      heading: 'Tokens',
+      grid_segments: [1000],
+      categories: [],
+      session: { calls: 10, input: 1000, output: 100, cache_read: 0, est_cost_usd: 30, cost_by_pool: { gemini: 30 }, pool: 'gemini' },
+      updatedAt: now.toISOString(),
+    }, { historyData: r1, conversationId: 'conv-c3-main', openKeys: new Set(), t: tEn, lang: 'en' });
+    assert.ok(ovHtml.includes('9% weekly'));
+
+    // 4. Now inflate ONLY Cycle 3's cost by +$270 ($180 -> $450 for 9%, making latest weekly_value_usd jump to $5,000!):
+    //    Historical cycles, pre-tracking history (anchored to cy1), conversations, and d7 past contributions must stay 100% invariant.
+    makeHistoryDb(join(convDir, 'conv-c3-extra.db'), mk3(cy3Start + 3 * 3600_000, 90, 10));
+    const r2 = await scan([[convDir, 'desktop']], { now, quotaCycles: buildCycles() });
+    assert.equal(r2.weekly_value_usd.gemini, 5000);
+    const byId2 = new Map(r2.by_conversation.map((c) => [c.id, c]));
+    assert.equal(r2.period_quota.d7.gemini.pct, 123.9);
+    assert.equal(byId2.get('pre-conv').quota_pct_by_pool.gemini, 6.9);
+    assert.equal(byId2.get('conv-c1-obs').quota_pct_by_pool.gemini, 24);
+    assert.equal(byId2.get('conv-c1-tail').quota_pct_by_pool.gemini, 18);
+    assert.equal(byId2.get('conv-c2-norm').quota_pct_by_pool.gemini, 18);
+    assert.equal(byId2.get('conv-c2-surge').quota_pct_by_pool.gemini, 48);
+
+    // 5. Active cycle live unpolled tail: calls made after cy3.observed_at (cy3Start+5h < now) count immediately at cy3's rate ($5,000/cycle).
+    makeHistoryDb(join(convDir, 'conv-c3-live.db'), mk3(cy3Start + 5 * 3600_000, 50, 10)); // 50 * $3 = $150 -> 3%
+    const r3 = await scan([[convDir, 'desktop']], { now, quotaCycles: buildCycles() });
+    assert.equal(r3.period_quota.today.gemini.observed_pct, 9);
+    assert.equal(r3.period_quota.today.gemini.tail_est_pct, 3);
+    assert.equal(r3.period_quota.today.gemini.pct, 12);
+    assert.equal(r3.period_quota.today.gemini.exact, false);
+    assert.equal(r3.period_quota.d7.gemini.pct, 126.9);
+    const byId3 = new Map(r3.by_conversation.map((c) => [c.id, c]));
+    assert.equal(byId3.get('conv-c3-live').quota_pct_by_pool.gemini, 3);
+
+    // 6. Cross-cycle conversation: sums its locked slice from an older cheap cycle ($1,000/cycle -> 10%)
+    //    and a newer expensive cycle ($3,000/cycle -> 5%) for an exact 15% total, invariant to future cost changes.
+    const crossDir = join(dir, 'cross');
+    mkdirSync(crossDir);
+    const cAStart = day0Ms - 4 * 86400_000;
+    const cBStart = day0Ms - 1 * 86400_000;
+    // conv-cross: 50 calls ($150) in cA + 50 calls ($150) in cB; plus peer calls inside cA/cB establishing exact cycle prices.
+    makeHistoryDb(join(crossDir, 'conv-cross.db'), [
+      ...mk3(cAStart + 1 * 3600_000, 50, 10),
+      ...mk3(cBStart + 1 * 3600_000, 50, 10),
+    ]);
+    makeHistoryDb(join(crossDir, 'peer-a.db'), mk3(cAStart + 2 * 3600_000, 50, 10)); // cA obs: $300 for 30% => $1,000/cycle
+    makeHistoryDb(join(crossDir, 'peer-b.db'), mk3(cBStart + 2 * 3600_000, 150, 10)); // cB obs: $600 for 20% => $3,000/cycle
+    const crossCycles = {
+      version: 2,
+      pools: {
+        gemini: [
+          {
+            cycle_start: new Date(cAStart).toISOString(),
+            cycle_start_source: 'explicit',
+            reset_time: new Date(cAStart + 7 * 86400_000).toISOString(),
+            ended_at: new Date(cBStart).toISOString(),
+            first_seen_at: new Date(cAStart).toISOString(),
+            observed_at: new Date(cAStart + 4 * 3600_000).toISOString(),
+            remaining_fraction: 0.70,
+            used_fraction: 0.30,
+            observations: [
+              { observed_at: new Date(cAStart).toISOString(), remaining_fraction: 1, used_fraction: 0 },
+              { observed_at: new Date(cAStart + 4 * 3600_000).toISOString(), remaining_fraction: 0.70, used_fraction: 0.30 },
+            ],
+          },
+          {
+            cycle_start: new Date(cBStart).toISOString(),
+            cycle_start_source: 'weekly_7d',
+            reset_time: new Date(cBStart + 7 * 86400_000).toISOString(),
+            first_seen_at: new Date(cBStart).toISOString(),
+            observed_at: new Date(cBStart + 4 * 3600_000).toISOString(),
+            remaining_fraction: 0.80,
+            used_fraction: 0.20,
+            observations: [
+              { observed_at: new Date(cBStart).toISOString(), remaining_fraction: 1, used_fraction: 0 },
+              { observed_at: new Date(cBStart + 4 * 3600_000).toISOString(), remaining_fraction: 0.80, used_fraction: 0.20 },
+            ],
+          },
+        ],
+      },
+    };
+    const rCross = await scan([[crossDir, 'desktop']], { now, quotaCycles: crossCycles });
+    const convCross = rCross.by_conversation.find((c) => c.id === 'conv-cross');
+    assert.equal(convCross.quota_pct_by_pool.gemini, 20); // $150/$1,000 (15%) + $150/$3,000 (5%) = 20%
+    assert.equal(rCross.period_quota.d7.gemini.pct, 50); // 30% + 20%
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -176,11 +176,36 @@ function speedHtml(r, openKeys, t, lang) {
 // subagents whose databases still exist; History also remembers ones Antigravity
 // has deleted, so its subtree total wins when it is larger.
 function sessionWithSubagents(s, hd, conversationId) {
+  if (!s || typeof s !== 'object') return s;
   const hc = hd && conversationId && Array.isArray(hd.by_conversation)
     ? hd.by_conversation.find((c) => c && c.id === conversationId)
     : null;
   const tot = hc && hc.total;
-  if (!tot || !num(tot.subagents) || num(tot.calls) <= num(s.calls)) return s;
+  const hasSubs = Boolean(tot && num(tot.subagents) && num(tot.calls) > num(s.calls));
+  const wv = (hd && hd.weekly_value_usd) || null;
+  const rawBasePctMap = hasSubs
+    ? (tot.quota_pct_by_pool || hc.quota_pct_by_pool || null)
+    : (hc && hc.quota_pct_by_pool ? hc.quota_pct_by_pool : null);
+  const basePctMap = rawBasePctMap && Object.values(rawBasePctMap).some((v) => isNum(v) && v > 0)
+    ? rawBasePctMap
+    : null;
+
+  let mergedQuotaPct = basePctMap ? { ...basePctMap } : null;
+  if (mergedQuotaPct && !hasSubs && hc && num(s.calls) > num(hc.calls) && wv) {
+    const livePools = s.cost_by_pool || {};
+    const histPools = hc.cost_by_pool || {};
+    for (const pk of Object.keys(livePools)) {
+      const deltaCost = Math.max(0, num(livePools[pk]) - num(histPools[pk]));
+      const poolVal = num(wv[pk]);
+      if (deltaCost > 0 && poolVal > 0) {
+        mergedQuotaPct[pk] = (num(mergedQuotaPct[pk]) || 0) + (deltaCost / poolVal) * 100;
+      }
+    }
+  }
+
+  if (!hasSubs) {
+    return mergedQuotaPct ? { ...s, quota_pct_by_pool: mergedQuotaPct } : s;
+  }
   const prompt = num(tot.input) + num(tot.cache_read);
   let subPool = hc.pool || s.pool || 'other';
   if (tot.cost_by_pool && typeof tot.cost_by_pool === 'object') {
@@ -207,6 +232,7 @@ function sessionWithSubagents(s, hd, conversationId) {
     d7_by_pool: tot.d7_by_pool,
     cost_by_pool: tot.cost_by_pool,
     quota_cost_by_pool: tot.quota_cost_by_pool || null,
+    ...(mergedQuotaPct ? { quota_pct_by_pool: mergedQuotaPct } : {}),
     subagents: tot.subagents,
     self: { input: hc.input, output: hc.output, cache_read: hc.cache_read, calls: hc.calls, est_cost_usd: hc.est_cost_usd, cost_estimated: hc.cost_estimated },
   };
@@ -224,9 +250,10 @@ function sessionHtml(r, { historyData, conversationId = '', t, lang }) {
   const costTip = pricingTip(s.pricing_source, null, { partial: !!s.cost_partial }, t, lang);
   const weeklyValueUsd = (hd && hd.weekly_value_usd) || null;
   const quotaCalibration = (hd && hd.quota_calibration) || null;
+  const hasConvQuota = Boolean(s.quota_pct_by_pool && Object.values(s.quota_pct_by_pool).some((v) => isNum(v) && v > 0));
   let weeklyHtml = '';
   let poolRows = '';
-  if (hasAnyWeeklyValue(weeklyValueUsd)) {
+  if (hasConvQuota || hasAnyWeeklyValue(weeklyValueUsd)) {
     const sCtx = s.model || !(Array.isArray(s.by_model) && s.by_model[0])
       ? s
       : { ...s, model: s.by_model[0].model, display_name: s.by_model[0].display_name };
