@@ -3,3 +3,7 @@
 .env
 dist/
 node_modules/
+art-out/
+art-raw/
+art-review/
+__pycache__/
