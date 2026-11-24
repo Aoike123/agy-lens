@@ -370,9 +370,13 @@ function cycleBarChart(list, endDay, period, t, lang) {
   const rows = cycleBarRows(cols);
   const modeCls = cols > 32 ? 'all dense' : cols >= 19 ? 'all' : cols >= 11 ? 'm3' : '';
   const stats = cycleRangeStats(shown, list);
+  const isValuedCycle = (cy) => !!(cy && isNum(cy.weekly_value_usd) && cy.weekly_value_usd > 0);
   const curCy = shown.find((cy) => cy.is_current) || list.find((cy) => cy.is_current) || null;
-  const hasCurRef = !!(curCy && isNum(curCy.weekly_value_usd) && curCy.weekly_value_usd > 0 && stats.maxVal > 0);
-  const curRows = hasCurRef ? Math.max(1, Math.min(rows, Math.round((curCy.weekly_value_usd / stats.maxVal) * rows))) : 0;
+  const refCy = isValuedCycle(curCy)
+    ? curCy
+    : ([...shown].reverse().find(isValuedCycle) || list.find(isValuedCycle) || null);
+  const hasRef = !!(refCy && stats.maxVal > 0);
+  const refRows = hasRef ? Math.max(1, Math.min(rows, Math.round((refCy.weekly_value_usd / stats.maxVal) * rows))) : 0;
 
   const emptyCells = '<span class="cell l0"></span>'.repeat(rows);
   let barsHtml = '';
@@ -382,14 +386,15 @@ function cycleBarChart(list, endDay, period, t, lang) {
   }
   for (const cy of shown) {
     const hasVal = isNum(cy.weekly_value_usd) && cy.weekly_value_usd > 0 && stats.maxVal > 0;
+    const isRefBar = cy === refCy;
     const litRows = hasVal ? Math.max(1, Math.min(rows, Math.round((cy.weekly_value_usd / stats.maxVal) * rows))) : 0;
     const lvl = hasVal ? cycleHeatLevel(cy.weekly_value_usd, stats.maxVal) : 0;
     let cells = '';
     for (let r = rows - 1; r >= 0; r -= 1) {
       if (hasVal && r < litRows) {
-        const isShrink = hasCurRef && !cy.is_current && r >= curRows;
+        const isShrink = hasRef && !isRefBar && r >= refRows;
         cells += `<span class="cell l${lvl}${isShrink ? ' diff-shrink' : ''}"></span>`;
-      } else if (hasVal && hasCurRef && !cy.is_current && r < curRows) {
+      } else if (hasVal && hasRef && !isRefBar && r < refRows) {
         cells += '<span class="cell diff-grow"></span>';
       } else {
         cells += '<span class="cell l0"></span>';
@@ -460,7 +465,7 @@ export function weeklyCyclesHtml(historyData, _openKeys, t, lang, poolOrder = nu
     const curHtml = list.filter((cy) => cy.is_current).map((cy) => {
       const valHtml = isNum(cy.weekly_value_usd) && cy.weekly_value_usd > 0
         ? `<span class="wcy-cur">${esc(fmtUsd(cy.weekly_value_usd))}</span>`
-        : '';
+        : `<span>${esc(t('weeklyEstimating'))}</span>`;
       return `<span class="wcy-cur-grp"><span class="wtag">${esc(t('cycleCurrent'))}</span>${valHtml}</span>`;
     }).join('');
     const dStr = latest ? fmtDeltaPct(latest.change_pct) : '';

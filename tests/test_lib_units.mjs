@@ -3227,8 +3227,41 @@ test('Updater: semver comparisons, release parsers, URL sanitization, fallback &
     lang: 'zh',
   });
   const unvalCurBars = edgeHistUnvaluedCur.split('<div class="heat-foot">')[0].split(/<div class="cbar\b/).slice(1);
+  assert.ok(edgeHistUnvaluedCur.includes('估算中'));
   assert.equal((unvalCurBars[8].match(/class="cell l4"/g) || []).length, 3);
   assert.equal((unvalCurBars[8].match(/diff-grow|diff-shrink/g) || []).length, 0);
+
+  // When current cycle is newly reset and estimating, fallback diff baseline uses the most recent valued cycle (11/21).
+  const edgeHistFallbackRef = renderQuotaHtml({
+    data: { plan: 'Google AI Ultra', fetched_at: '2026-11-24T01:10:00Z', pools: [] },
+    historyData: {
+      weekly_cycles: {
+        gemini: [
+          { cycle_start: '2026-11-24T00:10:00Z', is_current: true, weekly_value_usd: null },
+          { cycle_start: '2026-11-21T08:51:10Z', ended_at: '2026-11-24T00:10:00Z', is_current: false, weekly_value_usd: 1363.87 },
+          { cycle_start: '2026-11-19T09:30:00Z', ended_at: '2026-11-21T08:51:10Z', is_current: false, weekly_value_usd: 2043.21 },
+          { cycle_start: '2026-11-12T09:30:00Z', ended_at: '2026-11-19T09:30:00Z', is_current: false, weekly_value_usd: 600 },
+        ],
+      },
+    },
+    openKeys: new Set(),
+    t: createTranslator('zh'),
+    lang: 'zh',
+  });
+  assert.ok(edgeHistFallbackRef.includes('<span class="wtag">当前</span><span>估算中</span>'));
+  const fbBars = edgeHistFallbackRef.split('<div class="heat-foot">')[0].split(/<div class="cbar\b/).slice(1);
+  assert.equal(fbBars.length, 10);
+  assert.equal((fbBars[6].match(/class="cell l1"/g) || []).length, 1); // 11/12 $600 -> 1/3 rows
+  assert.equal((fbBars[6].match(/class="cell diff-grow"/g) || []).length, 1); // vs 11/21 $1363.87 (2/3 rows)
+  assert.equal((fbBars[6].match(/class="cell l0"/g) || []).length, 1);
+  assert.equal((fbBars[7].match(/class="cell l4"/g) || []).length, 2); // 11/19 $2043.21 -> 2 base rows
+  assert.equal((fbBars[7].match(/class="cell l4 diff-shrink"/g) || []).length, 1); // +1 red shrink row vs 11/21
+  assert.equal((fbBars[8].match(/class="cell l3"/g) || []).length, 2); // 11/21 temp baseline -> 2/3 rows
+  assert.equal((fbBars[8].match(/class="cell l0"/g) || []).length, 1);
+  assert.equal((fbBars[8].match(/diff-grow|diff-shrink/g) || []).length, 0);
+  assert.ok(fbBars[9].startsWith(' cur unvalued"'));
+  assert.equal((fbBars[9].match(/class="cell l0"/g) || []).length, 3);
+  assert.equal((fbBars[9].match(/diff-grow|diff-shrink/g) || []).length, 0);
   const parseHex = (h) => [
     parseInt(h.slice(1, 3), 16),
     parseInt(h.slice(3, 5), 16),
