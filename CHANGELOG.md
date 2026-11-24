@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [2.4.0] - 2026-11-24
+
+### Added
+
+- **In-panel one-click self-update (`Update now` / `立即更新`)** (`sidecars/agy-lens/lib/updater.mjs`, `sidecars/agy-lens/main.mjs`, `sidecars/agy-lens/web/{app.js,format.js,i18n.js,styles.css}`): replaces the copy-command workflow for standard plugin installs with a primary **Update now** button backed by `POST /api/update/install`. Downloads are restricted to HTTPS GitHub repo and `*.githubusercontent.com` release CDN hosts, verified against `SHA256SUMS.txt` using `timingSafeEqual` before extraction, unpacked via pure-Node CRC-32 PKZIP validation (rejecting symlinks and `../` traversal), applied atomically in-place with automatic `DATA_DIR` backup/rollback and `bin/cli.mjs` executable permissions (`+x`) preserved on Linux/macOS, and automatically followed by sidecar respawn + panel reload. Git checkouts (`agy-lens-dev`), read-only folders, and `AGY_LENS_NO_SELF_UPDATE=1` installs stay protected and fall back cleanly to `Copy cmd` (with `Retry` + `Copy cmd` fallback on download/install errors).
+
+### Fixed
+
+- **Live update push detection & platform/summary edge cases** (`sidecars/agy-lens/web/app.js`, `sidecars/agy-lens/lib/updater.mjs`): fixed `/api/update` only running once on startup so the panel now re-checks every 30 minutes, on window wake/focus (10m throttle), and on manual Refresh button clicks (1m cooldown); skipped leading markdown image lines in `summarizeNotes` so release notes never summarize to `"!Agy Lens"`; and tightened fallback platform detection (`/\bwin(?:dows|32|64|nt)\b/i`) so `Darwin` on macOS selects `install.sh` instead of PowerShell.
+
 ## [2.3.1] - 2026-11-24
 
 ### Fixed

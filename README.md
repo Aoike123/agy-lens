@@ -119,7 +119,7 @@ npx github:Aoike123/agy-lens --json   # machine-readable output
 
 - **Local by default.** All usage and quota numbers come from files and the local language server on your machine. No telemetry, no uploads.
 - **Read-only.** Conversation databases are opened read-only. The app is never patched; Agy Lens only uses the official plugin/sidecar mechanism.
-- **Anonymous public checks.** **Sync prices** downloads the public LiteLLM / OpenRouter price list on request, and the cached release check queries GitHub Releases every 6 hours for an in-panel update banner (set `AGY_LENS_NO_UPDATE_CHECK=1` to disable). No credentials or local data are sent.
+- **Anonymous public checks.** **Sync prices** downloads the public LiteLLM / OpenRouter price list on request, the cached release check queries GitHub Releases every 6 hours for an in-panel update banner (set `AGY_LENS_NO_UPDATE_CHECK=1` to disable), and clicking **Update now** downloads and SHA-256-verifies the official release ZIP from GitHub (set `AGY_LENS_NO_SELF_UPDATE=1` to disable in-panel updates). No credentials or local data are sent.
 
 ## FAQ
 
