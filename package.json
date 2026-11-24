@@ -1,6 +1,6 @@
 {
   "name": "agy-lens",
-  "version": "2.4.0",
+  "version": "2.5.0",
   "description": "All-in-one local context window, tok/s speed, quota, and token spend cockpit & CLI for Antigravity 2.0 (pure Node.js 24+, zero dependencies).",
   "type": "module",
   "bin": {

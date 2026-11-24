@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [2.5.0] - 2026-11-24
+
+### Added
+
+- **Interactive in-cycle burn-rate segment drill-down** (`sidecars/agy-lens/lib/{quota.mjs,history.mjs}`, `sidecars/agy-lens/web/{views/quota.js,styles.css,i18n.js}`): clicking any cycle bar under Quota → **Cycle valuations** smoothly blooms in-place from that column's center (`--ox`) with zero layout shift into variable-width per-segment burn-rate bars, complete with a dashed weighted-median baseline, coral-red surge highlighting (`≥ 1.4×`), hover live readout showing plain-language concurrent conversation peaks (`Up to N chats at once` / `最多同时 N 个对话`), external-usage / idle-gap / early-sample badges, `← Back` / `Esc` / 320ms mouse-leave collapse, and state-tinted luminous glow selection without white borders.
+
+### Changed
+
+- **Noise-resistant cycle segmentation & observation retention** (`sidecars/agy-lens/lib/{quota.mjs,history.mjs}`): raised `MAX_OBS_PER_CYCLE` to `300` while preserving `≥ 2h` gap boundaries and `≥ 2%` steps during downsampling; tightened display segmentation to `≥ 4%` delta with suffix-minimum transient spike pruning, `+1.5%` settled-valley lookahead alignment, quota-delta-weighted baselines, and `< 3%` low-confidence alert suppression to filter transient ~1% in-flight reservation jitter.
+
 ## [2.4.0] - 2026-11-24
 
 ### Added
