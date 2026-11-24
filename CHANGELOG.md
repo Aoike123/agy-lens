@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [2.6.1] - 2026-11-24
+
+### Added
+
+- **Project grouping & filtering in History** (`sidecars/agy-lens/lib/history.mjs`, `sidecars/agy-lens/web/{views/history.js,app.js,styles.css,i18n.js}`): reads Antigravity's native `project_id` / `workspace_uris` and `config/projects/*.json` official names (skipping internal sidecar configs and persisting `project_id` / `project_name` in `history-cache.json` across DB pruning so renamed paths under the same project ID unify automatically); adds a **By project / Flat** toggle (`按项目 / 平铺`), aggregated collapsible project cards summing tokens, costs, subagents, and time-locked weekly quota `%`, plus project filter pills across **By session** and **Session list** (matching project names in search too).
+
 ## [2.6.0] - 2026-11-24
 
 ### Changed
