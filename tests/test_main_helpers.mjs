@@ -926,6 +926,12 @@ function createMockDomSandbox({ navigatorLanguage = 'en-US', brokenStorage = fal
       this.value = '';
       this.open = false;
       this.dataset = {};
+      this.style = {
+        setProperty: (k, v) => {
+          const cur = this._attrs.get('style') || '';
+          this._attrs.set('style', `${cur ? `${cur};` : ''}${k}:${v}`);
+        },
+      };
       for (const [k, v] of Object.entries(attrs)) this.setAttribute(k, v);
       this.classList = {
         toggle: (cls, force) => {
@@ -969,24 +975,71 @@ function createMockDomSandbox({ navigatorLanguage = 'en-US', brokenStorage = fal
     set innerHTML(val) {
       this._innerHTML = String(val ?? '');
       this._children = [];
-      // Lightweight tag scan so querySelector / querySelectorAll find rendered attributes/ids.
-      const tagRe = /<([A-Za-z][A-Za-z0-9-]*)(\s+[^>]*)?>/g;
+      this._textContent = '';
+      const VOID_TAGS = new Set([
+        'br', 'hr', 'img', 'input', 'meta', 'link', 'path', 'rect', 'circle', 'line', 'polygon', 'polyline', 'use',
+      ]);
+      const tokenRe = /<(\/)?([A-Za-z][A-Za-z0-9-]*)(\s+[^>]*)?>/g;
+      const stack = [this];
+      let lastIdx = 0;
       let m;
-      while ((m = tagRe.exec(this._innerHTML)) !== null) {
-        const tag = m[1];
-        if (tag.startsWith('/')) continue;
-        const parsed = parseTagAttrs(m[2] || '');
+      while ((m = tokenRe.exec(this._innerHTML)) !== null) {
+        if (m.index > lastIdx && stack.length > 1) {
+          stack[stack.length - 1]._textContent += ` ${this._innerHTML.slice(lastIdx, m.index)}`;
+        }
+        lastIdx = tokenRe.lastIndex;
+        const isClose = Boolean(m[1]);
+        const tag = m[2];
+        const attrRaw = m[3] || '';
+        if (isClose) {
+          for (let i = stack.length - 1; i >= 1; i -= 1) {
+            if (stack[i].tagName === tag.toUpperCase()) {
+              stack.length = i;
+              break;
+            }
+          }
+          continue;
+        }
+        const parsed = parseTagAttrs(attrRaw);
         const child = new MockElement(tag);
         for (const [k, v] of parsed.entries()) child.setAttribute(k, v);
-        child._parent = this;
-        this._children.push(child);
+        const curParent = stack[stack.length - 1];
+        child._parent = curParent;
+        curParent._children.push(child);
+        if (!VOID_TAGS.has(tag.toLowerCase()) && !/\/\s*$/.test(attrRaw)) {
+          stack.push(child);
+        }
       }
     }
 
     get textContent() {
       if (this._innerHTML) return this._innerHTML.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-      return this._textContent;
+      const own = this._textContent || '';
+      if (this._children.length) {
+        return `${own} ${this._children.map((c) => c.textContent).join(' ')}`.replace(/\s+/g, ' ').trim();
+      }
+      return own.replace(/\s+/g, ' ').trim();
     }
+
+    contains(node) {
+      let cur = node;
+      while (cur) {
+        if (cur === this) return true;
+        cur = cur._parent;
+      }
+      return false;
+    }
+
+    dispatch(type, extra = {}) {
+      const ev = { type, target: this, currentTarget: this, preventDefault() {}, ...extra };
+      let cur = this;
+      while (cur) {
+        for (const fn of cur._listeners.get(type) || []) fn(ev);
+        cur = cur._parent;
+      }
+      for (const fn of docListeners.get(type) || []) fn(ev);
+    }
+
     set textContent(v) {
       this._textContent = String(v ?? '');
       this._innerHTML = '';
@@ -1455,6 +1508,101 @@ test('bundled /app.js executes in mocked browser VM (en-US & opaque zh-CN) witho
     assert.ok(vmGit.elements.updateBanner.querySelector('[data-copy-update]'));
   } finally {
     vmGit.cleanup();
+  }
+
+  // Scenario D: Cycle drill-down opens on bar click with --ox, updates on sbar hover, and closes on back/Escape/mouseout.
+  const cyBase = Date.UTC(2026, 10, 21, 8, 51, 0);
+  const drillFixtures = {
+    ...fetchFixtures,
+    '/api/history': {
+      ...fetchFixtures['/api/history'],
+      weekly_value_usd: { gemini: 2200 },
+      weekly_cycles: {
+        gemini: [{
+          cycle_start: new Date(cyBase).toISOString(),
+          reset_time: new Date(cyBase + 7 * 86400_000).toISOString(),
+          is_current: true,
+          used_fraction: 0.60,
+          weekly_value_usd: 1419,
+          segment_baseline_usd: 2200,
+          segments: [
+            {
+              start_at: new Date(cyBase).toISOString(),
+              end_at: new Date(cyBase + 16 * 3600_000).toISOString(),
+              used_delta: 0.14,
+              cost_usd: 308,
+              calls: 500,
+              implied_weekly_usd: 2200,
+              burn_ratio: 1,
+              kind: 'normal',
+              is_gap: false,
+              peak_concurrency: 4,
+              p90_concurrency: 3,
+            },
+            {
+              start_at: new Date(cyBase + 16 * 3600_000).toISOString(),
+              end_at: new Date(cyBase + 40 * 3600_000).toISOString(),
+              used_delta: 0.46,
+              cost_usd: 506,
+              calls: 2000,
+              implied_weekly_usd: 1100,
+              burn_ratio: 2,
+              kind: 'surge',
+              is_gap: true,
+              peak_concurrency: 33,
+              p90_concurrency: 14,
+            },
+          ],
+        }],
+      },
+    },
+  };
+  const vmDrill = createMockDomSandbox({ navigatorLanguage: 'en-US', brokenStorage: false, fetchFixtures: drillFixtures });
+  try {
+    vm.runInNewContext(bundled, vmDrill.sandbox, { filename: 'app.bundle.js' });
+    await flush();
+    vmDrill.elements.tabQuota.click();
+    await flush();
+
+    const poolEl = vmDrill.elements.paneQuota.querySelector('.wcy-pool');
+    assert.ok(poolEl && !poolEl.classList.contains('is-drill'));
+    const barEl = vmDrill.elements.paneQuota.querySelector('.cbar[data-cy-key]');
+    assert.ok(barEl);
+
+    // Click cycle column -> opens drill-down, defaults to surge segment #1 (33 peak)
+    barEl.click();
+    assert.equal(poolEl.classList.contains('is-drill'), true);
+    assert.ok((poolEl.querySelector('.cy-stage').getAttribute('style') || '').includes('--ox:'));
+    const sbars = poolEl.querySelectorAll('.sbar');
+    assert.equal(sbars.length, 2);
+    assert.equal(sbars[1].classList.contains('is-active'), true);
+    assert.ok(poolEl.querySelector('.seg-foot').textContent.includes('Up to 33 chats at once'));
+
+    // Hover first segment -> switches footer to Up to 4 chats at once without full re-render
+    sbars[0].dispatch('mouseover');
+    assert.equal(sbars[0].classList.contains('is-active'), true);
+    assert.equal(sbars[1].classList.contains('is-active'), false);
+    assert.ok(poolEl.querySelector('.seg-foot').textContent.includes('Up to 4 chats at once'));
+
+    // Click back closes drill-down cleanly
+    poolEl.querySelector('[data-cy-back]').click();
+    assert.equal(poolEl.classList.contains('is-drill'), false);
+
+    // Re-open then trigger mouseout outside pool -> closes after 320ms grace timer
+    barEl.click();
+    assert.equal(poolEl.classList.contains('is-drill'), true);
+    poolEl.dispatch('mouseout', { relatedTarget: vmDrill.elements.tabQuota });
+    assert.equal(poolEl.classList.contains('is-drill'), true); // still open during grace period
+    await new Promise((r) => setTimeout(r, 380));
+    assert.equal(poolEl.classList.contains('is-drill'), false);
+
+    // Re-open then press Escape -> closes immediately
+    barEl.click();
+    assert.equal(poolEl.classList.contains('is-drill'), true);
+    vmDrill.elements.paneQuota.dispatch('keydown', { key: 'Escape' });
+    assert.equal(poolEl.classList.contains('is-drill'), false);
+  } finally {
+    vmDrill.cleanup();
   }
 });
 

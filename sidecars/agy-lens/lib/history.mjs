@@ -488,7 +488,225 @@ export const WEEK_SEC = 7 * 24 * 3600;
 export const MIN_CYCLE_USED_FRACTION = 0.05;
 export const MIN_DELTA_FINE_FRACTION = 0.03;
 export const MIN_DELTA_COARSE_FRACTION = 0.05;
+const GAP_MIN_DURATION_MS = 2 * 3600_000;
+const DISP_MIN_DELTA = 0.04;
+const DISP_MAX_TARGET_DELTA = 0.07;
+const DISP_LOW_CONF_DELTA = 0.03;
+const DISP_VALLEY_LOOKAHEAD = 0.015;
 const isFineFraction = (rem) => Math.abs(rem * 100 - Math.round(rem * 100)) > 1e-4;
+
+function buildSettledDisplayRawSegments(segPoints, evalObsMs, saturated) {
+  if (!Array.isArray(segPoints) || segPoints.length < 2) return [];
+  const within = segPoints.filter((p) => p.ms <= evalObsMs + 1000 && p.rem > 0);
+  const src = within.length >= 2
+    ? within
+    : (saturated ? segPoints.filter((p) => p.ms <= evalObsMs + 1000) : within);
+  if (src.length < 2) return [];
+
+  const n = src.length;
+  const sufMin = new Array(n);
+  sufMin[n - 1] = src[n - 1].used;
+  for (let i = n - 2; i >= 0; i -= 1) {
+    sufMin[i] = Math.min(src[i].used, sufMin[i + 1]);
+  }
+  const settled = [];
+  for (let i = 0; i < n; i += 1) {
+    if (i > 0 && i < n - 1 && src[i].used > sufMin[i + 1] + 1e-6) continue;
+    if (settled.length && src[i].used <= settled[settled.length - 1].used + 1e-6) continue;
+    const isValley = i === 0 || (i > 0 && src[i - 1].used > src[i].used + 1e-4);
+    settled.push({ ...src[i], isValley });
+  }
+  if (settled.length < 2) return [];
+
+  const rawSegs = [];
+  for (let i = 1; i < settled.length; i += 1) {
+    const a = settled[i - 1];
+    const b = settled[i];
+    if (b.ms <= a.ms || b.used <= a.used) continue;
+    const delta = roundN(b.used - a.used, 8);
+    if (delta <= 0) continue;
+    let rawObsCount = 0;
+    for (const pt of segPoints) {
+      if (pt.ms > a.ms && pt.ms < b.ms) rawObsCount += 1;
+    }
+    rawSegs.push({
+      startSec: a.ms / 1000,
+      endSec: b.ms / 1000,
+      startInclusive: a.used <= 0,
+      delta,
+      endIsValley: Boolean(b.isValley),
+      durationMs: b.ms - a.ms,
+      rawObsCount,
+      calls: 0,
+      costUsd: 0,
+      costPartial: false,
+      modelUsd: new Map(),
+      minConvs: new Map(),
+    });
+  }
+  return rawSegs;
+}
+
+function finalizeCycleDisplaySegments(cy, effectiveUsed, effectiveCost) {
+  const newAcc = (raw) => {
+    const modelUsd = new Map();
+    if (raw.modelUsd) {
+      for (const [m, v] of raw.modelUsd) modelUsd.set(m, v);
+    }
+    const minConvs = new Map();
+    if (raw.minConvs) {
+      for (const [mk, s] of raw.minConvs) minConvs.set(mk, new Set(s));
+    }
+    return {
+      startSec: raw.startSec,
+      endSec: raw.endSec,
+      delta: raw.delta,
+      durationMs: raw.durationMs,
+      calls: raw.calls || 0,
+      costUsd: raw.costUsd || 0,
+      costPartial: Boolean(raw.costPartial),
+      isExternal: Boolean(raw.isExternal),
+      isGap: Boolean(raw.isGap),
+      oneSample: Boolean(raw.oneSample),
+      modelUsd,
+      minConvs,
+    };
+  };
+
+  const mergeInto = (acc, raw) => {
+    acc.endSec = Math.max(acc.endSec, raw.endSec);
+    acc.durationMs = Math.max(0, (acc.endSec - acc.startSec) * 1000);
+    acc.delta = roundN(acc.delta + raw.delta, 8);
+    acc.calls += raw.calls || 0;
+    acc.costUsd += raw.costUsd || 0;
+    if (raw.costPartial) acc.costPartial = true;
+    if (raw.modelUsd) {
+      for (const [m, v] of raw.modelUsd) acc.modelUsd.set(m, (acc.modelUsd.get(m) || 0) + v);
+    }
+    if (raw.minConvs) {
+      for (const [mk, s] of raw.minConvs) {
+        let tgt = acc.minConvs.get(mk);
+        if (!tgt) {
+          tgt = new Set();
+          acc.minConvs.set(mk, tgt);
+        }
+        for (const cid of s) tgt.add(cid);
+      }
+    }
+  };
+
+  const merged = [];
+  if (!cy._dispRawSegs.length) {
+    if (cy.observed_calls > 0 || effectiveUsed > 0) {
+      const mUsd = new Map();
+      for (const [m, mv] of cy._evalCostByModel || []) mUsd.set(m, mv.total);
+      merged.push(newAcc({
+        startSec: cy._evalStartSec,
+        endSec: cy._evalObsSec,
+        delta: effectiveUsed,
+        durationMs: Math.max(0, (cy._evalObsSec - cy._evalStartSec) * 1000),
+        calls: cy.observed_calls,
+        costUsd: effectiveCost,
+        costPartial: cy.cost_partial,
+        isExternal: cy.observed_calls === 0 && effectiveUsed >= 0.005,
+        isGap: false,
+        oneSample: true,
+        modelUsd: mUsd,
+        minConvs: cy._evalConvs,
+      }));
+    }
+  } else {
+    const rawList = cy._dispRawSegs;
+    const totalRawDelta = rawList.reduce((s, x) => s + x.delta, 0);
+    const minDelta = Math.max(DISP_MIN_DELTA, Math.min(DISP_MAX_TARGET_DELTA, roundN((totalRawDelta || cy.used_fraction) / 10, 4)));
+    const isSpecialRaw = (r) => (r.calls === 0 && r.delta >= 0.005)
+      || (r.durationMs >= GAP_MIN_DURATION_MS && r.rawObsCount === 0 && r.delta >= 0.005);
+    let cur = null;
+
+    for (let idx = 0; idx < rawList.length; idx += 1) {
+      const raw = rawList[idx];
+      const isExt = raw.calls === 0 && raw.delta >= 0.005;
+      const isGap = !isExt && raw.durationMs >= GAP_MIN_DURATION_MS && raw.rawObsCount === 0 && raw.delta >= 0.005;
+      if (isExt || isGap) {
+        if (cur) {
+          merged.push(cur);
+          cur = null;
+        }
+        merged.push(newAcc({ ...raw, isExternal: isExt, isGap }));
+        continue;
+      }
+      if (!cur) cur = newAcc(raw);
+      else mergeInto(cur, raw);
+
+      const startsAtReset = cy._startSec !== null && Math.abs(cur.startSec - cy._startSec) <= 60;
+      const initResJump = startsAtReset && (cur.durationMs < 15 * 60_000 || cur.costUsd < 10);
+      if (!initResJump && cur.delta >= minDelta) {
+        let waitForValley = false;
+        if (!raw.endIsValley) {
+          let ahead = 0;
+          for (let j = idx + 1; j < rawList.length; j += 1) {
+            if (isSpecialRaw(rawList[j])) break;
+            ahead += rawList[j].delta;
+            if (ahead > DISP_VALLEY_LOOKAHEAD) break;
+            if (rawList[j].endIsValley) {
+              waitForValley = true;
+              break;
+            }
+          }
+        }
+        if (!waitForValley) {
+          merged.push(cur);
+          cur = null;
+        }
+      }
+    }
+    if (cur) {
+      const prev = merged[merged.length - 1];
+      if (prev && !prev.isExternal && !prev.isGap && cur.delta < DISP_LOW_CONF_DELTA) {
+        mergeInto(prev, cur);
+      } else {
+        merged.push(cur);
+      }
+    }
+  }
+
+  return merged.map((seg) => {
+    const counts = [...seg.minConvs.values()].map((s) => s.size).sort((a, b) => a - b);
+    const peakConc = counts.length ? counts[counts.length - 1] : 0;
+    const p90Conc = counts.length ? counts[Math.floor((counts.length - 1) * 0.9)] : 0;
+    let topModel = null;
+    let topModelUsd = 0;
+    for (const [m, v] of seg.modelUsd) {
+      if (v > topModelUsd) {
+        topModelUsd = v;
+        topModel = m;
+      }
+    }
+    const impliedWeeklyUsd = !seg.isExternal && seg.delta >= 0.003 && seg.costUsd > 0
+      ? roundN(seg.costUsd / seg.delta, 2)
+      : null;
+    const usdPerPct = impliedWeeklyUsd !== null ? roundN(impliedWeeklyUsd / 100, 2) : null;
+    return {
+      start_at: new Date(seg.startSec * 1000).toISOString(),
+      end_at: new Date(seg.endSec * 1000).toISOString(),
+      used_delta: seg.delta,
+      cost_usd: roundN(seg.costUsd, 2),
+      calls: seg.calls,
+      cost_partial: seg.costPartial,
+      implied_weekly_usd: impliedWeeklyUsd,
+      usd_per_pct: usdPerPct,
+      burn_ratio: null,
+      kind: seg.isExternal ? 'external' : (impliedWeeklyUsd === null ? 'unvalued' : 'normal'),
+      is_gap: seg.isGap,
+      one_sample: seg.oneSample,
+      low_confidence: !seg.isExternal && seg.delta < DISP_LOW_CONF_DELTA,
+      peak_concurrency: peakConc,
+      p90_concurrency: p90Conc,
+      top_model: topModel,
+      top_model_pct: seg.costUsd > 0 && topModelUsd > 0 ? roundN((topModelUsd / seg.costUsd) * 100, 1) : 0,
+    };
+  });
+}
 
 function normalizeCycleObsPoints(rawObs, resetMs, fallbackObs) {
   const src = Array.isArray(rawObs) && rawObs.length ? rawObs : [fallbackObs];
@@ -688,6 +906,8 @@ export function prepareQuotaCycles(quotaCycles) {
         }
       }
 
+      const dispRawSegs = buildSettledDisplayRawSegments(segPoints, evalObsMs, sat);
+
       out.push({
         cycle_start: cycleStartIso,
         cycle_start_source: hasCycleStart ? startSource : 'unknown',
@@ -715,7 +935,9 @@ export function prepareQuotaCycles(quotaCycles) {
         _evalObsSec: evalObsMs / 1000,
         _minUsedFraction: minUsedFraction,
         _evalCostByModel: new Map(),
+        _evalConvs: new Map(),
         _segments: segments,
+        _dispRawSegs: dispRawSegs,
         observed_cost_usd: 0,
         cycle_cost_usd: 0,
         observed_calls: 0,
@@ -1296,6 +1518,15 @@ export async function scan(roots, {
             const afterEvalStart = cy._evalStartInclusive ? ts >= cy._evalStartSec : ts > cy._evalStartSec;
             if (cy.eval_used_fraction > 0 && afterEvalStart && ts <= cy._evalObsSec + 5) {
               cy.observed_calls += n;
+              if (!cy._dispRawSegs.length) {
+                const mk = Math.floor(ts / 60);
+                let cset = cy._evalConvs.get(mk);
+                if (!cset) {
+                  cset = new Set();
+                  cy._evalConvs.set(mk, cset);
+                }
+                cset.add(conv.id);
+              }
               if (parts !== null) {
                 cy.observed_cost_usd += cost;
                 if (isEst) cy.cost_estimated = true;
@@ -1310,6 +1541,31 @@ export async function scan(roots, {
                 em.total += cost;
               } else {
                 cy.cost_partial = true;
+              }
+            }
+            if (cy._dispRawSegs.length) {
+              for (let si = 0; si < cy._dispRawSegs.length; si += 1) {
+                const seg = cy._dispRawSegs[si];
+                const isLastSeg = si === cy._dispRawSegs.length - 1;
+                const afterSegStart = seg.startInclusive ? ts >= seg.startSec : ts > seg.startSec;
+                const beforeSegEnd = isLastSeg ? ts <= seg.endSec + 5 : ts <= seg.endSec;
+                if (afterSegStart && beforeSegEnd) {
+                  seg.calls += n;
+                  if (parts !== null) {
+                    seg.costUsd += cost;
+                    seg.modelUsd.set(model, (seg.modelUsd.get(model) || 0) + cost);
+                  } else {
+                    seg.costPartial = true;
+                  }
+                  const mk = Math.floor(ts / 60);
+                  let cset = seg.minConvs.get(mk);
+                  if (!cset) {
+                    cset = new Set();
+                    seg.minConvs.set(mk, cset);
+                  }
+                  cset.add(conv.id);
+                  break;
+                }
               }
             }
             if (cy._segments.length) {
@@ -1580,12 +1836,55 @@ export async function scan(roots, {
         weekly_value_usd: valid ? roundN(evalCostForWeekly / effectiveUsed, 2) : null,
         prev_weekly_value_usd: null,
         change_pct: null,
+        segment_baseline_usd: null,
+        segments: finalizeCycleDisplaySegments(cy, effectiveUsed, effectiveCost),
         cost_estimated: cy.cost_estimated,
         cost_partial: cy.cost_partial,
         plan: cy.plan,
         tier: cy.tier,
       };
     });
+    const weightedMedian = (entries) => {
+      if (!entries.length) return null;
+      const sorted = [...entries].sort((a, b) => a.val - b.val);
+      const totalW = sorted.reduce((s, e) => s + e.w, 0);
+      if (totalW <= 0) return sorted[sorted.length >> 1].val;
+      const half = totalW / 2;
+      let acc = 0;
+      for (const e of sorted) {
+        acc += e.w;
+        if (acc >= half) return e.val;
+      }
+      return sorted[sorted.length - 1].val;
+    };
+    const tiers = [[], [], [], []];
+    for (const cy of outList) {
+      for (const seg of cy.segments) {
+        if (!seg || seg.kind === 'external' || !seg.implied_weekly_usd || seg.implied_weekly_usd <= 0) continue;
+        const entry = { val: seg.implied_weekly_usd, w: Math.max(1e-4, seg.used_delta || 0) };
+        if (!seg.is_gap && !seg.low_confidence) tiers[0].push(entry);
+        if (!seg.is_gap) tiers[1].push(entry);
+        if (!seg.low_confidence) tiers[2].push(entry);
+        tiers[3].push(entry);
+      }
+    }
+    const poolSegBaselineRaw = tiers.reduce((res, bucket) => res ?? weightedMedian(bucket), null);
+    const poolSegBaseline = poolSegBaselineRaw !== null ? roundN(poolSegBaselineRaw, 2) : null;
+    for (const cy of outList) {
+      const refBase = poolSegBaseline || cy.weekly_value_usd;
+      cy.segment_baseline_usd = refBase || null;
+      for (const seg of cy.segments) {
+        if (seg.kind === 'external' || !seg.implied_weekly_usd || seg.implied_weekly_usd <= 0 || !refBase || refBase <= 0) {
+          continue;
+        }
+        const ratio = roundN(refBase / seg.implied_weekly_usd, 2);
+        seg.burn_ratio = ratio;
+        if (seg.low_confidence) seg.kind = 'normal';
+        else if (ratio >= 1.4) seg.kind = 'surge';
+        else if (ratio <= 0.72) seg.kind = 'slow';
+        else seg.kind = 'normal';
+      }
+    }
     for (let i = 0; i < outList.length; i += 1) {
       const curVal = outList[i].weekly_value_usd;
       if (!curVal || curVal <= 0) continue;

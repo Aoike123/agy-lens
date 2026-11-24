@@ -266,6 +266,148 @@ function fmtAxisDate(iso) {
   return d ? `${d.getMonth() + 1}/${d.getDate()}` : '';
 }
 
+const pad2 = (n) => String(n).padStart(2, '0');
+
+export function cycleKeyOf(cy) {
+  return String((cy && (cy.cycle_start || cy.reset_time || cy.observed_at)) || '');
+}
+
+export function formatSegSpan(startIso, endIso, lang = 'en') {
+  const a = parseDate(startIso);
+  const b = parseDate(endIso);
+  if (!a && !b) return '—';
+  const hm = (d) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+  const dm = (d) => `${d.getMonth() + 1}/${d.getDate()}`;
+  if (!a) return `${dm(b)} ${hm(b)}`;
+  if (!b) return `${dm(a)} ${hm(a)}`;
+  const sameDay = a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  return sameDay ? `${dm(a)} ${hm(a)}–${hm(b)}` : `${dm(a)} ${hm(a)}–${dm(b)} ${hm(b)}`;
+}
+
+export function pickDefaultSegIndex(segments) {
+  if (!Array.isArray(segments) || !segments.length) return -1;
+  let bestSurgeIdx = -1;
+  let bestSurgeRatio = -1;
+  let lastValuedIdx = -1;
+  for (let i = 0; i < segments.length; i += 1) {
+    const s = segments[i];
+    if (!s) continue;
+    if (s.kind === 'surge' && isNum(s.burn_ratio) && s.burn_ratio > bestSurgeRatio) {
+      bestSurgeRatio = s.burn_ratio;
+      bestSurgeIdx = i;
+    }
+    if (isNum(s.implied_weekly_usd) && s.implied_weekly_usd > 0) {
+      lastValuedIdx = i;
+    }
+  }
+  if (bestSurgeIdx >= 0) return bestSurgeIdx;
+  if (lastValuedIdx >= 0) return lastValuedIdx;
+  return segments.length - 1;
+}
+
+export function renderSegmentFootHtml(seg, totalSegs, t, lang = 'en') {
+  if (!seg) return `<div class="seg-foot-row"><span class="seg-foot-item">${esc(t('cycleDrillNoSegs'))}</span></div>`;
+  const span = formatSegSpan(seg.start_at, seg.end_at, lang);
+  const usedStr = fmtPctNum(num(seg.used_delta) * 100);
+  if (seg.kind === 'external') {
+    const r1 = `<div class="seg-foot-row"><span class="seg-foot-item">${esc(span)}</span><span class="seg-foot-item seg-foot-val">${esc(t('cycleDrillExternal'))}</span></div>`;
+    const r2 = `<div class="seg-foot-row"><span class="seg-foot-item">${esc(t('cycleDrillUsed', usedStr))}</span></div>`;
+    return `${r1}${r2}`;
+  }
+  let valHtml = '';
+  if (isNum(seg.implied_weekly_usd) && seg.implied_weekly_usd > 0) {
+    const ratioStr = isNum(seg.burn_ratio) ? seg.burn_ratio.toFixed(1).replace(/\.0$/, '') : '';
+    const badge = seg.kind === 'surge' && ratioStr
+      ? ` <span class="seg-foot-surge">(${esc(t('cycleDrillSurge', ratioStr))})</span>`
+      : '';
+    valHtml = `<span class="seg-foot-item"><span class="seg-foot-val">${esc(fmtUsd(seg.implied_weekly_usd))}</span>${badge}</span>`;
+  }
+  const spendStr = fmtCost(seg.cost_usd, { partial: Boolean(seg.cost_partial) }) || fmtUsd(seg.cost_usd || 0);
+  const left2 = `<span class="seg-foot-item">${esc(spendStr)} · ${esc(t('cycleDrillUsed', usedStr))}</span>`;
+  const right2Items = [];
+  if (seg.peak_concurrency > 0) {
+    right2Items.push(`<span class="seg-foot-item">${esc(t('cycleDrillConc', seg.peak_concurrency, seg.p90_concurrency || 0))}</span>`);
+  }
+  if (seg.is_gap) {
+    right2Items.push(`<span class="seg-foot-gap">${esc(t('cycleDrillGap'))}</span>`);
+  } else if (seg.one_sample || (totalSegs === 1 && !seg.low_confidence)) {
+    right2Items.push(`<span class="seg-foot-gap">${esc(t('cycleDrillOneSample'))}</span>`);
+  } else if (seg.low_confidence) {
+    right2Items.push(`<span class="seg-foot-gap">${esc(t('cycleDrillLowSample'))}</span>`);
+  }
+  const r1 = `<div class="seg-foot-row"><span class="seg-foot-item">${esc(span)}</span>${valHtml}</div>`;
+  const r2 = `<div class="seg-foot-row">${left2}${right2Items.length ? `<span class="seg-foot-right">${right2Items.join('')}</span>` : ''}</div>`;
+  return `${r1}${r2}`;
+}
+
+export function renderDrillHeaderHtml(cy, poolRefVal, t) {
+  const dateLabel = fmtAxisDate(cy && (cy.cycle_start || cy.observed_at || cy.ended_at || cy.reset_time)) || '—';
+  const refBase = (cy && cy.segment_baseline_usd) || poolRefVal || 0;
+  const compactUsd = (v) => (v >= 100 ? `$${Math.round(v).toLocaleString('en')}` : fmtUsd(v));
+  const bits = [
+    `<button type="button" class="cy-back-btn" data-cy-back>&larr; ${esc(t('cycleDrillBack'))}</button>`,
+    `<span class="cy-drill-title">${esc(t('cycleDrillTitle', dateLabel))}</span>`,
+  ];
+  if (cy && isNum(cy.weekly_value_usd) && cy.weekly_value_usd > 0) {
+    bits.push(`<span>${esc(t('cycleDrillAvg', compactUsd(cy.weekly_value_usd)))}</span>`);
+  }
+  if (refBase > 0) {
+    bits.push(`<span>${esc(t('cycleDrillBase', compactUsd(refBase)))}</span>`);
+  }
+  return `<div class="wcy-head-drill num">${bits.join('')}</div>`;
+}
+
+export function renderCycleDrillHtml(cy, poolRefVal = 0, activeIdx = -1, t, lang = 'en') {
+  const segs = Array.isArray(cy && cy.segments) ? cy.segments : [];
+  if (!segs.length) {
+    return `<div class="seg-empty">${esc(t('cycleDrillNoSegs'))}</div>`;
+  }
+  const selIdx = activeIdx >= 0 && activeIdx < segs.length ? activeIdx : pickDefaultSegIndex(segs);
+  const baseVal = (cy && cy.segment_baseline_usd) || poolRefVal || 0;
+  let maxY = baseVal > 0 ? baseVal : 0;
+  for (const s of segs) {
+    if (s && isNum(s.implied_weekly_usd) && s.implied_weekly_usd > maxY) {
+      maxY = s.implied_weekly_usd;
+    }
+  }
+  const totalDelta = segs.reduce((acc, s) => acc + Math.max(0.005, num(s && s.used_delta)), 0) || segs.length;
+  const refBottomPct = maxY > 0 && baseVal > 0 ? Math.max(2, Math.min(98, (baseVal / maxY) * 100)) : null;
+  const refLine = refBottomPct !== null
+    ? `<div class="seg-ref-line" style="bottom:${refBottomPct.toFixed(1)}%" aria-hidden="true"></div>`
+    : '';
+
+  const bars = segs.map((s, idx) => {
+    const flexW = Math.max(8, (Math.max(0.005, num(s.used_delta)) / totalDelta) * 100);
+    const hasVal = isNum(s.implied_weekly_usd) && s.implied_weekly_usd > 0 && maxY > 0;
+    const hPct = hasVal ? Math.max(6, Math.min(100, (s.implied_weekly_usd / maxY) * 100)) : (s.kind === 'external' ? 100 : 12);
+    const cls = ['sbar'];
+    if (s.kind === 'external') cls.push('is-ext');
+    else if (s.kind === 'surge') cls.push('is-surge');
+    else if (s.kind === 'slow') cls.push('is-slow');
+    if (idx === selIdx) cls.push('is-active');
+    const ratioStr = s.kind === 'surge' && isNum(s.burn_ratio) ? s.burn_ratio.toFixed(1).replace(/\.0$/, '') : '';
+    const tagHtml = ratioStr && hPct >= 18 ? `<span class="sbar-tag">${esc(ratioStr)}×</span>` : '';
+    const tipParts = [formatSegSpan(s.start_at, s.end_at, lang)];
+    if (s.kind === 'external') tipParts.push(t('cycleDrillExternal'));
+    else if (hasVal) tipParts.push(fmtUsd(s.implied_weekly_usd));
+    tipParts.push(t('cycleDrillUsed', fmtPctNum(num(s.used_delta) * 100)));
+    if (s.peak_concurrency > 0) tipParts.push(t('cycleDrillConc', s.peak_concurrency, s.p90_concurrency || 0));
+    return `<div class="${cls.join(' ')}" data-seg-idx="${idx}" style="flex:${flexW.toFixed(2)} 1 0" aria-label="${esc(tipParts.join(' · '))}">`
+      + `<div class="sbar-fill" style="height:${hPct.toFixed(1)}%">${tagHtml}</div></div>`;
+  }).join('');
+
+  const fmtX = (iso) => {
+    const d = parseDate(iso);
+    return d ? `${d.getMonth() + 1}/${d.getDate()} ${pad2(d.getHours())}:${pad2(d.getMinutes())}` : '';
+  };
+  const xHtml = `<div class="seg-x"><span>${esc(fmtX(segs[0].start_at))}</span><span>${esc(fmtX(segs[segs.length - 1].end_at))}</span></div>`;
+  const yHtml = maxY > 0
+    ? `<div class="seg-y" aria-hidden="true"><span>${esc(fmtAxisUsd(maxY))}</span><span>${esc(fmtAxisUsd(maxY / 2))}</span><span>0</span></div>`
+    : '<div class="seg-y" aria-hidden="true"></div>';
+  const footHtml = `<div class="seg-foot num">${renderSegmentFootHtml(segs[selIdx], segs.length, t, lang)}</div>`;
+  return `<div class="seg-chart">${xHtml}${yHtml}<div class="seg-plot">${refLine}${bars}</div></div>${footHtml}`;
+}
+
 function cycleOverlapsRange(cy, minDay, endDay) {
   if (!cy) return false;
   if (cy.is_current) return true;
@@ -351,7 +493,7 @@ function cycleBarRows(cols) {
   return Math.max(BAR_ROWS_MIN, Math.min(BAR_ROWS_MAX, Math.round(cols * BAR_ASPECT_RATIO)));
 }
 
-function cycleBarChart(list, endDay, period, t, lang) {
+function cycleBarChart(list, endDay, period, t, lang, pk = '', drillEntry = null) {
   let source = list;
   if (period === 'month') {
     const minDay = new Date(endDay.getFullYear(), endDay.getMonth(), 1);
@@ -384,7 +526,8 @@ function cycleBarChart(list, endDay, period, t, lang) {
   for (let i = 0; i < ghostCols; i += 1) {
     barsHtml += `<div class="cbar ghost" aria-hidden="true">${emptyCells}</div>`;
   }
-  for (const cy of shown) {
+  for (let i = 0; i < shown.length; i += 1) {
+    const cy = shown[i];
     const hasVal = isNum(cy.weekly_value_usd) && cy.weekly_value_usd > 0 && stats.maxVal > 0;
     const isRefBar = cy === refCy;
     const litRows = hasVal ? Math.max(1, Math.min(rows, Math.round((cy.weekly_value_usd / stats.maxVal) * rows))) : 0;
@@ -401,7 +544,10 @@ function cycleBarChart(list, endDay, period, t, lang) {
       }
     }
     const tip = cycleBarTip(cy, t, lang);
-    barsHtml += `<div class="cbar${cy.is_current ? ' cur' : ''}${!hasVal ? ' unvalued' : ''}" title="${esc(tip)}">${cells}</div>`;
+    const colIdx = ghostCols + i;
+    const oxPct = `${(((colIdx + 0.5) / cols) * 100).toFixed(1)}%`;
+    const cKey = cycleKeyOf(cy);
+    barsHtml += `<div class="cbar${cy.is_current ? ' cur' : ''}${!hasVal ? ' unvalued' : ''}" data-cy-pool="${esc(pk)}" data-cy-key="${esc(cKey)}" data-cy-ox="${oxPct}" role="button" tabindex="0" title="${esc(tip)}">${cells}</div>`;
   }
 
   const yHtml = stats.maxVal > 0
@@ -416,13 +562,27 @@ function cycleBarChart(list, endDay, period, t, lang) {
   const summaryTip = stats.valuedCount > 0
     ? t('cycleSummaryTip', fmtUsd(stats.totalVal), fmtUsd(stats.totalVal / stats.valuedCount))
     : '';
+  const overviewHtml = `<div class="cy-overview"><div class="cy-chart">${xHtml}${yHtml}<div class="cy-cols${modeCls ? ` ${modeCls}` : ''}" style="--cols:${cols};--rows:${rows}">${barsHtml}</div></div>${cycleDiffFooter(summary, summaryTip, t)}</div>`;
+
+  const drilledCy = drillEntry && drillEntry.cycleKey
+    ? (shown.find((c) => cycleKeyOf(c) === drillEntry.cycleKey) || list.find((c) => cycleKeyOf(c) === drillEntry.cycleKey) || null)
+    : null;
+  const isDrilled = Boolean(drilledCy);
+  const oxStyle = drillEntry && drillEntry.ox ? ` style="--ox:${esc(drillEntry.ox)}"` : '';
+  const refVal = (refCy && refCy.weekly_value_usd) || stats.maxVal || 0;
+  const drillBody = isDrilled
+    ? renderCycleDrillHtml(drilledCy, refVal, drillEntry.activeIdx, t, lang)
+    : '';
+  const stageHtml = `<div class="cy-stage" data-ref-val="${refVal}"${oxStyle}>${overviewHtml}<div class="cy-drill" aria-hidden="${!isDrilled}">${drillBody}</div></div>`;
   return {
-    html: `<div class="cy-chart">${xHtml}${yHtml}<div class="cy-cols${modeCls ? ` ${modeCls}` : ''}" style="--cols:${cols};--rows:${rows}">${barsHtml}</div></div>${cycleDiffFooter(summary, summaryTip, t)}`,
+    html: stageHtml,
     maxVal: stats.maxVal,
+    refVal,
+    drilledCy,
   };
 }
 
-export function weeklyCyclesHtml(historyData, _openKeys, t, lang, poolOrder = null, { period = 'month', anchorIso = null } = {}) {
+export function weeklyCyclesHtml(historyData, _openKeys, t, lang, poolOrder = null, { period = 'month', anchorIso = null, activeDrills = null } = {}) {
   const cyclesMap = historyData && !historyData.error && historyData.weekly_cycles && typeof historyData.weekly_cycles === 'object'
     ? historyData.weekly_cycles
     : null;
@@ -457,7 +617,8 @@ export function weeklyCyclesHtml(historyData, _openKeys, t, lang, poolOrder = nu
     const pk = orderedPools[poolIdx];
     const list = cyclesMap[pk];
     const color = poolColor(pk, poolIdx);
-    const chart = cycleBarChart(list, endDay, p, t, lang);
+    const drillEntry = activeDrills && activeDrills.get ? activeDrills.get(pk) : null;
+    const chart = cycleBarChart(list, endDay, p, t, lang, pk, drillEntry);
 
     const latest = list[0] || null;
     const peakStr = chart.maxVal > 0 ? t('cyclePeak', fmtUsd(chart.maxVal)) : '';
@@ -473,11 +634,11 @@ export function weeklyCyclesHtml(historyData, _openKeys, t, lang, poolOrder = nu
     const dTip = latest && isNum(latest.prev_weekly_value_usd) ? t('deltaTip', fmtUsd(latest.prev_weekly_value_usd)) : '';
     const deltaHtml = dStr ? `<span class="wdelta${dLvl ? ` ${dLvl}` : ''}"${dTip ? ` title="${esc(dTip)}"` : ''}>${esc(dStr)}</span>` : '';
     const joinedMeta = [peakHtml, curHtml].filter(Boolean).join('<span class="wcy-sep" aria-hidden="true">·</span>');
-    const metaHtml = joinedMeta || deltaHtml
-      ? `<div class="wcy-pool-meta num">${joinedMeta}${deltaHtml}</div>`
-      : '';
+    const overMeta = joinedMeta || deltaHtml ? `<div class="wcy-head-over">${joinedMeta}${deltaHtml}</div>` : '';
+    const drillMeta = chart.drilledCy ? renderDrillHeaderHtml(chart.drilledCy, chart.refVal, t) : '';
+    const metaHtml = overMeta || drillMeta ? `<div class="wcy-pool-meta num">${overMeta}${drillMeta}</div>` : '';
 
-    sections.push(`<div class="wcy-pool" style="--heat-c:${color}">`
+    sections.push(`<div class="wcy-pool${chart.drilledCy ? ' is-drill' : ''}" data-pool="${esc(pk)}" style="--heat-c:${color}">`
       + `<div class="wcy-pool-head"><div class="wcy-pool-title"><span class="mark" style="background:${color}"></span><span>${esc(formatPoolName(pk, pn))}</span></div>${metaHtml}</div>`
       + chart.html
       + '</div>');
@@ -534,7 +695,7 @@ export function poolHtml(p, { openKeys, historyData = null, free = false, t, lan
   </div>`;
 }
 
-export function renderQuotaHtml({ data, historyData = null, error, openKeys, cyclePeriod = 'month', t, lang }) {
+export function renderQuotaHtml({ data, historyData = null, error, openKeys, cyclePeriod = 'month', activeDrills = null, t, lang }) {
   let meta = '';
   let tip = '';
   let body = '';
@@ -565,6 +726,7 @@ export function renderQuotaHtml({ data, historyData = null, error, openKeys, cyc
     const cyclesHtml = weeklyCyclesHtml(historyData, openKeys, t, lang, poolOrder, {
       period: cyclePeriod,
       anchorIso: data.fetched_at,
+      activeDrills,
     });
     if (!error) {
       body = pools.length
@@ -593,9 +755,85 @@ export function createQuotaController({
 }) {
   const resetFired = new Set();
   let resetTimer = null;
+  const drillState = new Map(); // pk -> { cycleKey, ox, activeIdx }
+  const leaveTimers = new Map(); // pk -> timerId
   let cyclePeriod = store && CYCLE_PERIODS.includes(store.get('ctx.cyclePeriod', 'month'))
     ? store.get('ctx.cyclePeriod', 'month')
     : 'month';
+
+  function clearLeaveTimer(pk) {
+    const id = leaveTimers.get(pk);
+    if (id) {
+      clearTimeout(id);
+      leaveTimers.delete(pk);
+    }
+  }
+
+  function closeDrill(pk, poolEl = null) {
+    clearLeaveTimer(pk);
+    drillState.delete(pk);
+    const el = poolEl || (pane && pane.querySelector ? pane.querySelector(`.wcy-pool[data-pool="${pk}"]`) : null);
+    if (!el) return;
+    el.classList.remove('is-drill');
+    const drillEl = el.querySelector('.cy-drill');
+    const overEl = el.querySelector('.cy-overview');
+    if (drillEl) drillEl.setAttribute('aria-hidden', 'true');
+    if (overEl) overEl.setAttribute('aria-hidden', 'false');
+  }
+
+  function openDrill(barEl) {
+    if (!barEl || !pane) return;
+    const pk = barEl.getAttribute('data-cy-pool') || '';
+    const cycleKey = barEl.getAttribute('data-cy-key') || '';
+    const ox = barEl.getAttribute('data-cy-ox') || '50%';
+    if (!pk || !cycleKey) return;
+    const poolEl = barEl.closest('.wcy-pool');
+    if (!poolEl) return;
+
+    clearLeaveTimer(pk);
+    const cur = drillState.get(pk);
+    if (poolEl.classList.contains('is-drill') && cur && cur.cycleKey === cycleKey) {
+      closeDrill(pk, poolEl);
+      return;
+    }
+
+    const hist = getHistoryData();
+    const list = hist && hist.weekly_cycles && Array.isArray(hist.weekly_cycles[pk]) ? hist.weekly_cycles[pk] : [];
+    const cy = list.find((c) => cycleKeyOf(c) === cycleKey);
+    if (!cy) return;
+
+    const stageEl = poolEl.querySelector('.cy-stage');
+    const drillEl = poolEl.querySelector('.cy-drill');
+    const overEl = poolEl.querySelector('.cy-overview');
+    const metaEl = poolEl.querySelector('.wcy-pool-meta') || poolEl.querySelector('.wcy-pool-head');
+    if (!stageEl || !drillEl) return;
+
+    const refAttr = Number(stageEl.getAttribute('data-ref-val') || 0);
+    const poolRefVal = Number.isFinite(refAttr) && refAttr > 0 ? refAttr : ((hist.weekly_value_usd && hist.weekly_value_usd[pk]) || 0);
+    const activeIdx = pickDefaultSegIndex(cy.segments);
+    drillState.set(pk, { cycleKey, ox, activeIdx });
+
+    if (stageEl.style && typeof stageEl.style.setProperty === 'function') {
+      stageEl.style.setProperty('--ox', ox);
+    } else {
+      stageEl.setAttribute('style', `--ox:${ox}`);
+    }
+    const t = getT();
+    const lang = getLang();
+    drillEl.innerHTML = renderCycleDrillHtml(cy, poolRefVal, activeIdx, t, lang);
+    drillEl.setAttribute('aria-hidden', 'false');
+    if (overEl) overEl.setAttribute('aria-hidden', 'true');
+
+    if (metaEl) {
+      const nextHeadHtml = renderDrillHeaderHtml(cy, poolRefVal, t);
+      metaEl.innerHTML = `${metaEl.innerHTML.replace(/<div class="wcy-head-drill\b[\s\S]*$/i, '')}${nextHeadHtml}`;
+    }
+
+    if (!poolEl.classList.contains('is-drill')) {
+      void drillEl.offsetWidth; // flush pre-transition scaleX(.18) frame so CSS transition blooms smoothly
+      poolEl.classList.add('is-drill');
+    }
+  }
 
   function paint() {
     const html = renderQuotaHtml({
@@ -604,6 +842,7 @@ export function createQuotaController({
       error: loader.error,
       openKeys,
       cyclePeriod,
+      activeDrills: drillState,
       t: getT(),
       lang: getLang(),
     });
@@ -612,6 +851,9 @@ export function createQuotaController({
 
   function setCyclePeriod(k, focusBtn = false) {
     if (!CYCLE_PERIODS.includes(k) || k === cyclePeriod) return;
+    for (const id of leaveTimers.values()) clearTimeout(id);
+    leaveTimers.clear();
+    drillState.clear();
     cyclePeriod = k;
     if (store) store.set('ctx.cyclePeriod', k);
     if (loader.data || loader.error) paint();
@@ -619,6 +861,73 @@ export function createQuotaController({
       const btn = pane.querySelector(`.pill[data-qperiod="${k}"]`);
       if (btn) btn.focus();
     }
+  }
+
+  if (pane && typeof pane.addEventListener === 'function') {
+    pane.addEventListener('click', (e) => {
+      const backBtn = e.target && e.target.closest ? e.target.closest('[data-cy-back]') : null;
+      if (backBtn) {
+        const poolEl = backBtn.closest('.wcy-pool');
+        const pk = poolEl ? (poolEl.getAttribute('data-pool') || '') : '';
+        if (pk) closeDrill(pk, poolEl);
+        return;
+      }
+      const bar = e.target && e.target.closest ? e.target.closest('.cbar[data-cy-key]') : null;
+      if (bar) openDrill(bar);
+    });
+
+    pane.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        for (const pk of [...drillState.keys()]) closeDrill(pk);
+        return;
+      }
+      if (e.key === 'Enter' || e.key === ' ') {
+        const bar = e.target && e.target.closest ? e.target.closest('.cbar[data-cy-key]') : null;
+        if (bar) {
+          if (typeof e.preventDefault === 'function') e.preventDefault();
+          openDrill(bar);
+        }
+      }
+    });
+
+    pane.addEventListener('mouseover', (e) => {
+      const poolEl = e.target && e.target.closest ? e.target.closest('.wcy-pool[data-pool]') : null;
+      if (!poolEl) return;
+      const pk = poolEl.getAttribute('data-pool') || '';
+      clearLeaveTimer(pk);
+
+      const sbar = e.target.closest ? e.target.closest('.sbar[data-seg-idx]') : null;
+      if (!sbar || !poolEl.classList.contains('is-drill')) return;
+      const st = drillState.get(pk);
+      const idx = Number(sbar.getAttribute('data-seg-idx'));
+      if (!st || !Number.isInteger(idx) || st.activeIdx === idx) return;
+
+      const hist = getHistoryData();
+      const list = hist && hist.weekly_cycles && Array.isArray(hist.weekly_cycles[pk]) ? hist.weekly_cycles[pk] : [];
+      const cy = list.find((c) => cycleKeyOf(c) === st.cycleKey);
+      const segs = cy && Array.isArray(cy.segments) ? cy.segments : [];
+      if (!segs[idx]) return;
+
+      st.activeIdx = idx;
+      poolEl.querySelectorAll('.sbar').forEach((b) => {
+        b.classList.toggle('is-active', Number(b.getAttribute('data-seg-idx')) === idx);
+      });
+      const foot = poolEl.querySelector('.seg-foot');
+      if (foot) {
+        foot.innerHTML = renderSegmentFootHtml(segs[idx], segs.length, getT(), getLang());
+      }
+    });
+
+    pane.addEventListener('mouseout', (e) => {
+      const poolEl = e.target && e.target.closest ? e.target.closest('.wcy-pool[data-pool]') : null;
+      if (!poolEl || !poolEl.classList.contains('is-drill')) return;
+      if (e.relatedTarget && typeof poolEl.contains === 'function' && poolEl.contains(e.relatedTarget)) return;
+      const pk = poolEl.getAttribute('data-pool') || '';
+      if (!pk) return;
+      clearLeaveTimer(pk);
+      const tid = setTimeout(() => closeDrill(pk), 320);
+      leaveTimers.set(pk, tid);
+    });
   }
 
   const loader = makeLoader('/api/quota', QUOTA_STALE_MS, {

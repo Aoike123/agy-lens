@@ -740,7 +740,7 @@ export const MAX_CYCLE_HORIZON_MS = 90 * 24 * 3600 * 1000;
 export const MAX_CONSECUTIVE_CYCLE_MS = 35 * 24 * 3600 * 1000;
 const RESET_MATCH_TOLERANCE_MS = 120 * 1000;
 const MAX_CYCLES_PER_POOL = 52;
-const MAX_OBS_PER_CYCLE = 128;
+export const MAX_OBS_PER_CYCLE = 300;
 const CYCLE_START_SOURCES = new Set(['prev_reset', 'explicit', 'weekly_7d', 'unknown']);
 
 function normalizePeakUnsaturated(peak, resetMs) {
@@ -799,6 +799,7 @@ export function normalizeObservations(rawObs, resetMs) {
   let minIdx = 0;
   let peakUnsatIdx = -1;
   let firstSatIdx = -1;
+  const boundaryPairs = [];
   for (let i = 0; i < collapsed.length; i += 1) {
     const pt = collapsed[i];
     if (pt.used_fraction < collapsed[minIdx].used_fraction) minIdx = i;
@@ -806,10 +807,25 @@ export function normalizeObservations(rawObs, resetMs) {
       peakUnsatIdx = i;
     }
     if (pt.remaining_fraction <= 0 && firstSatIdx < 0) firstSatIdx = i;
+    if (i > 0) {
+      const prev = collapsed[i - 1];
+      const dt = pt._ms - prev._ms;
+      const dUsed = Math.abs(pt.used_fraction - prev.used_fraction);
+      if (dt >= 2 * 3600_000 || dUsed >= 0.02) {
+        boundaryPairs.push({ idx: i, score: dt >= 2 * 3600_000 ? 1e12 + dt : dUsed * 1e9 });
+      }
+    }
   }
   keep.add(minIdx);
   if (peakUnsatIdx >= 0) keep.add(peakUnsatIdx);
   if (firstSatIdx >= 0) keep.add(firstSatIdx);
+  const boundaryBudget = Math.floor(MAX_OBS_PER_CYCLE / 2);
+  boundaryPairs.sort((a, b) => b.score - a.score);
+  for (const bp of boundaryPairs) {
+    if (keep.size >= boundaryBudget) break;
+    keep.add(bp.idx - 1);
+    if (keep.size < boundaryBudget) keep.add(bp.idx);
+  }
   if (keep.size < MAX_OBS_PER_CYCLE) {
     const step = (collapsed.length - 1) / (MAX_OBS_PER_CYCLE - 1);
     for (let k = 0; k < MAX_OBS_PER_CYCLE && keep.size < MAX_OBS_PER_CYCLE; k += 1) {

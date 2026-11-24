@@ -3590,6 +3590,258 @@ test('SelfUpdater: URL allowlist, SHA-256 sums, PKZIP safety, install modes & at
   }
 });
 
+test('CycleDrilldown: observation boundary retention, settled segments with concurrency, and drill-down HTML', async () => {
+  const { MAX_OBS_PER_CYCLE, normalizeObservations } = await import('../sidecars/agy-lens/lib/quota.mjs');
+  const { renderQuotaHtml, renderCycleDrillHtml, pickDefaultSegIndex } = await import('../sidecars/agy-lens/web/views/quota.js');
+  const { createTranslator } = await import('../sidecars/agy-lens/web/i18n.js');
+
+  assert.equal(MAX_OBS_PER_CYCLE, 300);
+
+  // 1. normalizeObservations preserves long-gap (>2h) boundary pairs when downsampling > 300 points.
+  const resetMs = Date.UTC(2026, 10, 30, 0, 0, 0);
+  const tStart = Date.UTC(2026, 10, 23, 0, 0, 0);
+  const denseRaw = [];
+  for (let i = 0; i < 180; i += 1) {
+    const used = i * 0.001;
+    denseRaw.push({ observed_at: new Date(tStart + i * 60_000).toISOString(), remaining_fraction: 1 - used, used_fraction: used });
+  }
+  const gapStartMs = tStart + 180 * 60_000;
+  const gapEndMs = gapStartMs + 6 * 3600_000; // 6h gap with 0 intermediate points
+  denseRaw.push({ observed_at: new Date(gapStartMs).toISOString(), remaining_fraction: 0.75, used_fraction: 0.25 });
+  denseRaw.push({ observed_at: new Date(gapEndMs).toISOString(), remaining_fraction: 0.45, used_fraction: 0.55 });
+  for (let i = 1; i <= 180; i += 1) {
+    const used = 0.55 + i * 0.001;
+    denseRaw.push({ observed_at: new Date(gapEndMs + i * 60_000).toISOString(), remaining_fraction: 1 - used, used_fraction: used });
+  }
+  const kept = normalizeObservations(denseRaw, resetMs);
+  assert.equal(kept.length, 300);
+  const keptTimes = new Set(kept.map((x) => Date.parse(x.observed_at)));
+  assert.equal(keptTimes.has(gapStartMs), true, 'must preserve pre-gap boundary observation');
+  assert.equal(keptTimes.has(gapEndMs), true, 'must preserve post-gap boundary observation');
+
+  // 2. scan() computes settled display segments (dropping transient +1% reservation spike) + concurrency + surge tagging
+  const dir = mkdtempSync(join(tmpdir(), 'agy-unit-seg-'));
+  try {
+    const convDir = join(dir, 'convs');
+    mkdirSync(convDir);
+    const cyStart = Date.UTC(2026, 10, 24, 1, 0, 0); // 09:00 UTC+8
+    const tSpike = cyStart + 20 * 60_000;
+    const tSettle1 = cyStart + 40 * 60_000;
+    const tSurgeEnd = tSettle1 + 3 * 3600_000; // 3h gap with 0 mid obs
+    const tExtEnd = tSurgeEnd + 10 * 60_000;
+    const tTail = tExtEnd + 30 * 60_000;
+    const resetIso = new Date(cyStart + 7 * 86400_000).toISOString();
+
+    // Segment 1 (t0..tSettle1): 4 concurrent convs in same minute, 0.02 used for $40 => implied $2,000/100%
+    for (let k = 0; k < 4; k += 1) {
+      makeHistoryDb(join(convDir, `norm-${k}.db`), [
+        hCall(0, { ts: Math.floor((tSpike - 60_000) / 1000), model: 'gemini-4-hydrogen-tiered-high', input: 3_000_000, output: 400_000, cache: 0 }),
+        // Wait: make sure total cost across norm-0..norm-3 equals ~$40
+      ]);
+    }
+    // Better control exact cost: 1M input ($1.5) + 0.2M output ($1.5) = $3.0 per conv -> Wait: give exact tokens on 4 convs at same ts
+    rmSync(convDir, { recursive: true, force: true });
+    mkdirSync(convDir);
+    for (let k = 0; k < 4; k += 1) {
+      makeHistoryDb(join(convDir, `norm-${k}.db`), [
+        // 4M in ($6) + 0.5333M out ($4) = $10 each -> $40 across 4 convs in 1 minute => peak=4, $40 / 0.02 = $2,000
+        hCall(0, { ts: Math.floor((tSettle1 - 120_000) / 1000), model: 'gemini-4-hydrogen-tiered-high', input: 4_000_000, output: 533_333, cache: 0 }),
+      ]);
+    }
+    // Segment 2 (tSettle1..tSurgeEnd, 3h gap): 12 concurrent convs spending $240 for 0.24 used => $1,000/100% (2.0x surge vs $2,000)
+    for (let k = 0; k < 12; k += 1) {
+      makeHistoryDb(join(convDir, `surge-${k}.db`), [
+        hCall(0, { ts: Math.floor((tSurgeEnd - 300_000) / 1000), model: 'gemini-4-hydrogen-tiered-high', input: 8_000_000, output: 1_066_667, cache: 0 }),
+      ]);
+    }
+    // Segment 3 (tSurgeEnd..tExtEnd): 0 local calls, 0.02 external drop => external
+    // Segment 4 (tExtEnd..tTail): 2 concurrent convs spending $40 for 0.02 used => $2,000/100%
+    for (let k = 0; k < 2; k += 1) {
+      makeHistoryDb(join(convDir, `tail-${k}.db`), [
+        hCall(0, { ts: Math.floor((tTail - 120_000) / 1000), model: 'gemini-4-hydrogen-tiered-high', input: 8_000_000, output: 1_066_667, cache: 0 }),
+      ]);
+    }
+
+    const quotaCycles = {
+      version: 2,
+      pools: {
+        gemini: [{
+          cycle_start: new Date(cyStart).toISOString(),
+          cycle_start_source: 'weekly_7d',
+          reset_time: resetIso,
+          observed_at: new Date(tTail).toISOString(),
+          remaining_fraction: 0.70,
+          used_fraction: 0.30,
+          observations: [
+            { observed_at: new Date(cyStart).toISOString(), remaining_fraction: 1, used_fraction: 0 },
+            // Transient in-flight spike: jumps to 4%, then settles back to 2% at tSettle1!
+            { observed_at: new Date(tSpike).toISOString(), remaining_fraction: 0.96, used_fraction: 0.04 },
+            { observed_at: new Date(tSettle1).toISOString(), remaining_fraction: 0.98, used_fraction: 0.02 },
+            { observed_at: new Date(tSurgeEnd).toISOString(), remaining_fraction: 0.74, used_fraction: 0.26 },
+            { observed_at: new Date(tExtEnd).toISOString(), remaining_fraction: 0.72, used_fraction: 0.28 },
+            { observed_at: new Date(tTail).toISOString(), remaining_fraction: 0.70, used_fraction: 0.30 },
+          ],
+        }],
+      },
+    };
+    const r = await scan([[convDir, 'desktop']], { now: new Date(tTail + 60_000), quotaCycles });
+    const cyOut = r.weekly_cycles.gemini[0];
+    assert.equal(cyOut.segments.length, 4, `expected 4 settled segments (spike pruned), got ${JSON.stringify(cyOut.segments)}`);
+    assert.equal(cyOut.segment_baseline_usd, 2000);
+    assert.equal(cyOut.segments[0].kind, 'normal');
+    assert.equal(cyOut.segments[0].peak_concurrency, 4);
+    assert.equal(cyOut.segments[0].implied_weekly_usd, 2000);
+    assert.equal(cyOut.segments[0].low_confidence, true);
+    assert.equal(cyOut.segments[1].kind, 'surge');
+    assert.equal(cyOut.segments[1].low_confidence, false);
+    assert.equal(cyOut.segments[1].is_gap, true);
+    assert.equal(cyOut.segments[1].peak_concurrency, 12);
+    assert.equal(cyOut.segments[1].p90_concurrency, 12);
+    assert.equal(cyOut.segments[1].burn_ratio, 2);
+    assert.equal(cyOut.segments[2].kind, 'external');
+    assert.equal(cyOut.segments[2].calls, 0);
+    assert.equal(cyOut.segments[3].kind, 'normal');
+    assert.equal(cyOut.segments[3].low_confidence, true);
+    assert.equal(cyOut.segments[3].peak_concurrency, 2);
+
+    // 3. quota.js drill-down renderer keeps default collapsed view clean & renders drilled view accurately
+    const tZh = createTranslator('zh');
+    const tEn = createTranslator('en');
+    const qProps = {
+      data: { plan: 'Pro', fetched_at: new Date(tTail).toISOString(), pools: [{ id: 'gem', category: 'gemini', limits: [] }] },
+      historyData: r,
+      openKeys: new Set(),
+    };
+    const collapsedHtml = renderQuotaHtml({ ...qProps, t: tZh, lang: 'zh' });
+    assert.ok(!collapsedHtml.includes('is-drill'));
+    assert.ok(collapsedHtml.includes('data-cy-key='));
+    assert.ok(collapsedHtml.includes('data-cy-ox='));
+
+    assert.equal(pickDefaultSegIndex(cyOut.segments), 1); // highlights highest burn_ratio surge by default
+    const drills = new Map([['gemini', { cycleKey: cyOut.cycle_start, ox: '95%', activeIdx: -1 }]]);
+    const drilledZh = renderQuotaHtml({ ...qProps, activeDrills: drills, t: tZh, lang: 'zh' });
+    assert.ok(drilledZh.includes('wcy-pool is-drill'));
+    assert.ok(drilledZh.includes('style="--ox:95%"'));
+    assert.ok(drilledZh.includes('sbar is-surge is-active'));
+    assert.ok(drilledZh.includes('sbar is-ext'));
+    assert.ok(drilledZh.includes('seg-ref-line'));
+    assert.ok(drilledZh.includes('2×加速') && drilledZh.includes('最多同时 12 个对话') && drilledZh.includes('跨空闲时段'));
+
+    const drilledEn = renderQuotaHtml({ ...qProps, activeDrills: drills, t: tEn, lang: 'en' });
+    assert.ok(drilledEn.includes('2× faster') && drilledEn.includes('Up to 12 chats at once') && drilledEn.includes('With idle gap'));
+
+    // Single-sample edge case still renders gracefully without NaN
+    const oneSampleHtml = renderCycleDrillHtml({
+      cycle_start: new Date(cyStart).toISOString(),
+      weekly_value_usd: 2043,
+      segments: [{
+        start_at: new Date(cyStart).toISOString(),
+        end_at: new Date(tTail).toISOString(),
+        used_delta: 0.23,
+        cost_usd: 469.89,
+        calls: 700,
+        implied_weekly_usd: 2043,
+        burn_ratio: 1,
+        kind: 'normal',
+        is_gap: false,
+        one_sample: true,
+        peak_concurrency: 5,
+        p90_concurrency: 4,
+      }],
+    }, 2043, 0, tZh, 'zh');
+    assert.ok(oneSampleHtml.includes('仅 1 次记录') && !oneSampleHtml.includes('NaN'));
+
+    // 4. Sawtooth ~1% in-flight reservation jitter does not trigger fake surge/slow alerts and snaps to settled valleys.
+    const sawDir = join(dir, 'saw');
+    mkdirSync(sawDir);
+    const s0 = Date.UTC(2026, 10, 24, 1, 7, 0);
+    const minMs = (m) => s0 + m * 60_000;
+    const sawObs = [
+      [0, 0],
+      [34, 0.0237],
+      [75, 0.0404],
+      [99, 0.0267],
+      [104, 0.0341],
+      [147, 0.0428],
+      [153, 0.0407],
+      [189, 0.0564],
+      [195, 0.054],
+      [251, 0.0854],
+      [256, 0.0781],
+      [262, 0.0845],
+    ].map(([m, u]) => ({
+      observed_at: new Date(minMs(m)).toISOString(),
+      remaining_fraction: roundN(1 - u, 8),
+      used_fraction: u,
+    }));
+    // Real-rate calls (~$2,000/full cycle overall) distributed every 3 min matching each phase's quota delta
+    const sawCalls = [];
+    for (let m = 2; m <= 261; m += 3) {
+      // First phase [0..153m] = 4.07% (~$81.40 across 51 calls -> ~$1.60/call); second [153..262m] = 4.38% (~$87.60 across 36 calls -> ~$2.43/call)
+      const inp = m <= 153 ? 640_000 : 972_000;
+      const out = m <= 153 ? 85_333 : 129_600;
+      sawCalls.push(hCall(sawCalls.length, {
+        ts: Math.floor(minMs(m) / 1000),
+        model: 'gemini-4-hydrogen-tiered-high',
+        input: inp,
+        output: out,
+        cache: 0,
+      }));
+    }
+    makeHistoryDb(join(sawDir, 'saw-steady.db'), sawCalls);
+    // Add an earlier settled cycle at $2,000 + test a small <3% early sliver cycle too
+    const earlyCalls = [
+      hCall(0, {
+        ts: Math.floor((s0 - 7 * 86400_000 + 600_000) / 1000),
+        model: 'gemini-4-hydrogen-tiered-high',
+        input: 3_200_000,
+        output: 426_667,
+        cache: 0,
+      }),
+    ];
+    makeHistoryDb(join(sawDir, 'early-small.db'), earlyCalls);
+    const sawQc = {
+      version: 2,
+      pools: {
+        gemini: [
+          {
+            cycle_start: new Date(s0 - 7 * 86400_000).toISOString(),
+            cycle_start_source: 'weekly_7d',
+            reset_time: new Date(s0).toISOString(),
+            observed_at: new Date(s0 - 7 * 86400_000 + 1800_000).toISOString(),
+            remaining_fraction: 0.985,
+            used_fraction: 0.015,
+            observations: [
+              { observed_at: new Date(s0 - 7 * 86400_000).toISOString(), remaining_fraction: 1, used_fraction: 0 },
+              { observed_at: new Date(s0 - 7 * 86400_000 + 1800_000).toISOString(), remaining_fraction: 0.985, used_fraction: 0.015 },
+            ],
+          },
+          {
+            cycle_start: new Date(s0).toISOString(),
+            cycle_start_source: 'weekly_7d',
+            reset_time: new Date(s0 + 7 * 86400_000).toISOString(),
+            observed_at: new Date(minMs(262)).toISOString(),
+            remaining_fraction: roundN(1 - 0.0845, 8),
+            used_fraction: 0.0845,
+            observations: sawObs,
+          },
+        ],
+      },
+    };
+    const rSaw = await scan([[sawDir, 'desktop']], { now: new Date(minMs(263)), quotaCycles: sawQc });
+    const sawCy = rSaw.weekly_cycles.gemini[0];
+    assert.ok(sawCy.segments.length >= 1 && sawCy.segments.length <= 2, `sawtooth should merge into 1-2 clean segments, got ${sawCy.segments.length}`);
+    assert.equal(sawCy.segments[0].used_delta, 0.0407, 'first cut should snap cleanly to the 4.07% settled valley');
+    assert.ok(sawCy.segments.every((s) => s.kind === 'normal'), `expected no fake surge/slow alerts in ${JSON.stringify(sawCy.segments)}`);
+    const earlyCy = rSaw.weekly_cycles.gemini[1];
+    assert.equal(earlyCy.segments[0].low_confidence, true);
+    assert.equal(earlyCy.segments[0].kind, 'normal');
+    assert.ok(renderCycleDrillHtml(earlyCy, sawCy.segment_baseline_usd, 0, tZh, 'zh').includes('样本较少'));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('HistoryTotalsWeekly: periodCostByPool, periodWeeklySummary & renderTotalsHeroHtml', async () => {
   const { periodCostByPool, periodWeeklySummary } = await import('../sidecars/agy-lens/web/format.js');
   const { renderTotalsHeroHtml } = await import('../sidecars/agy-lens/web/views/history.js');
