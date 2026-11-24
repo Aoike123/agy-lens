@@ -45,7 +45,7 @@ const ROOT = resolve(HERE, '..');
 const WEB_DIR = join(ROOT, 'sidecars', 'agy-lens', 'web');
 const IMG_DIR = join(ROOT, 'docs', 'img');
 const PANEL_W = 420;
-const PANEL_H = 1040;
+const PANEL_H = 1160;
 const SCALE = 2;
 
 const args = process.argv.slice(2);
@@ -476,7 +476,7 @@ h1{font-size:30px;font-weight:600;letter-spacing:-.01em}
 h1 span{color:#9aa0a6;font-weight:400;margin-left:12px;font-size:20px}
 .row{display:flex;gap:28px;justify-content:center}
 figure{display:flex;flex-direction:column;align-items:center;gap:10px}
-img{width:404px;height:${Math.round(404 * PANEL_H / PANEL_W * 0.62)}px;object-fit:cover;object-position:top;border-radius:12px;border:1px solid #2a2e33;box-shadow:0 10px 30px rgba(0,0,0,.45)}
+img{width:404px;height:620px;object-fit:cover;object-position:top;border-radius:12px;border:1px solid #2a2e33;box-shadow:0 10px 30px rgba(0,0,0,.45)}
 figcaption{font-size:14px;color:#9aa0a6}
 </style></head><body>
 <header>${LOGO}<h1>${c.title}<span>${c.tagline}</span></h1></header>
@@ -535,15 +535,21 @@ async function main() {
     const { quota, models, status } = quotaFixture(now.getTime());
     const catalogPath = join(work, 'model-catalog.json');
     writeModelCatalog(catalogPath, models, status);
-    const weekMs = 7 * 24 * 3600 * 1000;
+    const dayMs = 24 * 3600 * 1000;
+    const weekMs = 7 * dayMs;
+    const earlyMs = 4 * dayMs;
     const quotaCycles = { version: 2, pools: {} };
     for (const [pk, w] of Object.entries(quota.weekly || {})) {
       const rMs = Date.parse(w.reset_time);
       if (!Number.isFinite(rMs)) continue;
-      const prevResetIso = new Date(rMs - weekMs).toISOString();
+      const t1 = rMs - weekMs;
+      const t2 = t1 - weekMs;
+      const t3 = t2 - earlyMs;
+      const t4 = t3 - weekMs;
+      const isGem = pk === 'gemini';
       quotaCycles.pools[pk] = [
         {
-          cycle_start: prevResetIso,
+          cycle_start: new Date(t1).toISOString(),
           cycle_start_source: 'prev_reset',
           cycle_duration_ms: weekMs,
           reset_time: new Date(rMs).toISOString(),
@@ -555,13 +561,40 @@ async function main() {
           tier: quota.tier,
         },
         {
-          cycle_start: new Date(rMs - 2 * weekMs).toISOString(),
+          cycle_start: new Date(t2).toISOString(),
           cycle_start_source: 'prev_reset',
           cycle_duration_ms: weekMs,
-          reset_time: prevResetIso,
-          observed_at: new Date(rMs - weekMs - 3600e3).toISOString(),
-          remaining_fraction: pk === 'gemini' ? 0.15 : 0.08,
-          used_fraction: pk === 'gemini' ? 0.85 : 0.92,
+          reset_time: new Date(t1).toISOString(),
+          ended_at: new Date(t1).toISOString(),
+          observed_at: new Date(t1 - 3600e3).toISOString(),
+          remaining_fraction: isGem ? 0.58 : 0.42,
+          used_fraction: isGem ? 0.42 : 0.58,
+          saturated: false,
+          plan: quota.plan,
+          tier: quota.tier,
+        },
+        {
+          cycle_start: new Date(t3).toISOString(),
+          cycle_start_source: 'prev_reset',
+          cycle_duration_ms: earlyMs,
+          reset_time: new Date(t3 + weekMs).toISOString(),
+          ended_at: new Date(t2).toISOString(),
+          observed_at: new Date(t2 - 3600e3).toISOString(),
+          remaining_fraction: isGem ? 0.08 : 0.12,
+          used_fraction: isGem ? 0.92 : 0.88,
+          saturated: false,
+          plan: quota.plan,
+          tier: quota.tier,
+        },
+        {
+          cycle_start: new Date(t4).toISOString(),
+          cycle_start_source: 'prev_reset',
+          cycle_duration_ms: weekMs,
+          reset_time: new Date(t3).toISOString(),
+          ended_at: new Date(t3).toISOString(),
+          observed_at: new Date(t3 - 3600e3).toISOString(),
+          remaining_fraction: isGem ? 0.28 : 0.25,
+          used_fraction: isGem ? 0.72 : 0.75,
           saturated: false,
           plan: quota.plan,
           tier: quota.tier,
