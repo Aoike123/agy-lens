@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [2.3.1] - 2026-11-24
+
+### Fixed
+
+- **Cycle diff baseline fallback while current cycle is estimating** (`sidecars/agy-lens/web/views/quota.js`): when a newly reset current cycle has not yet crossed the valuation floor (`weekly_value_usd: null`), the Quota cycle chart now falls back to the most recent valued cycle as its temporary horizontal reference baseline so shrinkage/growth shading remains active, and displays `Current Estimating…` (`当前 估算中`) in the pool header until the live cycle finishes estimating.
+
 ## [2.3.0] - 2026-11-23
 
 ### Added
@@ -122,6 +128,7 @@ Original **Context Usage** panel by Dimitrios Ioannidis
 - Context window and model name from the app's live model catalog, with a built-in fallback table.
 - Zero tokens per refresh; conversation databases opened read-only.
 
+[2.3.1]: https://github.com/Aoike123/agy-lens/releases/tag/v2.3.1
 [2.3.0]: https://github.com/Aoike123/agy-lens/releases/tag/v2.3.0
 [2.2.0]: https://github.com/Aoike123/agy-lens/releases/tag/v2.2.0
 [2.1.1]: https://github.com/Aoike123/agy-lens/releases/tag/v2.1.1
