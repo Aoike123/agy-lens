@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [2.6.2] - 2026-11-24
+
+### Fixed
+
+- **Responsive cycle drill-down layout & bar-fitted selection glow** (`sidecars/agy-lens/web/{views/quota.js,styles.css}`): converted `.cy-stage` to a CSS Grid overlay with `@container cy-stage` queries (`< 380px` 3-row inspector card / `≥ 380px` 2-row compact strip) and 5 invariant-height slots so narrow side panes never crush badges (`跨空闲时段` / `With idle gap`), clip the footer, or shift bar heights on hover; grouped `.wcy-head-drill` nav/stats for graceful wrapping; moved the luminous `.cbar`-matched `brightness(1.15) drop-shadow(...)` glow onto `.sbar-fill` (and `.sbar.is-ext` for external segments) so selection tightly wraps only the filled bar height rather than the full empty track.
+
 ## [2.6.1] - 2026-11-24
 
 ### Added
