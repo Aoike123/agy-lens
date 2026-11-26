@@ -649,13 +649,19 @@ export function parseQuota(statusResp, modelsResp, now = Date.now(), summaryResp
   });
   const matchedSummaryCats = new Set();
   const summaryTargets = new Map();
-  const limitMatches = (pl, sl) => sl.kind === pl.kind
-    && sl.remaining_fraction === pl.remaining_fraction
-    && (!pl.reset_time || !sl.reset_time || sl.reset_time === pl.reset_time);
+  const limitMatches = (pl, sl) => sl.remaining_fraction === pl.remaining_fraction
+    && (
+      (pl.reset_time && sl.reset_time && sl.reset_time === pl.reset_time)
+      || (sl.kind === pl.kind && (!pl.reset_time || !sl.reset_time || sl.reset_time === pl.reset_time))
+    );
+  const hasLimitedInCat = new Set(
+    pools.filter((p) => p.kind !== 'tab' && p.limits.some((l) => l.kind !== 'none')).map((p) => p.category),
+  );
   for (const pool of pools) {
     const sumEntry = summary.byCategory[pool.category];
-    if (!sumEntry || pool.kind === 'tab') continue;
-    if (!pool.limits.some((l) => l.kind !== 'none')) continue;
+    if (!sumEntry || !sumEntry.limits.length || pool.kind === 'tab') continue;
+    const isLimited = pool.limits.some((l) => l.kind !== 'none');
+    if (!isLimited && hasLimitedInCat.has(pool.category)) continue;
     const prev = summaryTargets.get(pool.category);
     if (!prev) {
       summaryTargets.set(pool.category, pool);
@@ -669,7 +675,7 @@ export function parseQuota(statusResp, modelsResp, now = Date.now(), summaryResp
   for (const [cat, pool] of summaryTargets) {
     const sumEntry = summary.byCategory[cat];
     matchedSummaryCats.add(cat);
-    pool.limits = mergeLimitLists(pool.limits, sumEntry.limits);
+    pool.limits = sumEntry.limits.slice();
     const primary = pool.limits.find((l) => l.kind === '5h') || pool.limits[0];
     if (primary) {
       pool.remaining_fraction = primary.remaining_fraction;
@@ -681,8 +687,10 @@ export function parseQuota(statusResp, modelsResp, now = Date.now(), summaryResp
     const candidates = pools.filter((p) => !matchedPools.has(p) && p.kind !== 'tab' && p.limits.some((l) => l.kind !== 'none'));
     const byLimit = candidates.find((p) => p.limits.some((pl) => sumEntry.limits.some((sl) => limitMatches(pl, sl))));
     const descLow = String(sumEntry.description || '').toLowerCase();
+    const matchesDesc = (p) => [...p.families, ...p.models].some((m) => m.display_name && descLow.includes(m.display_name.toLowerCase()));
     const byDesc = !byLimit && descLow
-      ? candidates.find((p) => [...p.families, ...p.models].some((m) => m.display_name && descLow.includes(m.display_name.toLowerCase())))
+      ? (candidates.find(matchesDesc)
+        || pools.find((p) => !matchedPools.has(p) && p.kind !== 'tab' && !hasLimitedInCat.has(p.category) && matchesDesc(p)))
       : null;
     const target = byLimit || byDesc;
     if (target) {
@@ -694,7 +702,7 @@ export function parseQuota(statusResp, modelsResp, now = Date.now(), summaryResp
       target.id = n > 1 ? `${cat}-${n}` : cat;
       if (sumEntry.label) target.label = sumEntry.label;
       if (sumEntry.label_zh) target.label_zh = sumEntry.label_zh;
-      target.limits = mergeLimitLists(target.limits, sumEntry.limits);
+      target.limits = sumEntry.limits.slice();
       const primary = target.limits.find((l) => l.kind === '5h') || target.limits[0];
       if (primary) {
         target.remaining_fraction = primary.remaining_fraction;
@@ -931,6 +939,7 @@ export function relinkPoolCycles(list) {
     const durMs = curResetMs - prevResetMs;
     const gapSincePrevReset = curFirstMs - prevResetMs;
     const plausible = durMs > RESET_MATCH_TOLERANCE_MS
+      && !prev.ended_at
       && prevResetMs <= curFirstMs + RESET_MATCH_TOLERANCE_MS
       && durMs <= MAX_CONSECUTIVE_CYCLE_MS
       && (refDurMs === null || gapSincePrevReset <= Math.max(refDurMs * 1.5, 2 * 24 * 3600 * 1000));
@@ -958,12 +967,19 @@ export function relinkPoolCycles(list) {
       cur.cycle_duration_ms = null;
     }
   }
-  // Pass 3: truncate early-superseded cycles at the start of the replacement cycle.
+  // Pass 3: truncate early-superseded cycles at the start of the replacement cycle,
+  // or preserve a valid existing early-reset ended_at boundary.
   for (let i = 0; i < asc.length; i += 1) {
     const cur = asc[i];
     const curResetMs = Date.parse(cur.reset_time);
     const curStartMs = cur.cycle_start ? Date.parse(cur.cycle_start) : NaN;
     const curObsMs = Date.parse(cur.observed_at);
+    const rawEndMs = cur.ended_at ? Date.parse(cur.ended_at) : NaN;
+    const validExistingEnd = Number.isFinite(rawEndMs)
+      && rawEndMs < curResetMs - RESET_MATCH_TOLERANCE_MS
+      && (!Number.isFinite(curStartMs) || rawEndMs > curStartMs)
+      && rawEndMs >= curObsMs - RESET_MATCH_TOLERANCE_MS;
+    let effEndMs = validExistingEnd ? rawEndMs : NaN;
     if (i < asc.length - 1) {
       const next = asc[i + 1];
       const nextBoundaryMs = next.cycle_start ? Date.parse(next.cycle_start) : Date.parse(next.first_seen_at);
@@ -973,13 +989,16 @@ export function relinkPoolCycles(list) {
         && (!Number.isFinite(curStartMs) || nextBoundaryMs > curStartMs)
         && nextBoundaryMs >= curObsMs - RESET_MATCH_TOLERANCE_MS
       ) {
-        cur.ended_at = new Date(nextBoundaryMs).toISOString();
-        if (Number.isFinite(curStartMs)) cur.cycle_duration_ms = Math.max(0, nextBoundaryMs - curStartMs);
-        continue;
+        effEndMs = Number.isFinite(effEndMs) ? Math.min(effEndMs, nextBoundaryMs) : nextBoundaryMs;
       }
     }
-    cur.ended_at = null;
-    if (Number.isFinite(curStartMs)) cur.cycle_duration_ms = Math.max(0, curResetMs - curStartMs);
+    if (Number.isFinite(effEndMs)) {
+      cur.ended_at = new Date(effEndMs).toISOString();
+      if (Number.isFinite(curStartMs)) cur.cycle_duration_ms = Math.max(0, effEndMs - curStartMs);
+    } else {
+      cur.ended_at = null;
+      if (Number.isFinite(curStartMs)) cur.cycle_duration_ms = Math.max(0, curResetMs - curStartMs);
+    }
   }
   return sortPoolCycles(asc).slice(0, MAX_CYCLES_PER_POOL);
 }
@@ -1027,7 +1046,30 @@ export function mergeQuotaObservation(ledger, quotaResult) {
     if (!w || typeof w !== 'object') continue;
     if (typeof w.remaining_fraction !== 'number' || !Number.isFinite(w.remaining_fraction)) continue;
     const resetMs = typeof w.reset_time === 'string' ? Date.parse(w.reset_time) : NaN;
-    if (!Number.isFinite(resetMs)) continue;
+    if (!Number.isFinite(resetMs)) {
+      if (w.remaining_fraction >= 1 - 1e-6) {
+        const list = next.pools[pool];
+        const latest = Array.isArray(list) && list.length ? list[0] : null;
+        if (latest && !latest.ended_at && latest.used_fraction > 0) {
+          const latestResetMs = Date.parse(latest.reset_time);
+          const latestObsMs = Date.parse(latest.observed_at);
+          const latestStartMs = latest.cycle_start ? Date.parse(latest.cycle_start) : NaN;
+          if (
+            Number.isFinite(latestResetMs)
+            && fetchedMs < latestResetMs - RESET_MATCH_TOLERANCE_MS
+            && (!Number.isFinite(latestObsMs) || fetchedMs >= latestObsMs - RESET_MATCH_TOLERANCE_MS)
+            && (!Number.isFinite(latestStartMs) || fetchedMs > latestStartMs)
+          ) {
+            latest.ended_at = new Date(fetchedMs).toISOString();
+            if (Number.isFinite(latestStartMs)) {
+              latest.cycle_duration_ms = Math.max(0, fetchedMs - latestStartMs);
+            }
+            changed = true;
+          }
+        }
+      }
+      continue;
+    }
     if (resetMs < fetchedMs - 60_000 || resetMs > fetchedMs + MAX_CYCLE_HORIZON_MS) continue;
 
     const effObsMs = Math.min(fetchedMs, resetMs);
@@ -1084,13 +1126,19 @@ export function mergeQuotaObservation(ledger, quotaResult) {
       if (effObsMs >= prevObsMs) {
         const fracChanged = Math.abs(ex.remaining_fraction - rem) > 1e-8;
         const resetChanged = ex.reset_time !== resetIso;
-        const metaChanged = ex.saturated !== false || (plan && ex.plan !== plan) || (tier && ex.tier !== tier);
+        const existingEndMs = ex.ended_at ? Date.parse(ex.ended_at) : NaN;
+        const reopenEarlyEnded = rem < 1 - 1e-6 && Number.isFinite(existingEndMs) && effObsMs > existingEndMs;
+        const metaChanged = ex.saturated !== false || reopenEarlyEnded || (plan && ex.plan !== plan) || (tier && ex.tier !== tier);
         if (fracChanged || resetChanged || metaChanged) {
           if (resetChanged) {
             ex.reset_time = resetIso;
             if (ex.cycle_start && ex.cycle_start_source !== 'unknown') {
               ex.cycle_duration_ms = Math.max(0, resetMs - Date.parse(ex.cycle_start));
             }
+            needRelink = true;
+          }
+          if (reopenEarlyEnded) {
+            ex.ended_at = null;
             needRelink = true;
           }
           if (fracChanged) {

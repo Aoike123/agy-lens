@@ -262,7 +262,7 @@ export const pctText = (f) => {
   }
   return `${Math.round(p)}%`;
 };
-export const isUnlimited = (l) => l.kind === 'none' || (!l.reset_time && l.f != null && l.f >= 1);
+export const isUnlimited = (l) => l.kind === 'none' || ((!l.kind || l.kind === 'unknown') && !l.reset_time && l.f != null && l.f >= 1);
 
 export function resetText(iso, t = DEFAULT_T, lang = t.lang || 'en', nowMs = Date.now()) {
   const d = parseDate(iso);

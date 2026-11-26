@@ -244,7 +244,7 @@ const cyclesSig = (ledger) => {
   const pools = (ledger && ledger.pools) || {};
   return Object.keys(pools).sort().map((pk) => {
     const arr = Array.isArray(pools[pk]) ? pools[pk] : [];
-    return `${pk}=[${arr.map((c) => `${c.cycle_start || ''}:${c.cycle_start_source || ''}:${c.reset_time}@${c.observed_at}:${c.remaining_fraction}:${c.saturated ? 1 : 0}:${Array.isArray(c.observations) ? c.observations.length : 0}`).join(',')}]`;
+    return `${pk}=[${arr.map((c) => `${c.cycle_start || ''}:${c.cycle_start_source || ''}:${c.ended_at || ''}:${c.reset_time}@${c.observed_at}:${c.remaining_fraction}:${c.saturated ? 1 : 0}:${Array.isArray(c.observations) ? c.observations.length : 0}`).join(',')}]`;
   }).join('|');
 };
 

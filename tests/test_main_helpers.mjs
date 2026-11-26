@@ -1950,3 +1950,95 @@ test('parseQuota keeps shared 3p pool unified when grouped and splits dynamic Op
   assert.equal(modelPool('claude-opus-5-5-high', cat), 'claude_opus');
   assert.equal(modelPool('claude-sonnet-5-5-high', cat), 'claude_gpt');
 });
+
+test('parseQuota prefers authoritative RetrieveUserQuotaSummary over stale/inferred per-model limits and freshly reset pools', () => {
+  const staleReset = new Date(NOW + (7 * 3600 + 44 * 60) * 1000).toISOString();
+  const staleQuota = { remainingFraction: 0.0068, resetTime: staleReset };
+  const claudeModelsWithStale = {
+    response: {
+      models: {
+        'claude-opus-5-5-high': { displayName: 'Claude Opus 5.5 (High)', quotaInfo: staleQuota, modelProvider: 'MODEL_PROVIDER_ANTHROPIC' },
+        'claude-opus-5-5-low': { displayName: 'Claude Opus 5.5 (Low)', quotaInfo: staleQuota, modelProvider: 'MODEL_PROVIDER_ANTHROPIC' },
+        'claude-sonnet-5-5-high': { displayName: 'Claude Sonnet 5.5 (High)', quotaInfo: staleQuota, modelProvider: 'MODEL_PROVIDER_ANTHROPIC' },
+        'gpt-oss-120b-medium': { displayName: 'GPT-OSS 120B (Medium)', quotaInfo: staleQuota, modelProvider: 'MODEL_PROVIDER_OPENAI' },
+      },
+      agentModelSorts: [{
+        groups: [{
+          modelIds: ['claude-opus-5-5-high', 'claude-opus-5-5-low', 'claude-sonnet-5-5-high', 'gpt-oss-120b-medium'],
+        }],
+      }],
+    },
+  };
+
+  // 1. Stale per-model quotaInfo (7h44m ahead -> inferred daily) + fresh summary (100%, no resetTime).
+  const resetSummary = {
+    response: {
+      groups: [
+        {
+          displayName: 'Claude and GPT models',
+          description: 'Models within this group: Claude Opus 5.5, Claude Sonnet 5.5, GPT-OSS 120B',
+          buckets: [
+            { bucketId: '3p-weekly', window: 'weekly', remainingFraction: 1 },
+            { bucketId: '3p-5h', window: '5h', remainingFraction: 1 },
+          ],
+        },
+      ],
+    },
+  };
+  const r1 = parseQuota(null, claudeModelsWithStale, NOW, resetSummary);
+  assert.deepEqual(r1.pools.map((p) => p.category), ['claude_gpt']);
+  const p1 = r1.pools[0];
+  assert.deepEqual(p1.limits.map((l) => [l.kind, l.inferred, l.remaining_fraction, l.reset_time]), [
+    ['weekly', false, 1, null],
+    ['5h', false, 1, null],
+  ]);
+  assert.equal(p1.remaining_fraction, 1);
+  assert.equal(p1.reset_time, null);
+  assert.equal(p1.models.length, 4);
+  assert.equal(p1.families.length, 3);
+
+  // 2. Active weekly limit with 7h44m remaining (inferred daily in model quotaInfo, explicit weekly in summary).
+  const activeSummary = {
+    response: {
+      groups: [
+        {
+          displayName: 'Claude and GPT models',
+          buckets: [
+            { bucketId: '3p-weekly', window: 'weekly', remainingFraction: 0.0068, resetTime: staleReset },
+            { bucketId: '3p-5h', window: '5h', remainingFraction: 1 },
+          ],
+        },
+      ],
+    },
+  };
+  const r2 = parseQuota(null, claudeModelsWithStale, NOW, activeSummary);
+  assert.deepEqual(r2.pools.map((p) => p.category), ['claude_gpt']);
+  assert.deepEqual(r2.pools[0].limits.map((l) => [l.kind, l.inferred, l.remaining_fraction]), [
+    ['weekly', false, 0.0068],
+    ['5h', false, 1],
+  ]);
+
+  // 3. All claude_gpt models reset to remainingFraction: 1 (no resetTime) + summary -> no duplicate claude_gpt-2 pool.
+  const freshModels = {
+    response: {
+      models: {
+        'claude-opus-5-5-high': { displayName: 'Claude Opus 5.5 (High)', quotaInfo: { remainingFraction: 1 }, modelProvider: 'MODEL_PROVIDER_ANTHROPIC' },
+        'claude-sonnet-5-5-high': { displayName: 'Claude Sonnet 5.5 (High)', quotaInfo: { remainingFraction: 1 }, modelProvider: 'MODEL_PROVIDER_ANTHROPIC' },
+        'gpt-oss-120b-medium': { displayName: 'GPT-OSS 120B (Medium)', quotaInfo: { remainingFraction: 1 }, modelProvider: 'MODEL_PROVIDER_OPENAI' },
+      },
+      agentModelSorts: [{
+        groups: [{
+          modelIds: ['claude-opus-5-5-high', 'claude-sonnet-5-5-high', 'gpt-oss-120b-medium'],
+        }],
+      }],
+    },
+  };
+  const r3 = parseQuota(null, freshModels, NOW, resetSummary);
+  assert.deepEqual(r3.pools.map((p) => [p.id, p.category]), [['claude_gpt', 'claude_gpt']]);
+  assert.deepEqual(r3.pools[0].limits.map((l) => [l.kind, l.inferred, l.remaining_fraction, l.reset_time]), [
+    ['weekly', false, 1, null],
+    ['5h', false, 1, null],
+  ]);
+  assert.equal(r3.pools[0].models.length, 3);
+  assert.equal(r3.pools[0].families.length, 3);
+});
