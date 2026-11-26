@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [2.6.4] - 2026-11-26
+
+### Changed
+
+- **Removed fabricated `daily` quota limit inference & labels** (`sidecars/agy-lens/lib/quota.mjs`, `sidecars/agy-lens/web/i18n.js`): dropped the non-existent `daily` (`Daily limit` / `每日限额`) kind from `LIMIT_LABELS`, `LIMIT_ORDER`, `inferLimit`, `summaryLimitKind`, and `I18N.*.limitKinds` so fallback inference maps `≤5h` to `5h` and `>5h` (up to 31d) to `weekly`.
+- **Summary-first quota pool grouping** (`sidecars/agy-lens/lib/quota.mjs`): parse `RetrieveUserQuotaSummary` before grouping per-model entries so models matched by summary description or sharing a sole summary bucket stay unified in one pool even when legacy per-model `quotaInfo` caches are partially out of sync, while preserving separate unlimited pools and server-split groups.
+
 ## [2.6.3] - 2026-11-26
 
 ### Fixed
