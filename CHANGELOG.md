@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [2.6.3] - 2026-11-26
+
+### Fixed
+
+- **Freshly reset & stale-fallback quota display** (`sidecars/agy-lens/lib/quota.mjs`, `sidecars/agy-lens/web/{format.js,views/quota.js}`): use `RetrieveUserQuotaSummary` limits authoritatively once a pool matches (preventing stale or `<24h` per-model `quotaInfo` from leaking as a phantom `≈Daily limit`), attach summary buckets cleanly when all models in a pool reset to `100%` without a `resetTime`, stop classifying explicit `weekly` / `5h` / `daily` limits at `100%` with no `resetTime` as unlimited (`Unlimited · no reset`), omit misleading `No reset time` labels on full windows, and fall back to reference valuation instead of showing prior-cycle spend under a freshly reset `0%`-used weekly bar.
+- **Immediate early-reset cycle closing** (`sidecars/agy-lens/lib/quota.mjs`, `sidecars/agy-lens/main.mjs`): close an open used weekly cycle (`ended_at`) as soon as live summary reports `100%` remaining with `reset_time: null` before its original reset deadline, preserve that boundary across relinking without falsely chaining the next cycle to the cancelled `reset_time`, and include `ended_at` in `cyclesSig` so History / Cycle valuations immediately clear the stale `Current` badge and record the early reset.
+
 ## [2.6.2] - 2026-11-24
 
 ### Fixed
