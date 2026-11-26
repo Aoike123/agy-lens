@@ -51,6 +51,7 @@ import {
   readUpdateMeta,
 } from './lib/updater.mjs';
 import { bundleWebApp, computeWebJsStamp } from './lib/web-bundle.mjs';
+import { listShareAssets, loadShareProfile, readShareAsset, shareProfilePayload, updateShareProfile } from './lib/share-assets.mjs';
 
 export {
   buildModelCatalog,
@@ -81,6 +82,7 @@ export {
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PLUGIN_ROOT = resolve(HERE, '../..');
 const WEB_DIR = join(HERE, 'web');
+const SHARE_ART_DIR = join(HERE, 'share-art');
 const DATA_DIR = defaultDataDir();
 const CATALOG_PATH = join(DATA_DIR, 'model-catalog.json');
 const CATALOG_TTL_MS = 10 * 60 * 1000;
@@ -91,6 +93,7 @@ const HISTORY_CACHE_PATH = join(DATA_DIR, 'history-cache.json');
 const HISTORY_TTL_MS = 60 * 1000;
 const PRICING_PATH = join(DATA_DIR, 'pricing-cache.json');
 const UPDATE_CACHE_PATH = join(DATA_DIR, 'update-cache.json');
+const SHARE_PROFILE_PATH = join(DATA_DIR, 'share-profile.json');
 const CURRENT_VERSION = readCurrentVersion(PLUGIN_ROOT);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -475,6 +478,31 @@ if (!truthy(process.env.CONTEXT_PANEL_NO_SERVER)) {
       };
     }
   }, 'GET');
+
+  app.api('/api/share-asset', async (data) => {
+    try {
+      if (truthy(data?.list)) return { files: listShareAssets(SHARE_ART_DIR) };
+      return readShareAsset(SHARE_ART_DIR, data?.path);
+    } catch (err) {
+      return { error: 'failed', message: err.message };
+    }
+  }, 'GET');
+
+  app.api('/api/share-profile', async () => {
+    try {
+      return shareProfilePayload(loadShareProfile(SHARE_PROFILE_PATH));
+    } catch (err) {
+      return { error: 'failed', message: err.message };
+    }
+  }, 'GET');
+
+  app.api('/api/share-profile', async (data) => {
+    try {
+      return updateShareProfile(SHARE_PROFILE_PATH, { nickname: data?.nickname, gender: data?.gender });
+    } catch (err) {
+      return { ok: false, error: 'failed', message: err.message };
+    }
+  }, 'POST');
 
   app.api('/api/update/install', async (data) => {
     try {

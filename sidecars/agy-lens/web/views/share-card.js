@@ -2,7 +2,15 @@
 // buildShareCardSvg, escapeXml, and scrubSensitiveText are pure Node-runnable with zero DOM/browser globals.
 
 import { createTranslator, normalizeLang } from '../i18n.js';
-import { dayKey, esc, fmtCost, fmtInt, fmtPctNum, fmtTok, isNum, makeHeatScale, parseDay } from '../format.js';
+import { dayKey, esc, fmtCost, fmtInt, fmtPctNum, fmtTok, getJson, isNum, makeHeatScale, parseDay, postJson } from '../format.js';
+import {
+  CLASS_ARENA, arenaPath, buildProfile, buildQuips, charIdlePath, charStillPath,
+  sanitizeNickname, usageAchievements,
+} from './share-game.js';
+import { buildRoleCardSvg } from './share-pixel.js';
+import {
+  VFX_H, VFX_W, clearVfxFrame, compositeVfx, createAmbientFx, createVfxFrame,
+} from './share-vfx.js';
 
 export const SHARE_CARD_WIDTH = 1200;
 export const SHARE_CARD_HEIGHT = 630;
@@ -13,34 +21,39 @@ const FONT_SANS = "system-ui, -apple-system, 'Segoe UI', Roboto, 'PingFang SC', 
 const FONT_MONO = "ui-monospace, 'Cascadia Mono', 'SF Mono', Menlo, Consolas, monospace";
 
 const THEMES = {
-  // Graphite neutrals; colour is reserved for the model series and the latest day.
+  // Obsidian optical telemetry plate.
   dark: {
-    bg: '#131314',
-    logoBg: '#1f2023',
-    fg: '#e3e3e3',
-    secondary: '#c4c7c5',
-    muted: '#8e918f',
-    dim: '#6f7271',
-    line: '#2a2b2d',
-    empty: '#26272a',
-    bar: '#4a4d51',
-    rest: '#5f6368',
-    accent: '#4c8df6',
-    series: ['#4c8df6', '#f9ab00', '#a8c7fa', '#c58af9'],
+    bg: '#0d0f13',
+    plate: '#12151b',
+    recess: '#0e1117',
+    fg: '#f2ede4',
+    secondary: '#a5aebd',
+    muted: '#6d7686',
+    dim: '#525b6c',
+    line: '#232833',
+    lineStrong: '#333b4c',
+    empty: '#1c212c',
+    bar: '#3e475a',
+    rest: '#5a6478',
+    accent: '#6ea8fe',
+    series: ['#6ea8fe', '#e5a454', '#5ec2a6', '#d67d96'],
   },
+  // Swiss archival cotton & fountain ink plate.
   light: {
-    bg: '#fbfbfa',
-    logoBg: '#1f2937',
-    fg: '#1f1f1f',
-    secondary: '#444746',
-    muted: '#5e6261',
-    dim: '#80868b',
-    line: '#e3e3e3',
-    empty: '#ebecec',
-    bar: '#bdc1c6',
-    rest: '#9aa0a6',
-    accent: '#1a73e8',
-    series: ['#1a73e8', '#e37400', '#7baaf7', '#9334e6'],
+    bg: '#f2f4f8',
+    plate: '#ffffff',
+    recess: '#f7f8fb',
+    fg: '#14171f',
+    secondary: '#475061',
+    muted: '#6c768a',
+    dim: '#8a94a8',
+    line: '#e3e7ef',
+    lineStrong: '#cbd2df',
+    empty: '#ebeef5',
+    bar: '#b9c2d3',
+    rest: '#98a3b8',
+    accent: '#2463d8',
+    series: ['#2463d8', '#c8731a', '#1d8a72', '#b84b70'],
   },
 };
 
@@ -409,18 +422,39 @@ function formatDayTick(dateStr, t, lang) {
   return lang === 'zh' ? `周${w} ${dt.getDate()}` : `${w} ${dt.getDate()}`;
 }
 
+/** Dashed daily-average line and a label over the busiest bar (bar charts with >= 3 days). */
+function avgAndPeak(bars, maxTok, chartH, baseY, x0, bw, gap, pal, txt, t) {
+  const active = bars.filter((d) => d.tokens > 0);
+  if (bars.length < 3 || !active.length || !(maxTok > 0)) return '';
+  const avg = active.reduce((a, d) => a + d.tokens, 0) / active.length;
+  const y = baseY - Math.max(4, (avg / maxTok) * chartH);
+  let peakI = 0;
+  bars.forEach((d, i) => { if (d.tokens >= bars[peakI].tokens) peakI = i; });
+  const px = x0 + peakI * (bw + gap) + bw / 2;
+  const right = x0 + bars.length * (bw + gap) - gap;
+  return `<line x1="${x0.toFixed(1)}" y1="${y.toFixed(1)}" x2="${right.toFixed(1)}" y2="${y.toFixed(1)}" stroke="${pal.lineStrong}" stroke-width="1" stroke-dasharray="3 4"/>`
+    + txt(px.toFixed(1), (baseY - chartH - 8).toFixed(1), fmtTok(bars[peakI].tokens), { size: 11.5, fill: pal.secondary, anchor: 'middle', num: true, weight: 500 });
+}
+
+/** Resolve a buildQuips() entry to text. */
+export function quipText(entry, lang) {
+  if (!Array.isArray(entry) || !entry.length) return '';
+  const t = createTranslator(normalizeLang(lang));
+  return String(t(entry[0], ...entry.slice(1)));
+}
+
 function renderActivitySection({ periodKey, dailySlice, hourly, pal, PAD, RIGHT, t, normLang, txt }) {
   const chartW = RIGHT - PAD;
   const activeDailyCount = dailySlice.filter((d) => d.tokens > 0 || d.calls > 0).length;
 
   // 1. Today: 24-hour time-of-day activity bar chart (00:00 -> 23:00).
   if (periodKey === 'today') {
-    const chartTop = 466;
-    const chartH = 58;
+    const chartTop = 468;
+    const chartH = 54;
     const baseY = chartTop + chartH;
     const gap = 8;
     const bw = (chartW - gap * 23) / 24;
-    let svg = `<line x1="${PAD}" y1="${baseY + 0.5}" x2="${RIGHT}" y2="${baseY + 0.5}" stroke="${pal.line}" stroke-width="1"/>`;
+    let svg = `<line x1="${PAD}" y1="${baseY + 0.5}" x2="${RIGHT}" y2="${baseY + 0.5}" stroke="${pal.lineStrong}" stroke-width="1"/>`;
     let activeSummary;
     if (hourly) {
       const activeHours = hourly.filter((h) => h.tokens > 0 || h.calls > 0).length;
@@ -434,17 +468,17 @@ function renderActivitySection({ periodKey, dailySlice, hourly, pal, PAD, RIGHT,
       }
       svg += hourly.map((h, i) => {
         const x = PAD + i * (bw + gap);
-        let bh = 3;
+        let bh = 2.5;
         let fill = pal.empty;
-        let rx = 1.5;
+        let rx = 1;
         if (h.tokens > 0 && maxTok > 0) {
           bh = Math.max(5, (h.tokens / maxTok) * chartH);
           fill = h.hour === peakHour ? pal.accent : pal.bar;
-          rx = 3.5;
+          rx = 2;
         } else if (h.calls > 0) {
           bh = 4;
           fill = pal.bar;
-          rx = 2;
+          rx = 1.5;
         }
         return `<rect x="${x.toFixed(1)}" y="${(baseY - bh).toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" rx="${rx}" fill="${fill}"/>`;
       }).join('');
@@ -452,7 +486,7 @@ function renderActivitySection({ periodKey, dailySlice, hourly, pal, PAD, RIGHT,
       activeSummary = t('activeToday', activeDailyCount > 0);
       svg += Array.from({ length: 24 }, (_, i) => {
         const x = PAD + i * (bw + gap);
-        return `<rect x="${x.toFixed(1)}" y="${(baseY - 3).toFixed(1)}" width="${bw.toFixed(1)}" height="3" rx="1.5" fill="${pal.empty}"/>`;
+        return `<rect x="${x.toFixed(1)}" y="${(baseY - 2.5).toFixed(1)}" width="${bw.toFixed(1)}" height="2.5" rx="1" fill="${pal.empty}"/>`;
       }).join('');
     }
     for (const hr of [0, 6, 12, 18, 23]) {
@@ -460,12 +494,12 @@ function renderActivitySection({ periodKey, dailySlice, hourly, pal, PAD, RIGHT,
       const tickX = hr === 0 ? bx : (hr === 23 ? bx + bw : bx + bw / 2);
       const anchor = hr === 0 ? 'start' : (hr === 23 ? 'end' : 'middle');
       const lbl = `${String(hr).padStart(2, '0')}:00`;
-      svg += `<line x1="${(bx + bw / 2).toFixed(1)}" y1="${baseY + 1}" x2="${(bx + bw / 2).toFixed(1)}" y2="${baseY + 4}" stroke="${pal.line}" stroke-width="1"/>`;
-      svg += txt(tickX.toFixed(1), 546, lbl, { size: 11.5, fill: pal.dim, anchor, num: true });
+      svg += `<line x1="${(bx + bw / 2).toFixed(1)}" y1="${baseY + 1}" x2="${(bx + bw / 2).toFixed(1)}" y2="${baseY + 5}" stroke="${pal.lineStrong}" stroke-width="1"/>`;
+      svg += txt(tickX.toFixed(1), 544, lbl, { size: 11.5, fill: pal.muted, anchor, num: true });
     }
     return `
-  ${txt(PAD, 452, t('activity'), { size: 15, fill: pal.secondary })}
-  ${txt(RIGHT, 452, activeSummary, { size: 15, anchor: 'end', num: true })}
+  ${txt(PAD, 432, t('activity'), { size: 14, fill: pal.secondary, weight: 500 })}
+  ${txt(RIGHT, 432, activeSummary, { size: 14, fill: pal.secondary, anchor: 'end', num: true })}
   ${svg}`;
   }
 
@@ -473,10 +507,11 @@ function renderActivitySection({ periodKey, dailySlice, hourly, pal, PAD, RIGHT,
   if (periodKey === 'd7') {
     const bars = dailySlice.slice(-7);
     const activeSummary = t('activeDaysOf', activeDailyCount, Math.max(1, bars.length));
-    const chartTop = 466;
-    const chartH = 56;
+    const chartTop = 468;
+    const chartH = 54;
     const baseY = chartTop + chartH;
-    let svg = `<line x1="${PAD}" y1="${baseY + 0.5}" x2="${RIGHT}" y2="${baseY + 0.5}" stroke="${pal.line}" stroke-width="1"/>`;
+    let svg = `<line x1="${PAD}" y1="${baseY + 0.5}" x2="${RIGHT}" y2="${baseY + 0.5}" stroke="${pal.lineStrong}" stroke-width="1"/>`;
+    let peakSvg = '';
     if (bars.length) {
       const maxTok = bars.reduce((mx, d) => Math.max(mx, d.tokens), 0);
       const gap = 14;
@@ -486,28 +521,30 @@ function renderActivitySection({ periodKey, dailySlice, hourly, pal, PAD, RIGHT,
       svg += bars.map((d, i) => {
         const x = x0 + i * (bw + gap);
         const isLast = i === bars.length - 1;
-        let bh = 3;
+        let bh = 2.5;
         let fill = pal.empty;
-        let rx = 1.5;
+        let rx = 1;
         if (d.tokens > 0 && maxTok > 0) {
           bh = Math.max(5, (d.tokens / maxTok) * chartH);
           fill = isLast ? pal.accent : pal.bar;
-          rx = 4;
+          rx = 2;
         } else if (d.calls > 0) {
           bh = 4;
           fill = isLast ? pal.accent : pal.bar;
-          rx = 2;
+          rx = 1.5;
         }
         const lbl = formatDayTick(d.date, t, normLang);
-        const lblFill = isLast ? pal.fg : pal.dim;
+        if (i === bars.length - 1) peakSvg = avgAndPeak(bars, maxTok, chartH, baseY, x0, bw, gap, pal, txt, t);
+        const lblFill = isLast ? pal.fg : pal.muted;
         const lblWeight = isLast ? 500 : 400;
         return `<rect x="${x.toFixed(1)}" y="${(baseY - bh).toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" rx="${rx}" fill="${fill}"/>`
-          + txt((x + bw / 2).toFixed(1), 545, lbl, { size: 12, fill: lblFill, weight: lblWeight, anchor: 'middle', num: true });
+          + txt((x + bw / 2).toFixed(1), 544, lbl, { size: 12, fill: lblFill, weight: lblWeight, anchor: 'middle', num: true });
       }).join('');
+      svg += peakSvg;
     }
     return `
-  ${txt(PAD, 452, t('activity'), { size: 15, fill: pal.secondary })}
-  ${txt(RIGHT, 452, activeSummary, { size: 15, anchor: 'end', num: true })}
+  ${txt(PAD, 432, t('activity'), { size: 14, fill: pal.secondary, weight: 500 })}
+  ${txt(RIGHT, 432, activeSummary, { size: 14, fill: pal.secondary, anchor: 'end', num: true })}
   ${svg}`;
   }
 
@@ -533,13 +570,13 @@ function renderActivitySection({ periodKey, dailySlice, hourly, pal, PAD, RIGHT,
       const level = makeHeatScale(days.filter((d) => d <= end).map((d) => safeNum((byDay.get(dayKey(d)) || {}).tokens)));
       const cell = 9;
       const gap = 2;
-      const gridTop = 466;
+      const gridTop = 452;
       const gridX0 = PAD + 28;
       const wd = t('weekdays');
       let svg = '';
       for (const r of [1, 3, 5]) {
         const cy = gridTop + r * (cell + gap) + cell - 1;
-        svg += txt(PAD, cy, wd[r] || '', { size: 10.5, fill: pal.dim });
+        svg += txt(PAD, cy, wd[r] || '', { size: 10.5, fill: pal.muted });
       }
       const opacities = [0, 0.30, 0.52, 0.76, 1];
       let activeDaysInGrid = 0;
@@ -565,12 +602,12 @@ function renderActivitySection({ periodKey, dailySlice, hourly, pal, PAD, RIGHT,
         const monthStart = days.slice(w * 7, w * 7 + 7).find((d) => d.getDate() === 1);
         if ((w === 0 || monthStart) && w - lastLabelCol >= minGap && w <= weeks - 3) {
           const mLbl = formatMonthLabel(monthStart || first, normLang);
-          svg += txt(gridX0 + w * (cell + gap), 555, mLbl, { size: 11, fill: pal.dim });
+          svg += txt(gridX0 + w * (cell + gap), 546, mLbl, { size: 11, fill: pal.muted });
           lastLabelCol = w;
         }
       }
       // Compact Less -> More legend anchored cleanly at the bottom-right.
-      const legY = 546;
+      const legY = 538;
       const legCell = 9;
       const legGap = 3;
       const moreTxt = t('more');
@@ -578,16 +615,16 @@ function renderActivitySection({ periodKey, dailySlice, hourly, pal, PAD, RIGHT,
       const scaleW = 5 * legCell + 4 * legGap;
       const moreSpace = normLang === 'zh' ? 18 : 34;
       const scaleStartX = RIGHT - moreSpace - scaleW;
-      svg += txt(scaleStartX - 6, 554.5, lessTxt, { size: 11, fill: pal.dim, anchor: 'end' });
+      svg += txt(scaleStartX - 6, 546, lessTxt, { size: 11, fill: pal.muted, anchor: 'end' });
       for (let lv = 0; lv <= 4; lv += 1) {
         const lx = scaleStartX + lv * (legCell + legGap);
         if (lv === 0) svg += `<rect x="${lx}" y="${legY}" width="${legCell}" height="${legCell}" rx="2" fill="${pal.empty}"/>`;
         else svg += `<rect x="${lx}" y="${legY}" width="${legCell}" height="${legCell}" rx="2" fill="${pal.accent}" fill-opacity="${opacities[lv]}"/>`;
       }
-      svg += txt(RIGHT, 554.5, moreTxt, { size: 11, fill: pal.dim, anchor: 'end' });
+      svg += txt(RIGHT, 546, moreTxt, { size: 11, fill: pal.muted, anchor: 'end' });
       return `
-  ${txt(PAD, 452, t('activity'), { size: 15, fill: pal.secondary })}
-  ${txt(RIGHT, 452, t('activeDays', activeDaysInGrid, weeks), { size: 15, anchor: 'end', num: true })}
+  ${txt(PAD, 432, t('activity'), { size: 14, fill: pal.secondary, weight: 500 })}
+  ${txt(RIGHT, 432, t('activeDays', activeDaysInGrid, weeks), { size: 14, fill: pal.secondary, anchor: 'end', num: true })}
   ${svg}`;
     }
   }
@@ -595,10 +632,10 @@ function renderActivitySection({ periodKey, dailySlice, hourly, pal, PAD, RIGHT,
   // 4. Last 30 days (and sparse All-time fallback): full-width bar timeline with MM-DD ticks.
   const bars = periodKey === 'd30' ? dailySlice.slice(-30) : dailySlice;
   const activeSummary = t('activeDaysOf', activeDailyCount, Math.max(1, dailySlice.length));
-  const chartTop = 466;
-  const chartH = 58;
+  const chartTop = 468;
+  const chartH = 54;
   const baseY = chartTop + chartH;
-  let barsSvg = `<line x1="${PAD}" y1="${baseY + 0.5}" x2="${RIGHT}" y2="${baseY + 0.5}" stroke="${pal.line}" stroke-width="1"/>`;
+  let barsSvg = `<line x1="${PAD}" y1="${baseY + 0.5}" x2="${RIGHT}" y2="${baseY + 0.5}" stroke="${pal.lineStrong}" stroke-width="1"/>`;
   if (bars.length) {
     const maxDay = bars.reduce((mx, d) => Math.max(mx, d.tokens), 0);
     const gap = bars.length > 40 ? 3 : 6;
@@ -609,24 +646,31 @@ function renderActivitySection({ periodKey, dailySlice, hourly, pal, PAD, RIGHT,
       const ratio = maxDay > 0 ? d.tokens / maxDay : 0;
       const bh = d.tokens > 0 ? Math.max(4, ratio * chartH) : 2.5;
       const fill = i === bars.length - 1 && d.tokens > 0 ? pal.accent : (d.tokens > 0 ? pal.bar : pal.empty);
-      return `<rect x="${(x0 + i * (bw + gap)).toFixed(1)}" y="${(baseY - bh).toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" rx="2.5" fill="${fill}"/>`;
+      return `<rect x="${(x0 + i * (bw + gap)).toFixed(1)}" y="${(baseY - bh).toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" rx="2" fill="${fill}"/>`;
     }).join('');
+    barsSvg += avgAndPeak(bars, maxDay, chartH, baseY, x0, bw, gap, pal, txt, t);
     if (bars.length === 1) {
-      barsSvg += txt(RIGHT, 546, bars[0].date.slice(5), { size: 11.5, fill: pal.dim, anchor: 'end', num: true });
+      barsSvg += txt(RIGHT, 544, bars[0].date.slice(5), { size: 11.5, fill: pal.muted, anchor: 'end', num: true });
     } else {
-      barsSvg += txt(x0.toFixed(1), 546, bars[0].date.slice(5), { size: 11.5, fill: pal.dim, anchor: 'start', num: true });
+      barsSvg += txt(x0.toFixed(1), 544, bars[0].date.slice(5), { size: 11.5, fill: pal.muted, anchor: 'start', num: true });
       if (bars.length >= 7) {
         const mid = Math.floor((bars.length - 1) / 2);
         const midX = x0 + mid * (bw + gap) + bw / 2;
-        barsSvg += txt(midX.toFixed(1), 546, bars[mid].date.slice(5), { size: 11.5, fill: pal.dim, anchor: 'middle', num: true });
+        barsSvg += txt(midX.toFixed(1), 544, bars[mid].date.slice(5), { size: 11.5, fill: pal.muted, anchor: 'middle', num: true });
       }
-      barsSvg += txt(RIGHT, 546, bars[bars.length - 1].date.slice(5), { size: 11.5, fill: pal.dim, anchor: 'end', num: true });
+      barsSvg += txt(RIGHT, 544, bars[bars.length - 1].date.slice(5), { size: 11.5, fill: pal.muted, anchor: 'end', num: true });
     }
   }
   return `
-  ${txt(PAD, 452, t('activity'), { size: 15, fill: pal.secondary })}
-  ${txt(RIGHT, 452, activeSummary, { size: 15, anchor: 'end', num: true })}
+  ${txt(PAD, 432, t('activity'), { size: 14, fill: pal.secondary, weight: 500 })}
+  ${txt(RIGHT, 432, activeSummary, { size: 14, fill: pal.secondary, anchor: 'end', num: true })}
   ${barsSvg}`;
+}
+
+function estimateLabelWidth(s) {
+  let w = 0;
+  for (const ch of String(s || '')) w += ch.codePointAt(0) > 127 ? 12.2 : 7.4;
+  return Math.max(36, Math.round(w));
 }
 
 export function buildShareCardSvg(input = {}) {
@@ -635,15 +679,23 @@ export function buildShareCardSvg(input = {}) {
   const normLang = normalizeLang(src.lang);
   const t = createTranslator(normLang);
   const pal = src.theme === 'light' ? THEMES.light : THEMES.dark;
+  const quip = typeof src.quip === 'string' ? truncateLabel(scrubSensitiveText(src.quip), 40) : '';
   const W = SHARE_CARD_WIDTH;
   const H = SHARE_CARD_HEIGHT;
+  const PLATE_X = 24;
+  const PLATE_Y = 24;
+  const PLATE_W = W - 48;
+  const PLATE_H = H - 48;
+  const PLATE_R = PLATE_X + PLATE_W;
+  const PLATE_B = PLATE_Y + PLATE_H;
   const PAD = 56;
-  const COL2 = 648;
+  const MID_X = 616;
+  const COL2 = 640;
   const RIGHT = W - PAD;
   const sans = `font-family="${FONT_SANS}"`;
   const nums = `${sans} style="font-variant-numeric:tabular-nums"`;
-  const txt = (x, y, s, { size = 15, fill = pal.muted, weight = 400, anchor = 'start', num = false } = {}) => (
-    `<text x="${x}" y="${y}" font-size="${size}" font-weight="${weight}" fill="${fill}"${anchor !== 'start' ? ` text-anchor="${anchor}"` : ''} ${num ? nums : sans}>${escapeXml(s)}</text>`
+  const txt = (x, y, s, { size = 15, fill = pal.muted, weight = 400, anchor = 'start', num = false, ls = null } = {}) => (
+    `<text x="${x}" y="${y}" font-size="${size}" font-weight="${weight}" fill="${fill}"${anchor !== 'start' ? ` text-anchor="${anchor}"` : ''}${ls ? ` letter-spacing="${ls}"` : ''} ${num ? nums : sans}>${escapeXml(s)}</text>`
   );
 
   // Strict allowlist: extract only aggregate totals, byModel and daily.
@@ -669,7 +721,6 @@ export function buildShareCardSvg(input = {}) {
     ? fmtCost(costVal, { estimated: Boolean(bucket.cost_estimated), partial: costPartial })
     : '—';
 
-  // Header: brand on the left, period and date span on the right.
   const periodLabel = scrubSensitiveText(t('periods')[periodKey] || periodKey);
   const dailyAll = sanitizeDaily(src.daily);
   let dailySlice = dailyAll;
@@ -680,11 +731,30 @@ export function buildShareCardSvg(input = {}) {
   if (dailySlice.length === 1) spanStr = dailySlice[0].date;
   else if (dailySlice.length > 1) spanStr = `${dailySlice[0].date} – ${dailySlice[dailySlice.length - 1].date}`;
 
-  const logoDefs = `<defs>
+  const defs = `<defs>
     <linearGradient id="agy-sc-bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#1c212a"/><stop offset="100%" stop-color="#11141a"/></linearGradient>
     <linearGradient id="agy-sc-rim" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="${pal.series[2]}"/><stop offset="100%" stop-color="${pal.series[0]}"/></linearGradient>
+    <clipPath id="agy-sc-left-clip"><rect x="${PLATE_X + 1}" y="89" width="${MID_X - PLATE_X - 2}" height="316"/></clipPath>
+    <clipPath id="agy-sc-mix-clip"><rect x="${PAD}" y="372" width="532" height="4" rx="2"/></clipPath>
   </defs>`;
-  const logo = `<g transform="translate(${PAD},${PAD - 4}) scale(0.5)">
+
+  // Architectural exhibition frame + optical viewfinder brackets + reticle crosshairs.
+  const brackets = [
+    `M${PLATE_X} ${PLATE_Y + 10}V${PLATE_Y}H${PLATE_X + 10}`,
+    `M${PLATE_R - 10} ${PLATE_Y}H${PLATE_R}V${PLATE_Y + 10}`,
+    `M${PLATE_X} ${PLATE_B - 10}V${PLATE_B}H${PLATE_X + 10}`,
+    `M${PLATE_R - 10} ${PLATE_B}H${PLATE_R}V${PLATE_B - 10}`,
+  ].join(' ');
+  const frame = `<rect x="0" y="0" width="${W}" height="${H}" fill="${pal.bg}"/>
+  <rect x="${PLATE_X}" y="${PLATE_Y}" width="${PLATE_W}" height="${PLATE_H}" rx="4" fill="${pal.plate}" stroke="${pal.line}" stroke-width="1"/>
+  <path d="${brackets}" fill="none" stroke="${pal.lineStrong}" stroke-width="1.5" stroke-linecap="square"/>
+  <line x1="${PLATE_X}" y1="88" x2="${PLATE_R}" y2="88" stroke="${pal.line}" stroke-width="1"/>
+  <line x1="${MID_X}" y1="88" x2="${MID_X}" y2="406" stroke="${pal.line}" stroke-width="1"/>
+  <line x1="${PLATE_X}" y1="406" x2="${PLATE_R}" y2="406" stroke="${pal.line}" stroke-width="1"/>
+  <line x1="${PLATE_X}" y1="564" x2="${PLATE_R}" y2="564" stroke="${pal.line}" stroke-width="1"/>
+  <path d="M${MID_X - 3} 88h6M${MID_X} 85v6M${MID_X - 3} 406h6M${MID_X} 403v6" stroke="${pal.lineStrong}" stroke-width="1"/>`;
+
+  const logo = `<g transform="translate(${PAD},${41}) scale(0.5)">
     <rect x="1" y="1" width="62" height="62" rx="15" fill="url(#agy-sc-bg)" stroke="#303846" stroke-width="1.25"/>
     <g fill="#2b3341"><circle cx="15" cy="49" r="2"/><circle cx="26" cy="49" r="2"/><circle cx="49" cy="15" r="2"/><circle cx="49" cy="26" r="2"/><circle cx="49" cy="37" r="2"/></g>
     <line x1="40.6" y1="40.6" x2="51.2" y2="51.2" stroke="url(#agy-sc-rim)" stroke-width="5.2" stroke-linecap="round"/>
@@ -696,26 +766,56 @@ export function buildShareCardSvg(input = {}) {
     </g>
     <path d="M17.5 22.8 A12.5 12.5 0 0 1 25.5 16.4" fill="none" stroke="#ffffff" stroke-opacity="0.28" stroke-width="1.6" stroke-linecap="round"/>
   </g>`;
+  const stampW = estimateLabelWidth(periodLabel) + 18;
   const header = `${logo}
-  ${txt(PAD + 44, PAD + 18, 'Agy Lens', { size: 20, fill: pal.fg, weight: 500 })}
-  ${txt(RIGHT, PAD + 18, spanStr ? `${periodLabel} · ${spanStr}` : periodLabel, { size: 15, anchor: 'end', num: true })}`;
+  ${txt(PAD + 42, 63, 'Agy Lens', { size: 19, fill: pal.fg, weight: 600 })}
+  <line x1="${PAD + 138}" y1="47" x2="${PAD + 138}" y2="67" stroke="${pal.lineStrong}" stroke-width="1"/>
+  <rect x="${PAD + 150}" y="45" width="${stampW}" height="24" rx="4" fill="${pal.recess}" stroke="${pal.line}"/>
+  ${txt(PAD + 150 + stampW / 2, 61.5, periodLabel, { size: 12, fill: pal.secondary, weight: 500, anchor: 'middle' })}
+  ${txt(RIGHT, 62, spanStr ? `${periodLabel} · ${spanStr}` : periodLabel, { size: 14, fill: pal.secondary, anchor: 'end', num: true })}`;
 
-  // Left column: the total, then the supporting figures.
+  // Left Specimen Chamber: quiet aperture reticle + hero tokens + quip plate + 3-col instrument ledger + token mix bar.
+  const aperture = `<g clip-path="url(#agy-sc-left-clip)" fill="none" stroke="${pal.lineStrong}">
+    <circle cx="515" cy="168" r="78" stroke-width="1" stroke-opacity="0.32" stroke-dasharray="3 5"/>
+    <circle cx="515" cy="168" r="106" stroke-width="1" stroke-opacity="0.24"/>
+    <path d="M505 168h20M515 158v20" stroke-width="1" stroke-opacity="0.35"/>
+  </g>`;
+
   const stats = [
     [t('colCost'), costStr],
     [t('colCalls'), fmtInt(calls, normLang)],
     [t('colConvs'), fmtInt(convs, normLang)],
   ];
-  const statW = 176;
-  const left = `
-  ${txt(PAD, 212, fmtTok(totalNew), { size: 96, fill: pal.fg, weight: 500, num: true })}
-  ${txt(PAD, 248, `${t('tokens')} · ${t('exclCache')}`, { size: 17, fill: pal.secondary })}
-  ${stats.map(([label, value], i) => `
-  ${txt(PAD + i * statW, 312, label, { size: 15 })}
-  ${txt(PAD + i * statW, 346, value, { size: 28, fill: pal.fg, weight: 500, num: true })}`).join('')}
-  ${txt(PAD, 392, `${t('legInput')} ${fmtTok(inp)}  ·  ${t('legOutput')} ${fmtTok(out)}  ·  ${t('legCache')} ${fmtTok(cache)}`, { size: 15, num: true })}`;
+  const statW = 178;
+  const mixTotal = inp + out + cache;
+  let mixBarSvg = `<rect x="${PAD}" y="372" width="532" height="4" rx="2" fill="${pal.empty}"/>`;
+  if (mixTotal > 0) {
+    const wIn = Math.max(inp > 0 ? 4 : 0, (inp / mixTotal) * 532);
+    const wOut = Math.max(out > 0 ? 4 : 0, (out / mixTotal) * 532);
+    const wCache = Math.max(0, 532 - wIn - wOut);
+    mixBarSvg += `<g clip-path="url(#agy-sc-mix-clip)">
+      ${wIn > 0 ? `<rect x="${PAD}" y="372" width="${wIn.toFixed(1)}" height="4" fill="${pal.series[0]}"/>` : ''}
+      ${wOut > 0 ? `<rect x="${(PAD + wIn).toFixed(1)}" y="372" width="${wOut.toFixed(1)}" height="4" fill="${pal.series[1]}"/>` : ''}
+      ${wCache > 0 ? `<rect x="${(PAD + wIn + wOut).toFixed(1)}" y="372" width="${wCache.toFixed(1)}" height="4" fill="${pal.bar}"/>` : ''}
+    </g>`;
+  }
 
-  // Right column, the moment: 100 dots, one per percent of tokens, coloured by model.
+  const left = `${aperture}
+  ${txt(PAD, 196, fmtTok(totalNew), { size: 98, fill: pal.fg, weight: 600, num: true, ls: '-0.03em' })}
+  ${txt(PAD, 228, `${t('tokens')} · ${t('exclCache')}`, { size: 15, fill: pal.secondary })}
+  ${quip ? `<rect x="${PAD}" y="246" width="532" height="36" rx="4" fill="${pal.recess}" stroke="${pal.line}"/><rect x="${PAD}" y="246" width="3" height="36" rx="1.5" fill="${pal.accent}"/>${txt(PAD + 16, 269, quip, { size: 15, fill: pal.fg, weight: 500 })}` : ''}
+  ${stats.map(([label, value], i) => {
+    const colX = PAD + i * statW;
+    const textX = colX + (i > 0 ? 18 : 0);
+    const sep = i > 0 ? `<line x1="${colX}" y1="304" x2="${colX}" y2="356" stroke="${pal.line}" stroke-width="1"/>` : '';
+    return `${sep}
+  ${txt(textX, 316, label, { size: 13, fill: pal.muted })}
+  ${txt(textX, 348, value, { size: 26, fill: pal.fg, weight: 600, num: true })}`;
+  }).join('')}
+  ${mixBarSvg}
+  ${txt(PAD, 392, `${t('legInput')} ${fmtTok(inp)}  ·  ${t('legOutput')} ${fmtTok(out)}  ·  ${t('legCache')} ${fmtTok(cache)}`, { size: 13, fill: pal.secondary, num: true })}`;
+
+  // Right Optical Matrix Chamber: recessed 100-dot well + quarter-scale ticks + ranked model ledger.
   const topModels = models.slice(0, 4);
   const extraModels = Math.max(0, models.length - topModels.length);
   const sumNew = models.reduce((acc, m) => acc + m.input + m.output, 0);
@@ -733,46 +833,55 @@ export function buildShareCardSvg(input = {}) {
     let k = 0;
     groups.forEach((g, i) => { for (let c = 0; c < counts[i] && k < 100; c += 1) dots[k++] = g.color; });
   }
-  const PITCH = 25;
+  const PITCH = 24;
   const R = 8.5;
-  const gridTop = 120;
-  const dotsSvg = dots.map((fill, i) => {
-    const cx = COL2 + R + (i % 20) * PITCH;
+  const gridX0 = 655.5;
+  const gridTop = 121.5;
+  const matrixTicks = [5, 10, 15].map((c) => {
+    const tx = gridX0 + R + (c - 0.5) * PITCH;
+    return `<line x1="${tx.toFixed(1)}" y1="104" x2="${tx.toFixed(1)}" y2="110" stroke="${pal.lineStrong}" stroke-width="1"/>`;
+  }).join('');
+  const dotsSvg = `<rect x="${COL2}" y="104" width="504" height="148" rx="6" fill="${pal.recess}" stroke="${pal.line}"/>${matrixTicks}` + dots.map((fill, i) => {
+    const cx = gridX0 + R + (i % 20) * PITCH;
     const cy = gridTop + R + Math.floor(i / 20) * PITCH;
     return `<circle cx="${cx}" cy="${cy}" r="${R}" fill="${fill}"/>`;
   }).join('');
 
   let legend;
   if (!topModels.length) {
-    legend = txt(COL2, 296, t('noModels'), { size: 15 });
+    legend = txt(COL2, 298, t('noModels'), { size: 14, fill: pal.muted });
   } else {
+    const trackW = RIGHT - COL2 - 18;
     legend = topModels.map((m, i) => {
-      const y = 296 + i * 28;
+      const y = 294 + i * 25;
       const mNew = m.input + m.output;
       const share = sumNew > 0 ? fmtPctNum((mNew / sumNew) * 100) : '0%';
-      return `<circle cx="${COL2 + 5}" cy="${y - 5}" r="5" fill="${pal.series[i]}"/>
-  ${txt(COL2 + 20, y, truncateLabel(m.name, 28), { size: 15, fill: pal.fg })}
-  ${txt(RIGHT, y, `${fmtTok(mNew)} · ${share}`, { size: 15, anchor: 'end', num: true })}`;
+      const barW = sumNew > 0 ? Math.max(2, (trackW * mNew) / sumNew) : 0;
+      return `<rect x="${COL2}" y="${y - 9}" width="8" height="8" rx="2" fill="${pal.series[i]}"/>
+  <rect x="${COL2 + 18}" y="${y + 5}" width="${trackW.toFixed(1)}" height="2" rx="1" fill="${pal.empty}"/><rect x="${COL2 + 18}" y="${y + 5}" width="${barW.toFixed(1)}" height="2" rx="1" fill="${pal.series[i]}"/>
+  ${txt(COL2 + 18, y, truncateLabel(m.name, 28), { size: 14, fill: pal.fg, weight: 500 })}
+  ${txt(RIGHT, y, `${fmtTok(mNew)} · ${share}`, { size: 14, fill: pal.secondary, anchor: 'end', num: true })}`;
     }).join('\n  ');
     if (extraModels > 0) {
-      legend += `\n  <circle cx="${COL2 + 5}" cy="${296 + topModels.length * 28 - 5}" r="5" fill="${pal.rest}"/>
-  ${txt(COL2 + 20, 296 + topModels.length * 28, t('shareMoreModels', extraModels), { size: 15 })}`;
+      const my = 294 + topModels.length * 25;
+      legend += `\n  <rect x="${COL2}" y="${my - 9}" width="8" height="8" rx="2" fill="${pal.rest}"/>
+  ${txt(COL2 + 18, my, t('shareMoreModels', extraModels), { size: 13.5, fill: pal.muted })}`;
     }
   }
   const right = `${dotsSvg}
-  ${txt(RIGHT, 264, t('shareDotNote'), { size: 13, fill: pal.dim, anchor: 'end' })}
+  ${txt(RIGHT, 269, t('shareDotNote'), { size: 12.5, fill: pal.muted, anchor: 'end' })}
   ${legend}`;
 
   const hourly = sanitizeHourly(src.hourlyToday ?? src.hourly_today);
   const activity = renderActivitySection({ periodKey, dailySlice, hourly, pal, PAD, RIGHT, t, normLang, txt });
 
-  const footer = `<line x1="${PAD}" y1="566.5" x2="${RIGHT}" y2="566.5" stroke="${pal.line}" stroke-width="1"/>
-  ${txt(PAD, 598, t('shareFooter'), { size: 13, fill: pal.dim })}
-  ${txt(RIGHT, 598, 'github.com/Aoike123/agy-lens', { size: 13, fill: pal.dim, anchor: 'end' })}`;
+  const footer = `
+  ${txt(PAD, 589, t('shareFooter'), { size: 12.5, fill: pal.dim })}
+  ${txt(RIGHT, 589, 'github.com/Aoike123/agy-lens', { size: 12.5, fill: pal.dim, anchor: 'end' })}`;
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="${escapeXml(t('shareAria'))}">
-  ${logoDefs}
-  <rect x="0" y="0" width="${W}" height="${H}" fill="${pal.bg}"/>
+  ${defs}
+  ${frame}
   ${header}
   ${left}
   ${right}
@@ -785,11 +894,16 @@ export function buildShareCardSvg(input = {}) {
 
 let modalState = {
   open: false,
-  theme: 'dark',
+  style: 'minimal-dark',
+  styleChosen: false,
   data: null,
   period: 'd30',
   lang: 'en',
   t: null,
+  quipIdx: 0,
+  assetError: false,
+  ambient: null,
+  pk: null,
 };
 
 function parseRgbLuminance(bg) {
@@ -978,8 +1092,111 @@ export async function copyShareCardPng(svgString, { scale = 2 } = {}) {
   }
 }
 
-function currentSvg() {
-  const d = modalState.data || {};
+export const SHARE_STYLES = ['minimal-dark', 'minimal-light', 'pixel-role'];
+
+function tr() {
+  return modalState.t || createTranslator(modalState.lang);
+}
+
+function hist() {
+  return modalState.data || {};
+}
+
+function currentProfile() {
+  const pk = modalState.pk;
+  return buildProfile(hist(), modalState.period, { nickname: pk.nickname, gender: pk.gender });
+}
+
+function currentAchievements(profile) {
+  return usageAchievements(hist(), modalState.period, profile.stats);
+}
+
+// --- pixel art loading (base64 over /api/share-asset, cached as data URIs) ---------------
+
+const assetCache = new Map();
+const assetPending = new Map();
+let assetList = null;
+let assetListPromise = null;
+
+function apiFetch() {
+  return typeof fetch === 'function' ? fetch.bind(globalThis) : null;
+}
+
+function loadAssetList() {
+  if (assetList) return Promise.resolve(assetList);
+  if (!assetListPromise) {
+    const f = apiFetch();
+    assetListPromise = (f ? getJson('/api/share-asset', { list: '1' }, f) : Promise.reject(new Error('fetch unavailable')))
+      .then((res) => {
+        assetList = new Set(Array.isArray(res && res.files) ? res.files : []);
+        return assetList;
+      })
+      .catch(() => {
+        assetList = new Set();
+        modalState.assetError = true;
+        return assetList;
+      });
+  }
+  return assetListPromise;
+}
+
+function loadAsset(path) {
+  if (!path) return Promise.resolve(null);
+  if (assetCache.has(path)) return Promise.resolve(assetCache.get(path));
+  if (assetPending.has(path)) return assetPending.get(path);
+  const f = apiFetch();
+  const p = loadAssetList()
+    .then((list) => {
+      if (!list.has(path) || !f) return null;
+      return getJson('/api/share-asset', { path }, f).then((res) => (res && res.data ? `data:${res.mime};base64,${res.data}` : null));
+    })
+    .catch(() => null)
+    .then((uri) => {
+      assetCache.set(path, uri);
+      assetPending.delete(path);
+      return uri;
+    });
+  assetPending.set(path, p);
+  return p;
+}
+
+const assetUri = (path) => (path && assetCache.get(path)) || null;
+
+/** Art paths needed for the pixel role card. */
+function neededArt() {
+  if (modalState.style !== 'pixel-role') return [];
+  const prof = currentProfile();
+  return [charStillPath(prof.classId, prof.stage), charIdlePath(prof.classId, prof.stage), arenaPath(CLASS_ARENA[prof.classId])];
+}
+
+function ensureArt() {
+  const paths = neededArt().filter((p) => !assetCache.has(p));
+  if (!paths.length) return;
+  Promise.all(paths.map(loadAsset)).then(() => {
+    if (modalState.open) renderPreview();
+  });
+}
+
+const charArt = (classId, stage, live) => (live && assetUri(charIdlePath(classId, stage))) || assetUri(charStillPath(classId, stage));
+
+// --- card for the current style ---------------------------------------------------------
+
+/** `live` = panel preview (animated idles); export always uses still frames. */
+function currentSvg({ live = false } = {}) {
+  const d = hist();
+  const style = modalState.style;
+  if (style === 'pixel-role') {
+    const prof = currentProfile();
+    return buildRoleCardSvg({
+      profile: prof,
+      achievements: currentAchievements(prof),
+      art: { char: charArt(prof.classId, prof.stage, live), arena: assetUri(arenaPath(CLASS_ARENA[prof.classId])) },
+      lang: modalState.lang,
+      arena: CLASS_ARENA[prof.classId],
+    });
+  }
+  const quips = buildQuips(d, modalState.period);
+  const entry = quips[modalState.quipIdx % quips.length];
   return buildShareCardSvg({
     period: modalState.period,
     totals: d.totals,
@@ -988,7 +1205,8 @@ function currentSvg() {
     hourlyToday: d.hourly_today,
     d7ByPool: d.d7_by_pool,
     lang: modalState.lang,
-    theme: modalState.theme,
+    theme: style === 'minimal-light' ? 'light' : 'dark',
+    quip: quipText(entry, modalState.lang),
   });
 }
 
@@ -1002,31 +1220,164 @@ function setShareStatus(text, isErr = false) {
   el.hidden = !text;
 }
 
+function isReducedMotion() {
+  try {
+    return Boolean(typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  } catch {
+    return false;
+  }
+}
+
+function startAmbientLoop(canvas, arenaId, { seed = 1, reducedMotion = false } = {}) {
+  if (!canvas || typeof canvas.getContext !== 'function') return { stop() {} };
+  canvas.width = VFX_W;
+  canvas.height = VFX_H;
+  const ctx2d = canvas.getContext('2d');
+  if (!ctx2d) return { stop() {} };
+  const frame = createVfxFrame(VFX_W, VFX_H);
+  const imgData = ctx2d.createImageData(VFX_W, VFX_H);
+  const ambient = createAmbientFx(arenaId, seed);
+
+  const drawFrame = () => {
+    clearVfxFrame(frame);
+    ambient.draw(frame);
+    compositeVfx(frame, imgData.data);
+    ctx2d.putImageData(imgData, 0, 0);
+  };
+
+  if (reducedMotion) {
+    for (let i = 0; i < 20; i += 1) ambient.update(0.06);
+    drawFrame();
+    return {
+      stop() { ctx2d.clearRect(0, 0, VFX_W, VFX_H); },
+    };
+  }
+
+  let raf = 0;
+  let stopped = false;
+  let last = performance.now();
+  const loop = (ts) => {
+    if (stopped) return;
+    const dt = (ts - last) / 1000;
+    if (dt >= 0.032) {
+      last = ts;
+      ambient.update(Math.min(0.06, dt));
+      drawFrame();
+    }
+    raf = requestAnimationFrame(loop);
+  };
+  raf = requestAnimationFrame(loop);
+  return {
+    stop() {
+      stopped = true;
+      cancelAnimationFrame(raf);
+      ctx2d.clearRect(0, 0, VFX_W, VFX_H);
+    },
+  };
+}
+
+function stopAmbient() {
+  if (modalState.ambient) modalState.ambient.stop();
+  modalState.ambient = null;
+}
+
+function startAmbientIfNeeded() {
+  stopAmbient();
+  if (!modalState.open || modalState.style !== 'pixel-role') return;
+  const canvas = document.querySelector('#share-modal .share-vfx-canvas');
+  if (!canvas) return;
+  const prof = currentProfile();
+  const arena = CLASS_ARENA[prof.classId] || 'observatory';
+  modalState.ambient = startAmbientLoop(canvas, arena, { seed: prof.level * 17 + 5, reducedMotion: isReducedMotion() });
+}
+
+function stageHtml(svg) {
+  const overlay = modalState.style === 'pixel-role'
+    ? '<canvas class="share-vfx-canvas" width="400" height="210" aria-hidden="true"></canvas>'
+    : '';
+  return `<div class="share-stage">${svg}${overlay}</div>`;
+}
+
+function renderPreview() {
+  const modal = document.getElementById('share-modal');
+  const box = modal && modal.querySelector('.share-preview');
+  if (!box) return;
+  box.innerHTML = stageHtml(currentSvg({ live: true }));
+  startAmbientIfNeeded();
+}
+
+function controlsHtml(t) {
+  const style = modalState.style;
+  const pk = modalState.pk;
+  if (style === 'minimal-dark' || style === 'minimal-light') {
+    return `<div class="share-ctrl-row"><button type="button" class="fchip" data-share-quip>${esc(t('shareQuipNext'))}</button></div>`;
+  }
+  const prof = currentProfile();
+  const nick = `<label class="share-field"><span>${esc(t('shareNickLabel'))}</span><input type="text" data-share-nick maxlength="16" value="${esc(pk.nickname)}" placeholder="${esc(t('shareNickPlaceholder'))}" spellcheck="false" autocomplete="off"></label>`;
+  const gender = prof.classId === 'novice'
+    ? `<div class="share-theme" role="group" aria-label="${esc(t('shareGenderLabel'))}">${['male', 'female'].map((g) => `<button type="button" class="fchip" data-share-gender="${g}" aria-pressed="${pk.gender === g}">${esc(t(g === 'male' ? 'shareGenderMale' : 'shareGenderFemale'))}</button>`).join('')}</div>`
+    : '';
+  return `<div class="share-ctrl-row">${nick}${gender}</div>`;
+}
+
 function renderShareModal() {
   const modal = ensureShareModal();
-  const t = modalState.t || createTranslator(modalState.lang);
-  const svg = currentSvg();
-  modal.innerHTML = `<div class="share-dialog" role="dialog" aria-modal="true" aria-labelledby="share-modal-title">
+  const t = tr();
+  const styles = t('shareStyles');
+  stopAmbient();
+  modal.innerHTML = `<div class="share-dialog" data-style="${esc(modalState.style)}" role="dialog" aria-modal="true" aria-labelledby="share-modal-title">
     <div class="share-head">
-      <div>
+      <div class="share-head-copy">
         <div id="share-modal-title" class="share-title">${esc(t('shareCardTitle'))}</div>
         <div class="share-privacy">${esc(t('sharePrivacy'))}</div>
       </div>
       <button type="button" class="share-close" data-share-close aria-label="${esc(t('shareClose'))}" title="${esc(t('shareClose'))}">&times;</button>
     </div>
-    <div class="share-preview">${svg}</div>
+    <div class="share-styles" role="group" aria-label="${esc(t('shareStyleLabel'))}">
+      ${SHARE_STYLES.map((s) => `<button type="button" class="fchip" data-share-style="${s}" aria-pressed="${modalState.style === s}">${esc(styles[s])}</button>`).join('')}
+    </div>
+    <div class="share-preview">${stageHtml(currentSvg({ live: true }))}</div>
+    <div class="share-controls">${controlsHtml(t)}</div>
     <div class="share-foot">
-      <div class="share-theme" role="group" aria-label="${esc(t('shareThemeLabel'))}">
-        <button type="button" class="fchip" data-share-theme="dark" aria-pressed="${modalState.theme === 'dark'}">${esc(t('shareThemeDark'))}</button>
-        <button type="button" class="fchip" data-share-theme="light" aria-pressed="${modalState.theme === 'light'}">${esc(t('shareThemeLight'))}</button>
-      </div>
+      <span class="share-status" hidden></span>
       <div class="share-actions">
-        <span class="share-status" hidden></span>
         <button type="button" data-share-svg>${esc(t('copySvg'))}</button>
         <button type="button" class="share-primary" data-share-png>${esc(t('copyPng'))}</button>
       </div>
     </div>
   </div>`;
+  if (modalState.style === 'pixel-role') {
+    loadAssetList().then(() => {
+      if (modalState.assetError) setShareStatus(tr()('shareAssetsFail'), true);
+    });
+    ensureArt();
+    startAmbientIfNeeded();
+  }
+}
+
+function saveProfileSoon() {
+  clearTimeout(modalState.pk.saveTimer);
+  modalState.pk.saveTimer = setTimeout(() => {
+    const f = apiFetch();
+    if (!f) return;
+    postJson('/api/share-profile', { nickname: modalState.pk.nickname, gender: modalState.pk.gender }, f).catch(() => {});
+  }, 500);
+}
+
+function loadShareProfileState() {
+  const f = apiFetch();
+  if (!f) return;
+  getJson('/api/share-profile', {}, f)
+    .then((res) => {
+      if (!res || res.error) return;
+      const pk = modalState.pk;
+      if (!pk.touched) {
+        pk.nickname = res.nickname || '';
+        pk.gender = res.gender === 'female' ? 'female' : 'male';
+      }
+      if (modalState.open) renderShareModal();
+    })
+    .catch(() => {});
 }
 
 function onShareModalClick(e) {
@@ -1035,30 +1386,61 @@ function onShareModalClick(e) {
     closeShareCardModal();
     return;
   }
-  const themeBtn = e.target.closest('[data-share-theme]');
-  if (themeBtn) {
-    const next = themeBtn.dataset.shareTheme === 'light' ? 'light' : 'dark';
-    if (next !== modalState.theme) {
-      modalState.theme = next;
+  const t = tr();
+  const styleBtn = e.target.closest('[data-share-style]');
+  if (styleBtn) {
+    const next = styleBtn.dataset.shareStyle;
+    if (SHARE_STYLES.includes(next) && next !== modalState.style) {
+      modalState.style = next;
+      modalState.styleChosen = true;
       renderShareModal();
     }
     return;
   }
+  if (e.target.closest('[data-share-quip]')) {
+    modalState.quipIdx += 1;
+    renderPreview();
+    return;
+  }
+  const genderBtn = e.target.closest('[data-share-gender]');
+  if (genderBtn) {
+    modalState.pk.gender = genderBtn.dataset.shareGender === 'female' ? 'female' : 'male';
+    modalState.pk.touched = true;
+    saveProfileSoon();
+    renderShareModal();
+    return;
+  }
   if (e.target.closest('[data-share-svg]')) {
-    const t = modalState.t || createTranslator(modalState.lang);
-    copyShareCardSvg(currentSvg())
+    withExportArt().then(() => copyShareCardSvg(currentSvg()))
       .then(() => setShareStatus(t('shareCopied', 'SVG')))
       .catch(() => setShareStatus(t('shareCopyFail'), true));
     return;
   }
   if (e.target.closest('[data-share-png]')) {
-    const t = modalState.t || createTranslator(modalState.lang);
-    copyShareCardPng(currentSvg())
+    // Build the SVG synchronously when art is cached so the clipboard write keeps the user gesture.
+    const ready = neededArt().every((p) => assetCache.has(p));
+    const run = () => copyShareCardPng(currentSvg())
       .then(() => setShareStatus(t('shareCopied', 'PNG')))
       .catch((err) => {
         const isClip = err && (err.code === 'CLIPBOARD_UNAVAILABLE' || err.code === 'CLIPBOARD_DENIED');
         setShareStatus(t(isClip ? 'shareCopyPngFail' : 'sharePngFail'), true);
       });
+    if (ready) run();
+    else withExportArt().then(run);
+  }
+}
+
+function withExportArt() {
+  return Promise.all(neededArt().map(loadAsset));
+}
+
+function onShareModalInput(e) {
+  const nick = e.target.closest('[data-share-nick]');
+  if (nick) {
+    modalState.pk.nickname = sanitizeNickname(nick.value);
+    modalState.pk.touched = true;
+    saveProfileSoon();
+    renderPreview();
   }
 }
 
@@ -1077,6 +1459,7 @@ function ensureShareModal() {
     modal.className = 'share-modal';
     modal.hidden = true;
     modal.addEventListener('click', onShareModalClick);
+    modal.addEventListener('input', onShareModalInput);
     document.addEventListener('keydown', onShareKeydown);
     document.body.appendChild(modal);
   }
@@ -1084,32 +1467,53 @@ function ensureShareModal() {
 }
 
 export function openShareCardModal({ data, period = 'd30', lang = 'en', t } = {}) {
+  const prevPk = modalState.pk;
   modalState = {
     open: true,
-    theme: detectPreferredTheme(),
+    style: modalState.style && SHARE_STYLES.includes(modalState.style) && modalState.styleChosen
+      ? modalState.style
+      : (detectPreferredTheme() === 'light' ? 'minimal-light' : 'minimal-dark'),
+    styleChosen: modalState.styleChosen,
     data: data || {},
     period: VALID_PERIODS.has(period) ? period : 'd30',
     lang: normalizeLang(lang),
     t: t || createTranslator(lang),
+    quipIdx: 0,
+    assetError: false,
+    ambient: null,
+    pk: {
+      nickname: prevPk ? prevPk.nickname : '',
+      gender: prevPk ? prevPk.gender : 'male',
+      touched: prevPk ? prevPk.touched : false,
+      saveTimer: 0,
+    },
   };
   const modal = ensureShareModal();
   renderShareModal();
   modal.hidden = false;
+  loadShareProfileState();
   const closeBtn = modal.querySelector('[data-share-close]');
   if (closeBtn) closeBtn.focus();
 }
 
 export function refreshShareCardModal({ data, period, lang, t } = {}) {
   if (!modalState.open) return;
+  const langChanged = lang && normalizeLang(lang) !== modalState.lang;
   if (data !== undefined) modalState.data = data;
   if (period && VALID_PERIODS.has(period)) modalState.period = period;
   if (lang) modalState.lang = normalizeLang(lang);
   if (t) modalState.t = t;
-  renderShareModal();
+  // Keep inputs (and their focus) intact on background data refreshes.
+  if (langChanged) renderShareModal();
+  else {
+    renderPreview();
+    ensureArt();
+  }
 }
 
 export function closeShareCardModal() {
   modalState.open = false;
+  stopAmbient();
   const modal = document.getElementById('share-modal');
   if (modal) modal.hidden = true;
 }
