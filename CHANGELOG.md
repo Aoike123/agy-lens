@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [2.7.0] - 2026-11-26
+
+### Added
+
+- **6-style Art Poster share gallery with full Night/Day themes** (`sidecars/agy-lens/web/views/{share-styles.js,share-card.js,share-frames.js,share-pixel.js}`, `sidecars/agy-lens/web/i18n.js`): expanded History Share Cards into 6 curated styles — **Mountain · Almanac** (`mountain`), **Abyssal · Trench** (`abyssal`), **Eclipse · Astrolabe** (`eclipse`), **Bauhaus · Overprint** (`bauhaus`), **Phosphor · Ribbon** (`phosphor`), and **Pixel · Hero** (`pixel-role`) — each crafted with bespoke Dark (Night) and Light (Day) visual editions and dynamic font scaling so hero totals, long model names, quips, and colophon spines render without clipping or truncation.
+- **60fps WebGL1 shader stage & Live Photo / MP4 / GIF motion export** (`sidecars/agy-lens/web/views/{share-webgl.js,share-motion.js,share-gif.js}`, `sidecars/agy-lens/lib/share-assets.mjs`, `sidecars/agy-lens/main.mjs`): added dual-pass 60fps WebGL1 fragment shaders (perspective sea-surface caustics & standing curtain rays, total eclipse corona & clear-sky sundial halo, Constructivist subtractive overprint plate mechanics, 3D harmonic phosphor ribbons, and seamless alpine clouds) plus zero-dependency H.264 `.mp4` muxing, `GCamera:MotionPhoto` Live Photo (`.jpg`) XMP injection, serpentine Floyd-Steinberg GIF89a dithering, and native OS file-clipboard copy (`/api/share-copy-file`).
+
+### Changed
+
+- **Streamlined poster-first Share Modal UI** (`sidecars/agy-lens/web/{views/share-card.js,styles.css,i18n.js}`): consolidated style selection, Dark/Light theme, quip cycling, role profile inputs, motion format selection, and SVG copy into a compact top-right **Settings** popover and simplified the footer to a single calm action bar (`Copy image`, `Save motion`, `Copy motion`).
+
 ## [2.6.4] - 2026-11-26
 
 ### Changed
