@@ -739,30 +739,74 @@ summary.spd-row:hover .chev { color: var(--fg); }
 .share-modal {
   position: fixed; inset: 0; z-index: 100;
   display: flex; align-items: center; justify-content: center;
-  padding: 12px; background: rgba(0, 0, 0, .58);
+  padding: 12px; background: rgba(6, 8, 14, .72);
+  backdrop-filter: blur(4px);
 }
 .share-dialog {
-  width: 100%; max-width: 640px; max-height: calc(100vh - 24px); overflow-y: auto;
-  background: var(--background, #141923); color: var(--fg);
-  border: 1px solid var(--line); border-radius: 12px; padding: 14px;
+  width: 100%; max-width: 740px; max-height: calc(100vh - 24px); overflow-y: auto;
+  background: var(--background, #14171f); color: var(--fg);
+  border: 1px solid var(--line); border-radius: 12px; padding: 16px;
   display: flex; flex-direction: column; gap: 12px;
-  box-shadow: 0 16px 40px rgba(0, 0, 0, .45);
+  box-shadow: 0 20px 48px rgba(0, 0, 0, .55);
 }
 .share-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.share-head-copy { min-width: 0; }
 .share-title { font-size: 14px; line-height: 20px; font-weight: 500; color: var(--fg); }
 .share-privacy { font-size: 12px; line-height: 16px; color: var(--dim); margin-top: 2px; }
 .share-close {
-  border: 0; border-radius: 6px; width: 24px; height: 24px; padding: 0;
-  font-size: 16px; line-height: 24px; text-align: center; flex: none;
+  border: 0; border-radius: 6px; width: 28px; height: 28px; padding: 0;
+  font-size: 16px; line-height: 28px; text-align: center; flex: none;
 }
-.share-preview { border-radius: 8px; overflow: hidden; border: 1px solid var(--line); }
-.share-preview svg { display: block; width: 100%; height: auto; }
-.share-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.share-styles {
+  display: inline-flex; flex-wrap: wrap; gap: 4px; padding: 3px; align-self: flex-start;
+  background: var(--raise); border: 1px solid var(--line); border-radius: 8px;
+}
+.share-styles .fchip {
+  border: 0; border-radius: 6px; padding: 4px 10px;
+}
+.share-styles .fchip[aria-pressed="true"] {
+  background: var(--background, #1c202a);
+  color: var(--fg);
+  font-weight: 500;
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+.share-preview {
+  position: relative; aspect-ratio: 1200 / 630;
+  border-radius: 8px; overflow: hidden;
+  border: 1px solid var(--line); background: #0c0f18;
+}
+.share-stage { position: relative; width: 100%; height: 100%; }
+.share-stage svg { display: block; width: 100%; height: 100%; }
+.share-vfx-canvas {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  pointer-events: none; image-rendering: pixelated; image-rendering: crisp-edges;
+}
+/* Pixel cards are drawn on a 400x210 grid at 3x: keep the preview nearest-neighbour. */
+.share-dialog[data-style^="pixel"] .share-preview svg,
+.share-dialog[data-style^="pixel"] .share-preview image { image-rendering: pixelated; }
+.share-controls { display: flex; flex-direction: column; gap: 8px; }
+.share-controls:empty { display: none; }
+.share-ctrl-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-height: 28px; }
+.share-controls [data-share-quip] {
+  border: 1px solid var(--line); border-radius: 6px; padding: 4px 10px;
+  background: var(--raise); color: var(--fg); font-size: 12px; line-height: 16px;
+}
+.share-controls [data-share-quip]:hover { border-color: var(--accent); }
 .share-theme {
   display: inline-flex; align-items: center; gap: 2px; padding: 2px;
   border: 1px solid var(--line); border-radius: 8px;
 }
-.share-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.share-field { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--dim); }
+.share-field span { white-space: nowrap; flex: none; }
+.share-field input {
+  width: 120px; height: 28px; padding: 0 8px; border-radius: 6px;
+  border: 1px solid var(--line); background: var(--raise); color: var(--fg); font: inherit; font-size: 12px;
+}
+.share-foot {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;
+  padding-top: 10px; border-top: 1px solid var(--line);
+}
+.share-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; margin-left: auto; }
 .share-primary {
   color: var(--fg);
   border-color: color-mix(in srgb, var(--accent) 60%, transparent);
@@ -773,19 +817,106 @@ summary.spd-row:hover .chev { color: var(--fg); }
 }
 .share-status { font-size: 12px; line-height: 16px; color: var(--ok); }
 .share-status.err { color: var(--crit); }
-.share-styles {
-  display: flex; flex-wrap: wrap; gap: 2px; padding: 2px; align-self: flex-start;
-  border: 1px solid var(--line); border-radius: 8px;
+@media (max-width: 540px) {
+  .share-dialog { padding: 12px; }
 }
-/* Pixel cards are drawn on a 400x210 grid at 3x: keep the preview nearest-neighbour. */
-.share-preview svg, .share-preview image { image-rendering: pixelated; }
-.share-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-height: 28px; }
-.share-controls:empty { display: none; }
-.share-field { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--dim); }
-.share-field input {
-  width: 120px; height: 26px; padding: 0 8px; border-radius: 6px;
-  border: 1px solid var(--line); background: var(--raise); color: var(--fg); font: inherit; font-size: 12px;
+@media (prefers-reduced-motion: reduce) {
+  .share-dialog * { transition: none !important; animation: none !important; }
 }
-.share-field-wide { flex: 1 1 220px; }
-.share-field-wide input { width: 100%; font-family: ui-monospace, 'Cascadia Mono', Menlo, Consolas, monospace; }
-.share-record { margin-left: auto; font-size: 12px; color: var(--dim); white-space: nowrap; }
+
+/* 16-bit Pixel Arcade Showcase Cabinet chrome for pixel-* styles */
+.share-dialog[data-style^="pixel"] {
+  border-radius: 0;
+  background: #141828;
+  color: #f6efd9;
+  border: 2px solid #5a6082;
+  box-shadow:
+    0 0 0 2px #090b14,
+    inset 0 2px 0 rgba(255, 244, 210, .14),
+    inset 0 -2px 0 rgba(0, 0, 0, .45),
+    0 16px 0 rgba(6, 8, 16, .6);
+  --line: #343b5a;
+  --raise: #1c2238;
+  --fg: #f6efd9;
+  --dim: #9aa3c4;
+  --accent: #f6c453;
+}
+.share-dialog[data-style^="pixel"] .share-close {
+  border-radius: 0;
+  border: 1px solid #4b5275;
+  background: #1c2238;
+  color: #e9dfc0;
+}
+.share-dialog[data-style^="pixel"] .share-close:hover {
+  background: #28304d;
+  border-color: #f6c453;
+}
+.share-dialog[data-style^="pixel"] .share-styles {
+  border-radius: 0;
+  padding: 2px;
+  background: #0b0e1a;
+  border: 2px solid #3c4364;
+}
+.share-dialog[data-style^="pixel"] .share-styles .fchip {
+  border-radius: 0;
+  padding: 5px 10px;
+}
+.share-dialog[data-style^="pixel"] .share-styles .fchip[aria-pressed="true"] {
+  background: #232a46;
+  color: #fff6c4;
+  box-shadow: inset 0 2px 0 #4b5275, inset 0 -2px 0 #f6c453;
+}
+.share-dialog[data-style^="pixel"] .share-preview {
+  border-radius: 0;
+  border: 2px solid #4b5275;
+  box-shadow: 0 0 0 2px #090b14;
+  background: #090b14;
+}
+.share-dialog[data-style^="pixel"] .share-controls button,
+.share-dialog[data-style^="pixel"] .share-foot button {
+  border-radius: 0;
+  border: 2px solid #464e70;
+  background: #1d243c;
+  color: #e9dfc0;
+  box-shadow: inset 0 1px 0 rgba(255, 246, 196, .12), inset 0 -2px 0 rgba(0, 0, 0, .35);
+}
+.share-dialog[data-style^="pixel"] .share-controls button:hover:not(:disabled),
+.share-dialog[data-style^="pixel"] .share-foot button:hover:not(:disabled) {
+  background: #273052;
+  border-color: #828cb8;
+  color: #ffffff;
+}
+.share-dialog[data-style^="pixel"] .share-controls button:active:not(:disabled),
+.share-dialog[data-style^="pixel"] .share-foot button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+.share-dialog[data-style^="pixel"] .share-primary {
+  border-color: #b5791f !important;
+  background: #3a2a12 !important;
+  color: #fff6c4 !important;
+  box-shadow: inset 0 1px 0 #f6c453, inset 0 -2px 0 #1e1206 !important;
+}
+.share-dialog[data-style^="pixel"] .share-primary:hover:not(:disabled) {
+  background: #4d3716 !important;
+  border-color: #f6c453 !important;
+}
+.share-dialog[data-style^="pixel"] .share-theme {
+  border-radius: 0;
+  background: #0b0e1a;
+  border: 2px solid #3c4364;
+}
+.share-dialog[data-style^="pixel"] .share-theme .fchip[aria-pressed="true"] {
+  background: #273052;
+  color: #fff6c4;
+  border-color: #f6c453;
+}
+.share-dialog[data-style^="pixel"] .share-field input {
+  border-radius: 0;
+  border: 2px solid #3c4364;
+  background: #0a0d18;
+  color: #fff6c4;
+}
+.share-dialog[data-style^="pixel"] .share-field input:focus {
+  border-color: #f6c453;
+  outline: none;
+}

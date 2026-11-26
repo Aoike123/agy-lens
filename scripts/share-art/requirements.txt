@@ -1,0 +1,5 @@
+# Dev-only tools for the share-card art pipeline (not shipped with the plugin).
+# pip install -r scripts/share-art/requirements.txt
+# import-idle-mp4.py also needs ffmpeg on PATH (or pass --ffmpeg).
+numpy>=1.26
+Pillow>=10.3

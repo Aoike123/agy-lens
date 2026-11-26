@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>分享卡片视觉稿</title>
+<style>
+:root { --bg: #f6f6f4; --surface: #ffffff; --fg: #1f1f1f; --muted: #5e6261; --line: #e3e3e3; --accent: #1a73e8; --chip: #eef1f6; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --bg: #101113; --surface: #18191c; --fg: #e3e3e3; --muted: #9aa0a6; --line: #2a2b2d; --accent: #8ab4f8; --chip: #22252b; }
+}
+:root[data-theme="dark"] { --bg: #101113; --surface: #18191c; --fg: #e3e3e3; --muted: #9aa0a6; --line: #2a2b2d; --accent: #8ab4f8; --chip: #22252b; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.6 system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
+main { max-width: 1240px; margin: 0 auto; padding: 32px 16px 64px; }
+h1 { font-size: 26px; line-height: 1.3; margin: 0 0 6px; font-weight: 650; }
+h2 { font-size: 19px; margin: 52px 0 6px; font-weight: 620; }
+.lede, .note { color: var(--muted); margin: 0 0 16px; max-width: 820px; }
+.card svg { display: block; width: 100%; height: auto; border-radius: 10px; box-shadow: 0 8px 28px rgba(0,0,0,.22); }
+.card + .card { margin-top: 20px; }
+.cap { font-size: 13px; color: var(--muted); margin-top: 8px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.cap b { color: var(--fg); font-weight: 600; }
+.cap button { font: inherit; font-size: 12.5px; color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 3px 10px; cursor: pointer; }
+.cap button:hover { border-color: var(--accent); }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 20px; }
+@media (max-width: 480px) { .grid2 { grid-template-columns: 1fr; } }
+table { width: 100%; border-collapse: collapse; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; font-size: 14px; }
+th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+th { font-size: 12.5px; color: var(--muted); font-weight: 500; background: var(--chip); }
+tr:last-child td { border-bottom: 0; }
+.wrap-table { overflow-x: auto; }
+.cmp-fade { transition: opacity .35s ease; }
+ul.pool { margin: 0; padding-left: 20px; columns: 2; column-gap: 32px; max-width: 900px; }
+@media (max-width: 640px) { ul.pool { columns: 1; } }
+ul.pool li { margin-bottom: 4px; }
+.box { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 18px; max-width: 900px; }
+.box p { margin: 0 0 8px; } .box p:last-child { margin: 0; }
+code { font-family: ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace; font-size: 13px; background: var(--chip); padding: 1px 5px; border-radius: 4px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Agy Lens 分享卡片 · 视觉稿 v2</h1>
+  <p class="lede">这一版全部改成横版 1200×630。像素风是参考 GBA 时代掌机 RPG 现代重制的原创场景：草地、小镇、回合制对战，角色和界面都是自制的。人物从 16×16 升级成带明暗的 32×32，对战卡可以播放动画。数据仍是虚构示例。</p>
+
+  <h2>1 · 像素·对战（带动画）</h2>
+  <p class="note">好友粘贴你的 PK 码后，先在面板里播放这段对战动画：入场、六回合技能对拼、扣血、倒下，最后获得徽章。动画结束后的最后一帧就是导出的「战斗结果卡」。</p>
+  <div class="card" id="battle-wrap"></div>
+  <div class="cap"><b>战斗结果卡</b> · <span id="battle-summary"></span> <button id="replay">▶ 重播</button><button id="skip">⏭ 跳到结果</button></div>
+
+  <h2>2 · 像素·角色档案</h2>
+  <p class="note">左侧是研究所小镇。右侧档案显示角色六维、场景奇遇及十二个场地王称号。</p>
+  <div class="card" id="role-wrap"></div>
+  <div class="cap"><b>角色档案</b> · 缓存炼金术士 LV 72 · Pro 套餐</div>
+
+  <h2>3 · 像素·PK 挑战书</h2>
+  <p class="note">还没有对手时，角色站在告示牌旁边，PK 码写在牌子上；微信里长按图片「提取文字」就能复制。</p>
+  <div class="card" id="wait-wrap"></div>
+  <div class="cap"><b>挑战书</b> · 等待应战</div>
+
+  <h2>4 · 简约·深色 / 浅色（横版精修）</h2>
+  <p class="note">改动：细线分隔，大数字配单位小字号，三个数据带迷你折线，模型分布改成 10×10 方阵加细条图，活跃图加日均虚线、最忙一天标注和日期刻度。换算文案从文案库轮流取（每 3 秒换一句，导出时用当前这句，面板里也能点「换一句」）。</p>
+  <div class="card" id="classic-dark"></div>
+  <div class="card" id="classic-light"></div>
+  <div class="cap"><b>换算文案库</b>（按实际数据算）：</div>
+  <ul class="pool" id="pool"></ul>
+
+  <h2>5 · 按套餐换算（保证 PK 公平）</h2>
+  <div class="box">
+    <p>直接比原始 Token 和费用，高级套餐会永远碾压低级套餐。所以六维里和"量"有关的三项，都改成<b>按自己套餐的周额度换算</b>：</p>
+    <p>· <b>算力</b> = 周期内用量占本套餐周额度的百分比（插件里已有每周额度的美元估值，用它做分母）。<br>· <b>财力</b> = 费用 ÷ 本套餐周额度价值，也就是"额度榨干率"。<br>· <b>手速</b> = 调用次数 ÷ 套餐调用额度的同等折算。<br>· <b>缓存、毅力、博学</b>本来就是比例或天数，不受套餐影响。</p>
+    <p>卡片上会标出套餐（如 <code>Pro 套餐</code>），PK 码里也带套餐档位。识别不到套餐时退回原始数据，并在卡上标「未换算」。</p>
+  </div>
+
+  <h2>6 · 已定的事项</h2>
+  <div class="box">
+    <p>· <b>战绩存储：</b>写进插件数据目录，同一个对手的 PK 码只记一次。<br>· <b>周期不同：</b>照样开打，卡上标「周期不同」。<br>· <b>昵称：</b>支持，最多 8 个字，会经过脱敏并写进 PK 码；不填就显示「冒险者」。</p>
+  </div>
+
+  <h2>7 · 徽章表</h2>
+  <div class="wrap-table"><table id="ach"></table></div>
+</main>
+
+<script>
+/* ================= shared helpers ================= */
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const SANS = `font-family="system-ui,-apple-system,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif"`;
+const MONO = `font-family="ui-monospace,'Cascadia Mono','SF Mono',Menlo,Consolas,monospace"`;
+const txt = (x, y, s, size, fill, { w = 400, a = 'start', extra = '', mono = false } = {}) => `<text x="${x}" y="${y}" font-size="${size}" font-weight="${w}" fill="${fill}"${a !== 'start' ? ` text-anchor="${a}"` : ''} ${mono ? MONO : SANS} ${extra}>${esc(s)}</text>`;
+const FONT = {
+  '0':'.XXX.|X...X|X..XX|X.X.X|XX..X|X...X|.XXX.','1':'..X..|.XX..|..X..|..X..|..X..|..X..|.XXX.','2':'.XXX.|X...X|....X|...X.|..X..|.X...|XXXXX','3':'XXXXX|...X.|..X..|...X.|....X|X...X|.XXX.','4':'...X.|..XX.|.X.X.|X..X.|XXXXX|...X.|...X.','5':'XXXXX|X....|XXXX.|....X|....X|X...X|.XXX.','6':'..XX.|.X...|X....|XXXX.|X...X|X...X|.XXX.','7':'XXXXX|....X|...X.|..X..|.X...|.X...|.X...','8':'.XXX.|X...X|X...X|.XXX.|X...X|X...X|.XXX.','9':'.XXX.|X...X|X...X|.XXXX|....X|...X.|.XX..',
+  'A':'.XXX.|X...X|X...X|XXXXX|X...X|X...X|X...X','B':'XXXX.|X...X|X...X|XXXX.|X...X|X...X|XXXX.','C':'.XXX.|X...X|X....|X....|X....|X...X|.XXX.','D':'XXXX.|X...X|X...X|X...X|X...X|X...X|XXXX.','E':'XXXXX|X....|X....|XXXX.|X....|X....|XXXXX','F':'XXXXX|X....|X....|XXXX.|X....|X....|X....','G':'.XXX.|X...X|X....|X.XXX|X...X|X...X|.XXXX','H':'X...X|X...X|X...X|XXXXX|X...X|X...X|X...X','I':'.XXX.|..X..|..X..|..X..|..X..|..X..|.XXX.','J':'..XXX|...X.|...X.|...X.|...X.|X..X.|.XX..','K':'X...X|X..X.|X.X..|XX...|X.X..|X..X.|X...X','L':'X....|X....|X....|X....|X....|X....|XXXXX','M':'X...X|XX.XX|X.X.X|X.X.X|X...X|X...X|X...X','N':'X...X|X...X|XX..X|X.X.X|X..XX|X...X|X...X','O':'.XXX.|X...X|X...X|X...X|X...X|X...X|.XXX.','P':'XXXX.|X...X|X...X|XXXX.|X....|X....|X....','Q':'.XXX.|X...X|X...X|X...X|X.X.X|X..X.|.XX.X','R':'XXXX.|X...X|X...X|XXXX.|X.X..|X..X.|X...X','S':'.XXXX|X....|X....|.XXX.|....X|....X|XXXX.','T':'XXXXX|..X..|..X..|..X..|..X..|..X..|..X..','U':'X...X|X...X|X...X|X...X|X...X|X...X|.XXX.','V':'X...X|X...X|X...X|X...X|X...X|.X.X.|..X..','W':'X...X|X...X|X...X|X.X.X|X.X.X|X.X.X|.X.X.','X':'X...X|X...X|.X.X.|..X..|.X.X.|X...X|X...X','Y':'X...X|X...X|.X.X.|..X..|..X..|..X..|..X..','Z':'XXXXX|....X|...X.|..X..|.X...|X....|XXXXX',
+  '.':'.....|.....|.....|.....|.....|.XX..|.XX..','/':'.....|....X|...X.|..X..|.X...|X....|.....','-':'.....|.....|.....|XXXXX|.....|.....|.....',':':'.....|.XX..|.XX..|.....|.XX..|.XX..|.....','!':'..X..|..X..|..X..|..X..|..X..|.....|..X..','?':'.XXX.|X...X|....X|...X.|..X..|.....|..X..'
+};
+function ptext(str, x, y, s, color, anchor = 'start', shadow = null) {
+  const chars = [...String(str).toUpperCase()];
+  const w = (chars.length * 6 - 1) * s;
+  const x0 = anchor === 'middle' ? x - w / 2 : anchor === 'end' ? x - w : x;
+  let d = '';
+  chars.forEach((ch, i) => { const g = FONT[ch]; if (!g) return; g.split('|').forEach((row, r) => { for (let c = 0; c < 5; c++) if (row[c] === 'X') d += `M${x0 + (i * 6 + c) * s} ${y + r * s}h${s}v${s}h-${s}z`; }); });
+  return (shadow ? `<path d="${d}" fill="${shadow}" transform="translate(${s} ${s})"/>` : '') + `<path d="${d}" fill="${color}"/>`;
+}
+function bitmap(rows, x, y, s, color) {
+  let d = '';
+  rows.split('|').forEach((row, r) => { [...row].forEach((ch, c) => { if (ch === 'X') d += `M${x + c * s} ${y + r * s}h${s}v${s}h-${s}z`; }); });
+  return `<path d="${d}" fill="${color}"/>`;
+}
+/* colour-lettered bitmap: rows of chars, palette maps char -> colour */
+function cbitmap(rows, pal, x, y, s) {
+  const paths = {};
+  rows.forEach((row, r) => [...row].forEach((ch, c) => { if (ch === '.' || ch === ' ' || !pal[ch]) return; (paths[ch] ||= []).push(`M${x + c * s} ${y + r * s}h${s}v${s}h-${s}z`); }));
+  return Object.entries(paths).map(([k, d]) => `<path d="${d.join('')}" fill="${pal[k]}"/>`).join('');
+}
+
+/* ================= 32x32 sprites ================= */
+const BASE = [
+  [9, [[7, 'oxxXssssssssssXxxo']]],
+  [10, [[7, 'oxS' + 'ssssssssssss' + 'Sxo']]],
+  [11, [[7, 'oxss' + 'eW' + 'ssssss' + 'eW' + 'ssxo']]],
+  [12, [[7, 'oxss' + 'ee' + 'ssssss' + 'ee' + 'ssxo']]],
+  [13, [[7, 'oxsB' + 'sss' + 'suus' + 'sss' + 'Bsxo']]],
+  [14, [[8, 'oS' + 'ssssssssssss' + 'So']]],
+  [15, [[9, 'oo' + 'SSSSSSSSSS' + 'oo']]],
+  [16, [[8, 'olrrr' + 'ttttttt' + 'rrRo']]],
+  [17, [[7, 'ollrrrr' + 'tTTt' + 'rrrrRRo']]],
+  [18, [[6, 'olllrrrrr' + 'tT' + 'rrrrrRRRo']]],
+  [19, [[6, 'ollrrrrrr' + 'tT' + 'rrrrrrRRo']]],
+  [20, [[6, 'olr' + 'nnnnnnwwnnnnnn' + 'RRo']]],
+  [21, [[7, 'olrrrrrr' + 'tT' + 'rrrrrrRo'], [4, 'osSo'], [24, 'oSso']]],
+  [22, [[7, 'olrrrrrr' + 'tT' + 'rrrrrrRo'], [4, 'oSSo'], [24, 'oSSo']]],
+  [23, [[7, 'olrrrrrr' + 'tT' + 'rrrrrRRo'], [5, 'oo'], [25, 'oo']]],
+  [24, [[7, 'olrrrrrr' + 'tT' + 'rrrrrRRo']]],
+  [25, [[7, 'oRRRRRRR' + 'tT' + 'RRRRRRRo']]],
+  [26, [[7, 'oooooooooooooooooo']]],
+  [27, [[9, 'oddDo'], [18, 'oddDo']]],
+  [28, [[9, 'oddDo'], [18, 'oddDo']]],
+  [29, [[8, 'oddddDo'], [17, 'oddddDo']]],
+  [30, [[8, 'ooooooo'], [17, 'ooooooo']]],
+];
+const COMMON = { o: '#14151f', s: '#ffd2ad', S: '#e3a07c', e: '#1d1f3a', W: '#ffffff', B: '#ff9aa2', u: '#b5523b', d: '#4a3326', D: '#2a1c14' };
+const SPRITES = {
+  alchemist: {
+    pal: { ...COMMON, a: '#ffa300', A: '#c46a00', b: '#ffd56b', M: '#4b5068', m: '#8a90a6', w: '#eef1f6', g: '#7fe3ff', G: '#2a8fb8', x: '#4a2c1a', X: '#7a4a2a', r: '#22a35e', R: '#11703d', l: '#5ad895', t: '#f6f1e6', T: '#c9c2b4', n: '#7a4a24', N: '#46280f', c: '#dff6ff', p: '#b44dff', P: '#7a22c4', q: '#e7b2ff' },
+    layers: [
+      [2, [[11, 'oooooooooo']]],
+      [3, [[9, 'oobbbaaaaaaaoo']]],
+      [4, [[8, 'obbaaaaaaaaaaAAo']]],
+      [5, [[7, 'obaaaaaaaaaaaaAAAo']]],
+      [6, [[7, 'oMmoggGoMMoggGomMo']]],
+      [7, [[7, 'oAAowGGoAAowGGoAAo']]],
+      [8, [[6, 'o' + 'A'.repeat(18) + 'o']]],
+      'BASE',
+      [8, [[29, 'c']]], [10, [[28, 'q']]], [12, [[27, 'q']]],
+      [14, [[26, 'ooo']]], [15, [[26, 'ono']]], [16, [[26, 'oco']]], [17, [[25, 'occco']]], [18, [[24, 'occqcco']]],
+      [19, [[24, 'oqppppo']]], [20, [[24, 'oppppPo']]], [21, [[24, 'oppppPo'], [22, 'oSSo']]], [22, [[24, 'opppPPo']]], [23, [[25, 'oPPPo']]], [24, [[26, 'ooo']]],
+    ],
+  },
+  berserker: {
+    pal: { ...COMMON, b: '#f6efe0', B: '#c9b99a', w: '#f2f4f8', m: '#a1aabf', M: '#5b637a', x: '#b5462a', X: '#e0703f', r: '#93603c', R: '#5e3a22', l: '#c08c5e', t: '#efe3cf', T: '#c4b294', n: '#7a4a2a', N: '#46280f' },
+    layers: [
+      [0, [[3, 'oo'], [27, 'oo']]],
+      [1, [[2, 'obbo'], [26, 'obbo']]],
+      [2, [[2, 'obBo'], [11, 'oooooooooo'], [26, 'oBbo']]],
+      [3, [[3, 'obBo'], [9, 'oowwmmmmmmmmoo'], [25, 'oBbo']]],
+      [4, [[4, 'obBo'], [8, 'owwmmmmmmmmmmMMo'], [24, 'oBbo']]],
+      [5, [[5, 'oB'], [7, 'ow' + 'mmmmmmmmmmmmm' + 'MMo'], [25, 'Bo']]],
+      [6, [[7, 'o' + 'MwMMwMMwMMwMMwMM' + 'o']]],
+      [7, [[7, 'omm'], [10, 'xxxxxxxxxxxx'], [22, 'mmo']]],
+      [8, [[7, 'omS' + 'ssssssssssss' + 'Smo']]],
+      'BASE',
+      [13, [[8, 'xXssss' + 'uuuu' + 'ssssXx']]],
+      [14, [[8, 'oxXXxxxxxxxxXXxo']]],
+      [15, [[9, 'ox' + 'Xxxxxxxxxx' + 'Xo']]],
+      [16, [[11, 'oxxxxxxxxo']]],
+      [17, [[13, 'oxxxxo']]],
+      [6, [[26, 'oo']]], [7, [[25, 'onNo']]], [8, [[25, 'onNooo']]], [9, [[25, 'onNowwo']]], [10, [[25, 'onNwwmo']]],
+      [11, [[25, 'onNwmmo']]], [12, [[25, 'onNwmMo']]], [13, [[25, 'onNmmMo']]], [14, [[25, 'onNoMMo']]], [15, [[25, 'onNooo']]],
+      ...Array.from({ length: 14 }, (_, i) => [16 + i, [[25, 'onNo']]]), [30, [[25, 'oooo']]],
+      [21, [[23, 'oSSo']]], [22, [[23, 'oSSo']]],
+    ],
+  },
+};
+function spriteGrid(id) {
+  const g = Array.from({ length: 32 }, () => Array(32).fill('.'));
+  const apply = ([r, segs]) => segs.forEach(([c, str]) => [...str].forEach((ch, i) => { if (c + i < 32) g[r][c + i] = ch; }));
+  SPRITES[id].layers.forEach((L) => (L === 'BASE' ? BASE.forEach(apply) : apply(L)));
+  return g.map((r) => r.join(''));
+}
+const GRIDS = { alchemist: spriteGrid('alchemist'), berserker: spriteGrid('berserker') };
+function sprite(id, x, y, s, { flip = false, mono = null } = {}) {
+  const pal = mono ? Object.fromEntries(Object.keys(SPRITES[id].pal).map((k) => [k, k === 'o' ? mono[0] : mono[1]])) : SPRITES[id].pal;
+  const body = cbitmap(GRIDS[id], pal, 0, 0, s);
+  const tf = flip ? `translate(${x + 32 * s} ${y}) scale(-1 1)` : `translate(${x} ${y})`;
+  return `<g transform="${tf}">${body}</g>`;
+}
+
+/* ================= overworld tiles ================= */
+const OW = { grass: '#8cd46a', grassD: '#6dbb4e', grassL: '#b4e88c', tall: '#4fa64a', tallD: '#3a8a3c', path: '#ecd9a2', pathD: '#d4bc7c', pathL: '#f6e9c2' };
+function owDefs() {
+  const blade = (x, y, c) => `<rect x="${x}" y="${y + 3}" width="3" height="3" fill="${c}"/><rect x="${x + 3}" y="${y}" width="3" height="3" fill="${c}"/><rect x="${x + 6}" y="${y + 3}" width="3" height="3" fill="${c}"/>`;
+  return `<pattern id="ow-grass" width="48" height="48" patternUnits="userSpaceOnUse"><rect width="48" height="48" fill="${OW.grass}"/>${blade(6, 9, OW.grassD)}${blade(30, 18, OW.grassD)}${blade(15, 33, OW.grassD)}${blade(36, 39, OW.grassL)}${blade(3, 39, OW.grassL)}</pattern>
+  <pattern id="ow-tall" width="24" height="24" patternUnits="userSpaceOnUse"><rect width="24" height="24" fill="${OW.tall}"/><path d="M0 24 L6 9 L12 24Z M12 24 L18 9 L24 24Z" fill="${OW.tallD}"/><path d="M3 24 L6 15 L9 24Z M15 24 L18 15 L21 24Z" fill="#7cc96a"/></pattern>
+  <pattern id="ow-path" width="48" height="48" patternUnits="userSpaceOnUse"><rect width="48" height="48" fill="${OW.path}"/><rect x="9" y="12" width="3" height="3" fill="${OW.pathD}"/><rect x="33" y="6" width="3" height="3" fill="${OW.pathD}"/><rect x="24" y="30" width="3" height="3" fill="${OW.pathD}"/><rect x="39" y="36" width="3" height="3" fill="${OW.pathL}"/><rect x="6" y="39" width="3" height="3" fill="${OW.pathL}"/></pattern>`;
+}
+const TREE = ['.....oooooo.....', '...oolllllloo...', '..ollllmmmmmmo..', '.olllmmmmmmmmmo.', '.ollmmmmmmmmmmo.', 'olmmmmmmmmmmmmdo', 'olmmlmmmmmmmmddo', 'olmllmmmmmmmmddo', 'ommmmmmmmmmmdddo', 'ommmmmmmmmmddddo', '.ommmmmmmmdddddo', '.oddmmmmmddddo..', '..odddddddddo...', '...ooodddooo....', '......oTto......', '......oTto......', '.....oTTtto.....', '......aaaa......'];
+const TREEPAL = { o: '#1f3d2a', d: '#2f7a3f', m: '#45a052', l: '#7ccf6a', t: '#a0683e', T: '#6b4226', a: 'rgba(0,0,0,0.18)' };
+const tree = (x, y, s = 3) => cbitmap(TREE, TREEPAL, x, y, s);
+const FLOWER = ['.r.r.', 'rrwrr', '.rrr.', '..g..'];
+const flower = (x, y, c) => cbitmap(FLOWER, { r: c, w: '#fff6c8', g: '#3a8a3c' }, x, y, 3);
+function fence(x, y, n) {
+  let o = '';
+  for (let i = 0; i < n; i++) {
+    const fx = x + i * 48;
+    o += `<rect x="${fx + 6}" y="${y}" width="9" height="33" fill="#b57a45"/><rect x="${fx + 6}" y="${y}" width="9" height="3" fill="#e0a56a"/><rect x="${fx + 15}" y="${y}" width="3" height="33" fill="#6b4226"/>`;
+    o += `<rect x="${fx}" y="${y + 9}" width="48" height="6" fill="#c98d55"/><rect x="${fx}" y="${y + 21}" width="48" height="6" fill="#c98d55"/><rect x="${fx}" y="${y + 15}" width="48" height="3" fill="#6b4226"/><rect x="${fx}" y="${y + 27}" width="48" height="3" fill="#6b4226"/>`;
+  }
+  return o;
+}
+function lab(x, y) {
+  let o = `<rect x="${x - 6}" y="${y + 186}" width="300" height="12" fill="rgba(0,0,0,0.16)"/>`;
+  // roof
+  o += `<rect x="${x - 12}" y="${y}" width="312" height="66" fill="#3d4f7a"/>`;
+  for (let i = 0; i < 6; i++) o += `<rect x="${x - 12}" y="${y + 6 + i * 10}" width="312" height="4" fill="#33436a"/>`;
+  o += `<rect x="${x - 12}" y="${y}" width="312" height="6" fill="#6a82b8"/><rect x="${x - 15}" y="${y + 63}" width="318" height="6" fill="#26324f"/>`;
+  // wall
+  o += `<rect x="${x}" y="${y + 69}" width="288" height="120" fill="#f4ecd8"/><rect x="${x}" y="${y + 69}" width="288" height="6" fill="#d9cdb0"/><rect x="${x}" y="${y + 183}" width="288" height="6" fill="#c9bb98"/>`;
+  o += `<rect x="${x - 3}" y="${y + 69}" width="3" height="120" fill="#2c3448"/><rect x="${x + 288}" y="${y + 69}" width="3" height="120" fill="#2c3448"/>`;
+  // windows
+  for (const wx of [x + 24, x + 216]) {
+    o += `<rect x="${wx}" y="${y + 96}" width="48" height="39" fill="#2c3448"/><rect x="${wx + 3}" y="${y + 99}" width="42" height="33" fill="#8fd0f0"/><rect x="${wx + 6}" y="${y + 102}" width="12" height="6" fill="#d8f2ff"/><rect x="${wx + 22}" y="${y + 99}" width="3" height="33" fill="#2c3448"/>`;
+  }
+  // sign + door
+  o += `<rect x="${x + 90}" y="${y + 78}" width="108" height="27" fill="#2c3448"/><rect x="${x + 93}" y="${y + 81}" width="102" height="21" fill="#4a6aa8"/>` + ptext('AGY LAB', x + 144, y + 85, 2, '#ffffff', 'middle');
+  o += `<rect x="${x + 117}" y="${y + 120}" width="54" height="69" fill="#2c3448"/><rect x="${x + 120}" y="${y + 123}" width="48" height="66" fill="#8a5a3a"/><rect x="${x + 120}" y="${y + 123}" width="48" height="6" fill="#a8744c"/><rect x="${x + 156}" y="${y + 153}" width="6" height="6" fill="#ffd56b"/>`;
+  o += `<rect x="${x + 108}" y="${y + 189}" width="72" height="9" fill="#c9a06a"/>`;
+  return o;
+}
+function shadowBlob(cx, y, w) {
+  return `<rect x="${cx - w / 2 + 6}" y="${y}" width="${w - 12}" height="6" fill="rgba(0,0,0,0.2)"/><rect x="${cx - w / 2}" y="${y + 3}" width="${w}" height="6" fill="rgba(0,0,0,0.2)"/>`;
+}
+function overworldScene({ signboard = false } = {}) {
+  let o = `<rect width="1200" height="630" fill="url(#ow-grass)"/>`;
+  // paths
+  o += `<rect x="216" y="258" width="96" height="372" fill="url(#ow-path)"/><rect x="216" y="384" width="984" height="96" fill="url(#ow-path)"/>`;
+  o += `<rect x="213" y="258" width="3" height="126" fill="${OW.pathD}"/><rect x="312" y="258" width="3" height="126" fill="${OW.pathD}"/><rect x="315" y="381" width="885" height="3" fill="${OW.pathD}"/><rect x="315" y="480" width="885" height="3" fill="${OW.pathD}"/><rect x="213" y="480" width="3" height="150" fill="${OW.pathD}"/><rect x="312" y="480" width="3" height="150" fill="${OW.pathD}"/>`;
+  // tall grass patch
+  o += `<rect x="0" y="504" width="192" height="126" fill="url(#ow-tall)"/><rect x="336" y="528" width="240" height="102" fill="url(#ow-tall)"/>`;
+  // tree border
+  for (let i = -1; i < 26; i++) o += tree(i * 48 - 6, -24);
+  for (let i = 0; i < 4; i++) o += tree(-30, 60 + i * 96);
+  o += lab(72, 66);
+  o += fence(384, 300, 4) + fence(840, 300, 6);
+  [[408, 252, '#ff6b8a'], [456, 240, '#ffd34d'], [504, 258, '#ff6b8a'], [600, 246, '#ffffff'], [36, 300, '#ffd34d'], [84, 324, '#ff6b8a'], [372, 504, '#ffffff'], [900, 540, '#ffd34d'], [948, 564, '#ff6b8a']].forEach(([x, y, c]) => { o += flower(x, y, c); });
+  o += tree(1008, 504) + tree(1104, 528) + tree(660, 516);
+  if (signboard) {
+    const bx = 560, by = 120, bw = 500, bh = 196;
+    o += `<rect x="${bx + 60}" y="${by + bh - 6}" width="15" height="84" fill="#6b4226"/><rect x="${bx + bw - 75}" y="${by + bh - 6}" width="15" height="84" fill="#6b4226"/>`;
+    o += `<rect x="${bx + 40}" y="${by + bh + 72}" width="${bw - 80}" height="9" fill="rgba(0,0,0,0.16)"/>`;
+    o += `<rect x="${bx - 3}" y="${by - 3}" width="${bw + 6}" height="${bh + 6}" fill="#3e2412"/><rect x="${bx}" y="${by}" width="${bw}" height="${bh}" fill="#c8955a"/>`;
+    for (let i = 1; i < 4; i++) o += `<rect x="${bx}" y="${by + i * 49}" width="${bw}" height="3" fill="#a8743f"/>`;
+    o += `<rect x="${bx}" y="${by}" width="${bw}" height="6" fill="#e3b57e"/><rect x="${bx}" y="${by + bh - 6}" width="${bw}" height="6" fill="#8e5c30"/>`;
+    o += `<rect x="${bx + 12}" y="${by + 12}" width="9" height="9" fill="#5a3a1e"/><rect x="${bx + bw - 21}" y="${by + 12}" width="9" height="9" fill="#5a3a1e"/>`;
+    o += txt(bx + bw / 2, by + 50, 'PK 挑战书', 28, '#3e2412', { a: 'middle', w: 800 });
+    o += `<rect x="${bx + 24}" y="${by + 72}" width="${bw - 48}" height="52" fill="#f6e3c0"/><rect x="${bx + 24}" y="${by + 72}" width="${bw - 48}" height="3" fill="#8e5c30"/>`;
+    o += ptext('AGY1-20788661886354-1K7-7MZ4Q-X3', bx + bw / 2, by + 90, 2.2, '#3e2412', 'middle');
+    o += txt(bx + bw / 2, by + 154, '复制这串码 → Agy Lens 分享卡片 → 像素·PK', 16, '#3e2412', { a: 'middle', w: 700 });
+    o += txt(bx + bw / 2, by + 178, '微信里长按图片「提取文字」也能复制', 13.5, '#5a3a1e', { a: 'middle' });
+  }
+  return o;
+}
+/* GBA-style window */
+function win(x, y, w, h, { fill = '#fbfbf3', border = '#2c3448', inner = '#7fa7d9' } = {}) {
+  return `<rect x="${x + 6}" y="${y}" width="${w - 12}" height="${h}" fill="${border}"/><rect x="${x}" y="${y + 6}" width="${w}" height="${h - 12}" fill="${border}"/><rect x="${x + 3}" y="${y + 3}" width="${w - 6}" height="${h - 6}" fill="${border}"/>
+  <rect x="${x + 6}" y="${y + 6}" width="${w - 12}" height="${h - 12}" fill="${inner}"/><rect x="${x + 9}" y="${y + 9}" width="${w - 18}" height="${h - 18}" fill="${fill}"/>`;
+}
+function hpBar(x, y, w, pct, { label = 'HP' } = {}) {
+  const col = pct > 0.5 ? '#3ccf5c' : pct > 0.2 ? '#f0c020' : '#f04838';
+  const colL = pct > 0.5 ? '#8ef0a0' : pct > 0.2 ? '#ffe680' : '#ff9a8a';
+  const bw = w - 54;
+  return `<rect x="${x}" y="${y}" width="${w}" height="21" fill="#2c3448"/><rect x="${x + 3}" y="${y + 3}" width="42" height="15" fill="#f0a020"/>` + ptext(label, x + 24, y + 6, 1.5, '#2c3448', 'middle') +
+    `<rect x="${x + 48}" y="${y + 3}" width="${bw + 3}" height="15" fill="#4a5470"/><rect x="${x + 48}" y="${y + 3}" width="${Math.max(0, bw * pct)}" height="15" fill="${col}" data-hpfill/><rect x="${x + 48}" y="${y + 3}" width="${Math.max(0, bw * pct)}" height="4" fill="${colL}"/>`;
+}
+const PAL8 = { navy: '#2c3448', ink: '#2c3448', sub: '#5a6480', gold: '#d99a00' };
+
+/* ================= achievements ================= */
+const ICONS = {
+  star: '...XX...|...XX...|XXXXXXXX|.XXXXXX.|..XXXX..|.XXXXXX.|.XX..XX.|X......X', coin: '..XXXX..|.XXXXXX.|XXX..XXX|XXX..XXX|XXX..XXX|XXX..XXX|.XXXXXX.|..XXXX..',
+  crown: '........|X..XX..X|XX.XX.XX|XXXXXXXX|XXXXXXXX|X.XXXX.X|XXXXXXXX|........', flame: '...X....|...XX...|..XXX.X.|.XXXXXX.|XXX.XXXX|XX...XXX|XX...XX.|.XXXXX..',
+  moon: '..XXX...|.XX.....|XX......|XX......|XX......|XX....X.|.XX..XX.|..XXXX..', sun: '...XX...|X..XX..X|..XXXX..|XXXXXXXX|XXXXXXXX|..XXXX..|X..XX..X|...XX...',
+  bolt: '....XXX.|...XXX..|..XXX...|.XXXXXX.|...XXX..|..XXX...|.XX.....|X.......', bubble: '.XXXXXX.|XXXXXXXX|X.X.X.XX|XXXXXXXX|.XXXXXX.|..X.....|.X......|........',
+  gear: '...XX...|.X.XX.X.|..XXXX..|XXX..XXX|XXX..XXX|..XXXX..|.X.XX.X.|...XX...', bag: '...XX...|..X..X..|...XX...|.XXXXXX.|XXX..XXX|XX.XX.XX|XXX..XXX|.XXXXXX.',
+  heart: '.XX..XX.|XXXXXXXX|XXXXXXXX|XXXXXXXX|.XXXXXX.|..XXXX..|...XX...|........', gem: '..XXXX..|.X.XX.X.|XXXXXXXX|.XXXXXX.|..XXXX..|...XX...|........|........',
+  sword: '.......X|......XX|.....XX.|X..XX...|.XXX....|..X.....|.X.X....|X.......', mega: '......X.|....XXX.|XXXXXXX.|XXXXXXX.|XXXXXXX.|....XXX.|.X....X.|.X......',
+  hex: '..XXXX..|.XX..XX.|XX....XX|X......X|X......X|XX....XX|.XX..XX.|..XXXX..', up: '...XX...|..XXXX..|.XXXXXX.|XXXXXXXX|...XX...|...XX...|...XX...|...XX...',
+  fist: '..XXXX..|.XXXXXX.|.X.X.X.X|.XXXXXXX|.XXXXXXX|..XXXXX.|..XXXX..|..XXXX..', equal: '........|XXXXXXXX|XXXXXXXX|........|........|XXXXXXXX|XXXXXXXX|........',
+  tear: '...X....|...X....|..XXX...|..XXX...|.XXXXX..|.XXXXX..|..XXX...|........', skull: '.XXXXXX.|XXXXXXXX|XX.XX.XX|XX.XX.XX|XXXXXXXX|.XXXXXX.|.X.XX.X.|........',
+  book: 'XXX..XXX|X..XX..X|X.XXXX.X|X.XXXX.X|X.XXXX.X|X..XX..X|XXX..XXX|...XX...', scroll: '.XXXXXX.|X......X|.X.XX.X.|.X....X.|.X.XX.X.|.X....X.|X......X|.XXXXXX.',
+  eye: '........|..XXXX..|.X....X.|X..XX..X|X..XX..X|.X....X.|..XXXX..|........', key: '........|XXXXXXXX|X.X.X.XX|XXXXXXXX|XX.X.X.X|XXXXXXXX|X......X|XXXXXXXX',
+  paper: 'XXXXX...|X...XX..|X.XX.XX.|X.....X.|X.XXX.X.|X.....X.|X.XXX.X.|XXXXXXX.', film: 'XXXXXXXX|X.X..X.X|XXXXXXXX|X......X|X......X|XXXXXXXX|X.X..X.X|XXXXXXXX',
+  cup: '........|XXXXXX..|X....XXX|X....X.X|X....XXX|.X..X...|..XX....|XXXXXX..',
+};
+const ACH = [
+  ['初入江湖', 'star', '#e0a800', '用量', '第一次调用模型'], ['百万富翁', 'coin', '#e0a800', '用量', '周期内 ≥ 100 万 Token'], ['亿万富翁', 'crown', '#e0a800', '用量', '周期内 ≥ 1 亿 Token'],
+  ['卷王', 'flame', '#e8453c', '用量', '周期内每天都在用（≥ 7 天）'], ['修仙党', 'moon', '#7a5af0', '用量', '今天 0–5 点的 Token ≥ 20%'], ['早八人', 'sun', '#f08a00', '用量', '今天 5–9 点的 Token ≥ 30%'],
+  ['白嫖大师', 'bolt', '#1a9ae0', '用量', '缓存命中率 ≥ 90%'], ['废话文学家', 'bubble', '#e85a9a', '用量', '输出占比 ≥ 40%'], ['调用永动机', 'gear', '#6a7490', '用量', '周期内调用 ≥ 1000 次'],
+  ['氪金大佬', 'bag', '#e0a800', '用量', '额度榨干率 ≥ 90%（按套餐换算）'], ['模型海王', 'heart', '#e85a9a', '用量', '同时用过 ≥ 5 个模型'], ['纯爱战士', 'gem', '#22a35e', '用量', '单个模型占比 ≥ 95%'],
+  ['首杀', 'sword', '#e8453c', '战斗', '第一次 PK 获胜'], ['论战吧吧主', 'mega', '#f08a00', '战斗', '累计 PK 10 场'], ['六边形战士', 'hex', '#e0a800', '战斗', '6 : 0 全属性碾压'],
+  ['以下克上', 'up', '#22a35e', '战斗', '以更低等级击败对手'], ['杀疯了', 'fist', '#e8453c', '战斗', '5 连胜'], ['端水大师', 'equal', '#1a9ae0', '战斗', '打出 3 : 3 平局'],
+  ['菜就多练', 'tear', '#6a7490', '战斗', '累计输 5 场'], ['被按在地上摩擦', 'skull', '#6a7490', '战斗', '0 : 6 惨败'],
+];
+const UNLOCKED = new Set([0, 1, 3, 6, 9, 10, 12, 13, 15]);
+const SCENE_BADGES = [
+  ['半张地图', 'scroll', '#a46d31', '场景', '在六个不同决斗场完成对战'],
+  ['全图点亮', 'eye', '#178986', '场景', '在十二个不同决斗场完成对战'],
+  ['借个东风', 'bolt', '#c28c12', '场景', '首次赢下场景加成回合'],
+  ['主场随身带', 'hex', '#7054b5', '场景', '在六种属性上分别赢过加成回合'],
+  ['逆行者', 'up', '#b24457', '场景', '输掉场景加成回合，仍赢下整场 PK'],
+  ['风向标坏了', 'gear', '#537ead', '场景', '在三座不同场地达成逆行者'],
+  ['东风是借来的', 'bolt', '#af8337', '场景', '赢下场景加成回合，最后却输了整场 PK'],
+];
+const sceneBadgeStart = ACH.length;
+ACH.push(...SCENE_BADGES);
+
+function earnedSceneBadges(matches) {
+  const opponents = new Set(), venues = new Set(), bonusWins = new Set();
+  const comebackVenues = new Set(), arenaWins = new Map();
+  let squanderedBonus = false;
+  for (const match of matches) {
+    if (opponents.has(match.opponentCode)) continue;
+    opponents.add(match.opponentCode);
+    venues.add(match.venue);
+    if (match.wonBonus) bonusWins.add(match.bonusStat);
+    if (match.result === 'win') {
+      arenaWins.set(match.venue, (arenaWins.get(match.venue) || 0) + 1);
+      if (match.lostBonus) comebackVenues.add(match.venue);
+    }
+    if (match.result === 'loss' && match.wonBonus) squanderedBonus = true;
+  }
+  return [venues.size >= 6, venues.size >= 12, bonusWins.size >= 1, bonusWins.size >= 6,
+    comebackVenues.size >= 1, comebackVenues.size >= 3, squanderedBonus,
+    ...APPROVED_ARENAS.map(a => (arenaWins.get(a.image) || 0) >= KING_WINS)];
+}
+
+/* ================= role card ================= */
+const STATS = [
+  ['算力', 'POW', 78, '64% 周额度', '#e8453c'], ['缓存', 'INT', 86, '命中 86%', '#1a9ae0'], ['手速', 'AGI', 61, '1,284 次', '#22a35e'],
+  ['毅力', 'STA', 88, '26 / 30 天', '#f08a00'], ['博学', 'WIS', 63, '6 个模型', '#7a5af0'], ['财力', 'GLD', 54, '榨干 54%', '#d99a00'],
+];
+function roleCard() {
+  let s = `<defs>${owDefs()}</defs>` + overworldScene();
+  // hero on the path in front of the lab
+  s += shadowBlob(264, 318 + 116, 84) + sprite('alchemist', 200, 310, 4);
+  // speech bubble
+  s += win(176, 238, 176, 54) + txt(264, 272, '今天也在炼缓存', 16, PAL8.ink, { a: 'middle', w: 700 });
+  // window
+  const X = 588, Y = 24, Wd = 588, Ht = 582;
+  s += win(X, Y, Wd, Ht);
+  s += `<rect x="${X + 9}" y="${Y + 9}" width="${Wd - 18}" height="64" fill="#e9eff8"/><rect x="${X + 9}" y="${Y + 73}" width="${Wd - 18}" height="3" fill="#c7d4e8"/>`;
+  s += txt(X + 30, Y + 52, '小 A', 30, PAL8.ink, { w: 800 });
+  s += `<rect x="${X + 118}" y="${Y + 28}" width="150" height="30" fill="#22a35e"/><rect x="${X + 118}" y="${Y + 28}" width="150" height="4" fill="#5ad895"/>` + txt(X + 193, Y + 50, '缓存炼金术士', 16, '#ffffff', { a: 'middle', w: 700 });
+  s += `<rect x="${X + 276}" y="${Y + 28}" width="58" height="30" fill="#2c3448"/>` + ptext('SSR', X + 305, Y + 36, 2, '#ffd56b', 'middle');
+  s += ptext('LV', X + 440, Y + 34, 3, PAL8.sub) + ptext('72', X + 552, Y + 26, 5, PAL8.ink, 'end');
+  s += txt(X + 30, Y + 104, 'Pro 套餐 · 近 30 天 · 按套餐额度换算', 14, PAL8.sub, { w: 600 });
+  s += txt(X + 558, Y + 104, '「能读缓存，绝不重算。」', 14, PAL8.ink, { a: 'end', w: 600 });
+  // exp
+  s += ptext('EXP', X + 30, Y + 122, 2, PAL8.sub);
+  s += `<rect x="${X + 76}" y="${Y + 120}" width="482" height="18" fill="#2c3448"/><rect x="${X + 79}" y="${Y + 123}" width="476" height="12" fill="#c7d4e8"/><rect x="${X + 79}" y="${Y + 123}" width="${476 * 0.64}" height="12" fill="#3aa0f0"/><rect x="${X + 79}" y="${Y + 123}" width="${476 * 0.64}" height="4" fill="#9fd4ff"/>`;
+  s += txt(X + 558, Y + 160, '12.8M tokens · 本周额度已用 64%', 12.5, PAL8.sub, { a: 'end' });
+  // stats
+  s += `<rect x="${X + 24}" y="${Y + 172}" width="96" height="24" fill="#2c3448"/>` + ptext('STATUS', X + 72, Y + 177, 2, '#ffffff', 'middle');
+  STATS.forEach(([cn, ab, v, raw, col], i) => {
+    const cx = X + 30 + (i % 2) * 274, cy = Y + 210 + Math.floor(i / 2) * 64;
+    s += txt(cx, cy + 14, cn, 17, PAL8.ink, { w: 800 });
+    s += ptext(ab, cx + 42, cy + 2, 2, col);
+    s += txt(cx + 250, cy + 14, String(v), 20, PAL8.ink, { a: 'end', w: 800, mono: true });
+    s += `<rect x="${cx}" y="${cy + 22}" width="250" height="14" fill="#2c3448"/><rect x="${cx + 3}" y="${cy + 25}" width="244" height="8" fill="#dde4ef"/><rect x="${cx + 3}" y="${cy + 25}" width="${244 * v / 99}" height="8" fill="${col}"/><rect x="${cx + 3}" y="${cy + 25}" width="${244 * v / 99}" height="3" fill="#ffffff" fill-opacity="0.45"/>`;
+    s += txt(cx, cy + 52, raw, 11.5, PAL8.sub);
+  });
+  // badge case
+  const by = Y + 410;
+  s += `<rect x="${X + 24}" y="${by}" width="96" height="24" fill="#2c3448"/>` + ptext('BADGES', X + 72, by + 5, 2, '#ffffff', 'middle');
+  s += txt(X + 558, by + 18, `徽章 ${UNLOCKED.size} / ${ACH.length}`, 15, '#c47f00', { a: 'end', w: 800 });
+  s += `<rect x="${X + 24}" y="${by + 32}" width="540" height="120" fill="#2c3448"/><rect x="${X + 27}" y="${by + 35}" width="534" height="114" fill="#3d4766"/>`;
+  ACH.forEach(([n, ic, col], i) => {
+    const bx = X + 35 + (i % 13) * 40, byy = by + 37 + Math.floor(i / 13) * 37;
+    const on = UNLOCKED.has(i);
+    s += `<g><title>${esc(n)} · ${esc(ACH[i][4])}</title><rect x="${bx}" y="${byy}" width="34" height="34" fill="${on ? '#fbfbf3' : '#323b57'}"/>`;
+    if (on) s += `<rect x="${bx}" y="${byy}" width="34" height="3" fill="${col}"/>`;
+    s += bitmap(ICONS[ic], bx + 5, byy + 6, 3, on ? col : '#4a5576') + '</g>';
+  });
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" shape-rendering="crispEdges">${s}</svg>`;
+}
+
+/* ================= challenge card ================= */
+function waitCard() {
+  let s = `<defs>${owDefs()}</defs>` + overworldScene({ signboard: true });
+  s += shadowBlob(436, 300 + 116, 84) + sprite('alchemist', 372, 292, 4);
+  // ! bubble
+  s += win(415, 226, 42, 48) + ptext('!', 436, 238, 3, '#e8453c', 'middle');
+  // dialog
+  s += win(24, 492, 1152, 120);
+  s += txt(60, 540, '【小 A · 缓存炼金术士 LV 72】', 22, PAL8.ink, { w: 800 });
+  s += txt(60, 578, '路过的冒险者，敢来 PK 吗？把告示牌上的 PK 码粘贴进 Agy Lens 分享卡片就能应战！', 19, PAL8.ink, { w: 500 });
+  s += bitmap('XXXXX|.XXX.|..X..', 1134, 582, 3, '#e8453c');
+  s += txt(1120, 596, '仅聚合指标 · github.com/Aoike123/agy-lens', 12, PAL8.sub, { a: 'end' });
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" shape-rendering="crispEdges">${s}</svg>`;
+}
+
+/* ================= battle (animated) ================= */
+const ME = { name: '小 A', cls: '缓存炼金术士', id: 'alchemist', lv: 72, stats: [78, 86, 61, 88, 63, 54] };
+const FOE = { name: '阿强', cls: '狂战士', id: 'berserker', lv: 75, stats: [99, 52, 58, 80, 60, 99] };
+const MOVES = { alchemist: ['算力冲击', '缓存回溯', '疾速连调', '卷王之魂', '多模型合击', '额度清算'], berserker: ['暴力推理', '硬算到底', '狂暴连击', '通宵爆肝', '乱斩', '氪金一击'] };
+const STAB = ['POW 算力', 'INT 缓存', 'AGI 手速', 'STA 毅力', 'WIS 博学', 'GLD 财力'];
+const APPROVED_ARENAS = [
+  { name: '山口决斗场', image: '../../art-src/mountain-pass-review-01.jpg', bonusStat: 3, title: '这山我罩的', icon: 'up' },
+  { name: '潮汐中继站', image: '../../art-src/tidal-relay-review-01.jpg', bonusStat: 2, title: '浪里常胜客', icon: 'scroll' },
+  { name: '玄铁熔炉', image: '../../art-src/arena-foundry.webp', bonusStat: 0, title: '打铁还得我来', icon: 'fist' },
+  { name: '冰晶记忆库', image: '../../art-src/arena-vault.webp', bonusStat: 1, title: '缓存常驻户', icon: 'gem' },
+  { name: '午夜观星台', image: '../../art-src/arena-observatory.webp', bonusStat: 4, title: '今晚我值星', icon: 'star' },
+  { name: '高原商集', image: '../../art-src/arena-caravan.webp', bonusStat: 5, title: '本场已打烊', icon: 'bag' },
+  { name: '风车磨坊', image: '../../art-src/arena-windmill.webp', bonusStat: 0, title: '全场我最能转', icon: 'gear' },
+  { name: '翡翠档案庭', image: '../../art-src/arena-archive-garden.webp', bonusStat: 1, title: '胜负已归档', icon: 'book' },
+  { name: '雷轨枢纽', image: '../../art-src/arena-thunderrail.webp', bonusStat: 2, title: '末班车车长', icon: 'bolt' },
+  { name: '赤盐峡谷', image: '../../art-src/arena-salt-canyon.webp', bonusStat: 3, title: '盐场话事人', icon: 'hex' },
+  { name: '晨灯书院', image: '../../art-src/arena-lantern-academy.webp', bonusStat: 4, title: '放学你别走', icon: 'paper' },
+  { name: '珍珠商港', image: '../../art-src/arena-pearl-quay.webp', bonusStat: 5, title: '码头我说了算', icon: 'coin' },
+];
+// Draw once per match. Replays and the final frame use the same arena.
+const KING_WINS = 5;
+for (const a of APPROVED_ARENAS) {
+  ACH.push([a.title, a.icon, '#bb871b', '场地王', `在${a.name}击败 ${KING_WINS} 个不同对手 PK 码`]);
+}
+const arena = APPROVED_ARENAS[Math.floor(Math.random() * APPROVED_ARENAS.length)];
+function scoreThrough(rounds, winner) {
+  return rounds.reduce((score, round) => score + (round.w === winner ? round.points : 0), 0);
+}
+function battlePlan() {
+  const rounds = ME.stats.map((a, i) => ({ i, a, b: FOE.stats[i], points: i === arena.bonusStat ? 2 : 1, w: a > FOE.stats[i] ? 1 : a < FOE.stats[i] ? 2 : 0 }));
+  const lossMe = rounds.filter((r) => r.w === 2).length, lossFoe = rounds.filter((r) => r.w === 1).length;
+  const dmgToFoe = lossFoe ? Math.ceil(100 / lossFoe) : 0, dmgToMe = 15;
+  let hpMe = 100, hpFoe = 100;
+  rounds.forEach((r) => { if (r.w === 1) hpFoe = Math.max(0, hpFoe - dmgToFoe); if (r.w === 2) hpMe = Math.max(0, hpMe - dmgToMe); r.hpMe = hpMe; r.hpFoe = hpFoe; r.dmg = r.w === 1 ? dmgToFoe : r.w === 2 ? dmgToMe : 0; });
+  return { rounds, scoreMe: scoreThrough(rounds, 1), scoreFoe: scoreThrough(rounds, 2) };
+}
+const PLAN = battlePlan();
+// The mockup shows the profile after its one example encounter.
+const demoSceneProgress = earnedSceneBadges([{
+  opponentCode: 'AGY1-20788661886354-1K7-7MZ4Q-X3',
+  venue: arena.image, bonusStat: arena.bonusStat, wonBonus: PLAN.rounds[arena.bonusStat].w === 1,
+  lostBonus: PLAN.rounds[arena.bonusStat].w === 2,
+  result: PLAN.scoreMe > PLAN.scoreFoe ? 'win' : PLAN.scoreMe < PLAN.scoreFoe ? 'loss' : 'draw',
+}]);
+demoSceneProgress.forEach((earned, i) => { if (earned) UNLOCKED.add(sceneBadgeStart + i); });
+const T_INTRO = 900, T_MSG0 = 1500, T_ROUND = 1900, T_START = T_INTRO + T_MSG0, T_END = T_START + 6 * T_ROUND;
+const ease = (u) => (u <= 0 ? 0 : u >= 1 ? 1 : 1 - Math.pow(1 - u, 3));
+const clamp01 = (u) => Math.max(0, Math.min(1, u));
+const FLOOR_Y = 550;
+const FIGHTER_SCALE = 7;
+const FIGHTER_WIDTH = 32 * FIGHTER_SCALE;
+const LEFT_X = 215, RIGHT_X = 760;
+
+function battleFighter(side, fighter, flipped) {
+  const art = sprite(fighter.id, 0, 0, FIGHTER_SCALE, { flip: flipped });
+  return `<g id="${side}"><ellipse cx="112" cy="-1" rx="66" ry="7" fill="#101520" opacity=".42"/>
+    <g id="${side}-pose"><g transform="translate(0 ${-31 * FIGHTER_SCALE})">${art}</g></g></g>`;
+}
+function battleStatic() {
+  return `<svg xmlns="http://www.w3.org/2000/svg" id="battle-svg" width="1200" height="630" viewBox="0 0 1200 630">
+    <defs><linearGradient id="hud-fade" x2="0" y2="1" gradientUnits="objectBoundingBox"><stop stop-color="#091021" stop-opacity=".96"/><stop offset="1" stop-color="#091021" stop-opacity="0"/></linearGradient></defs>
+    <image href="${arena.image}" width="1200" height="630" preserveAspectRatio="xMidYMid slice"/>
+    <g shape-rendering="crispEdges">${battleFighter('me',ME,false)}${battleFighter('foe',FOE,true)}<g id="fx"></g></g>
+    <rect width="1200" height="124" fill="url(#hud-fade)"/>
+    ${txt(36,40,ME.cls+' · '+ME.name+'   LV '+ME.lv,22,'#fff',{w:800})}
+    ${txt(1164,40,FOE.cls+' · '+FOE.name+'   LV '+FOE.lv,22,'#fff',{a:'end',w:800})}
+    <g fill="#232735" stroke="#ddcda7" stroke-width="3"><rect x="36" y="54" width="474" height="22"/><rect x="690" y="54" width="474" height="22"/></g>
+    <rect id="left-hp" y="58" height="14" fill="#ffbc43"/><rect id="right-hp" x="694" y="58" height="14" fill="#56d7cd"/>
+    <path d="M520 22 H680 L664 84 H536Z" fill="#181d2b" stroke="#baa278" stroke-width="3"/>
+    <text id="score" x="600" y="66" text-anchor="middle" font-size="35" font-weight="900" fill="#fff2bb" ${MONO}></text>
+    <rect x="438" y="94" width="324" height="30" rx="3" fill="#171c28" opacity=".9"/>
+    ${txt(600,116,arena.name+' · '+STAB[arena.bonusStat]+'胜方 +1分',16,'#fff',{a:'middle',w:700})}
+    <g id="callout"><text id="call" x="600" y="230" text-anchor="middle" fill="#ffe5a1" stroke="#332333" stroke-width="6" paint-order="stroke" font-size="62" font-weight="900" ${SANS}></text></g>
+    <rect y="582" width="1200" height="48" fill="#101624" opacity=".90"/>
+    <text id="combat-log" x="600" y="613" text-anchor="middle" font-size="18" font-weight="700" fill="#fff" ${SANS}></text></svg>`;
+}
+function renderBattle(t) {
+  const el = id => document.getElementById(id);
+  let left = LEFT_X, right = RIGHT_X, leanL = 0, leanR = 0;
+  let flash = '', call = '', log = '', hpL = 100, hpR = 100;
+  let phase = clamp01(t / T_INTRO);
+  left -= (1-ease(phase))*400;
+  right += (1-ease(phase))*400;
+  if (t < T_START) {
+    call = t < T_INTRO ? '' : '开战';
+    log = ME.name+'  对战  '+FOE.name;
+  } else if (t < T_END) {
+    const index = Math.floor((t-T_START)/T_ROUND);
+    const r = PLAN.rounds[index], prev = PLAN.rounds[index-1];
+    const u = (t-T_START) % T_ROUND;
+    const reach = RIGHT_X - LEFT_X - FIGHTER_WIDTH + 28;
+    const dash = ease(clamp01((u-330)/330)) * (1-ease(clamp01((u-840)/480)));
+    const recoil = Math.sin(Math.PI*clamp01((u-660)/360));
+    if (r.w === 1) { left += reach*dash; right += 18*recoil; leanL = 9*dash; leanR = 12*recoil; }
+    if (r.w === 2) { right -= reach*dash; left -= 18*recoil; leanR = -9*dash; leanL = -12*recoil; }
+    if (r.w === 0) { left += reach*dash/2; right -= reach*dash/2; }
+    if (u >= 660 && u < 840) {
+      const hitX = (left+FIGHTER_WIDTH+right)/2;
+      flash = `<g transform="translate(${hitX} ${FLOOR_Y-110})" opacity="${1-(u-660)/180}"><path d="M-45 -7 L-9 -12 L-14 -43 L5 -17 L32 -30 L17 -5 L49 7 L12 12 L13 39 L-4 16 L-32 32 L-17 6Z" fill="#fff3ad" stroke="#ee932e" stroke-width="4"/></g>`;
+    }
+    const drain = ease(clamp01((u-660)/350));
+    const beforeL = prev?.hpMe ?? 100, beforeR = prev?.hpFoe ?? 100;
+    hpL = beforeL + (r.hpMe-beforeL)*drain;
+    hpR = beforeR + (r.hpFoe-beforeR)*drain;
+    const move = r.w === 2 ? MOVES[FOE.id][index] : MOVES[ME.id][index];
+    log = '第 '+(index+1)+' 回合 · '+STAB[index]+'   '+(r.w === 0 ? '双方格挡' : move)+'   '+r.a+' ∶ '+r.b;
+  } else {
+    const down = ease(clamp01((t-T_END)/540));
+    const final = PLAN.rounds[PLAN.rounds.length-1];
+    hpL = final.hpMe; hpR = final.hpFoe;
+    leanR = 83*down;
+    call = 'K.O.';
+    log = ME.name+' 获胜   '+PLAN.scoreMe+' ∶ '+PLAN.scoreFoe+'   ·   获得徽章「以下克上」';
+  }
+  const scored = PLAN.rounds.filter(r=>t >= T_START+r.i*T_ROUND+660);
+  el('score').textContent = scoreThrough(scored,1)+' : '+scoreThrough(scored,2);
+  el('me').setAttribute('transform',`translate(${left} ${FLOOR_Y})`);
+  el('foe').setAttribute('transform',`translate(${right} ${FLOOR_Y})`);
+  el('me-pose').setAttribute('transform',`rotate(${leanL} 112 0)`);
+  el('foe-pose').setAttribute('transform',`rotate(${leanR} 112 0)`);
+  const lw = 466*clamp01(hpL/100);
+  el('left-hp').setAttribute('x',506-lw);
+  el('left-hp').setAttribute('width',lw);
+  el('right-hp').setAttribute('width',466*clamp01(hpR/100));
+  el('call').textContent = call;
+  el('combat-log').textContent = log;
+  el('fx').innerHTML = flash;
+}
+
+let raf = null, startTs = 0;
+function play(from = 0) {
+  cancelAnimationFrame(raf);
+  startTs = performance.now() - from;
+  const step = (now) => { const t = now - startTs; renderBattle(t); if (t < T_END + 3200) raf = requestAnimationFrame(step); };
+  raf = requestAnimationFrame(step);
+}
+
+/* ================= classic refined ================= */
+const TH = {
+  dark: { bg: '#0f1013', glow: '#4c8df6', glowOp: 0.18, fg: '#eceef1', sec: '#c4c7c5', muted: '#8e918f', dim: '#6a6d70', line: '#26282c', panel: '#16181c', panelLine: '#25282e', empty: '#24262a', bar: '#3d4045', accent: '#5b9bff', series: ['#5b9bff', '#f9ab00', '#a8c7fa', '#c58af9'], rest: '#5f6368', grad: ['#ffffff', '#8ab4f8'] },
+  light: { bg: '#fbfbfa', glow: '#1a73e8', glowOp: 0.09, fg: '#17181a', sec: '#3c4043', muted: '#5f6368', dim: '#80868b', line: '#e6e6e6', panel: '#ffffff', panelLine: '#e4e6ea', empty: '#eceef0', bar: '#c4c8cd', accent: '#1a73e8', series: ['#1a73e8', '#e37400', '#7baaf7', '#9334e6'], rest: '#9aa0a6', grad: ['#17181a', '#1a73e8'] },
+};
+const DAILY = [0.31, 0.42, 0.18, 0, 0.55, 0.62, 0.47, 0.38, 0.29, 0, 0.71, 0.66, 0.52, 0.44, 0.81, 0.58, 0.36, 0, 0.49, 0.95, 0.63, 0.41, 0.72, 0.55, 0, 0.33, 0.61, 0.69, 0.48, 0.57];
+const DATES = Array.from({ length: 30 }, (_, i) => { const d = new Date(2026, 9, 25 + i); return `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; });
+const TOK = 12.8e6, COST = 46.2, CALLS = 1284;
+const POOL = [
+  ['book', `约等于 ${Math.round(TOK / 3e5)} 本 30 万字长篇小说`],
+  ['scroll', `够写 ${Math.round(TOK / 4e4)} 篇 4 万字毕业论文`],
+  ['bubble', `能发 ${(TOK / 140 / 1e4).toFixed(1)} 万条 140 字微博`],
+  ['eye', `一个人不吃不睡，要读 ${Math.round(TOK / (300 * 60 * 24))} 天才读完`],
+  ['key', `手打出来要 ${(TOK / (60 * 60 * 8) / 365).toFixed(1)} 年（每天打 8 小时）`],
+  ['paper', `打印成 A4 纸能叠 ${(TOK / 800 * 0.1 / 1000).toFixed(1)} 米高`],
+  ['film', `相当于 ${Math.round(TOK / 1.2e4).toLocaleString()} 部电影的全部字幕`],
+  ['cup', `花掉的 $${COST.toFixed(2)}，够买 ${Math.round(COST / 4.5)} 杯拿铁`],
+];
+function spark(x, y, w, h, vals, col, id) {
+  const max = Math.max(...vals);
+  const pts = vals.map((v, i) => [x + (i / (vals.length - 1)) * w, y + h - (v / max) * h]);
+  const line = pts.map((p, i) => `${i ? 'L' : 'M'}${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(' ');
+  return `<path d="${line} L${x + w} ${y + h} L${x} ${y + h} Z" fill="url(#sg-${id})"/><path d="${line}" fill="none" stroke="${col}" stroke-width="1.6" stroke-linejoin="round"/><circle cx="${pts[pts.length - 1][0]}" cy="${pts[pts.length - 1][1]}" r="2.6" fill="${col}"/>`;
+}
+function classic(mode) {
+  const p = TH[mode], id = mode, L = 48, R = 1152;
+  let s = `<defs>
+    <radialGradient id="glow-${id}" cx="0.2" cy="0.3" r="0.6"><stop offset="0" stop-color="${p.glow}" stop-opacity="${p.glowOp}"/><stop offset="1" stop-color="${p.glow}" stop-opacity="0"/></radialGradient>
+    <linearGradient id="num-${id}" x1="0" y1="0" x2="1" y2="0.2"><stop offset="0" stop-color="${p.grad[0]}"/><stop offset="1" stop-color="${p.grad[1]}"/></linearGradient>
+    <linearGradient id="sg-${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${p.accent}" stop-opacity="0.28"/><stop offset="1" stop-color="${p.accent}" stop-opacity="0"/></linearGradient>
+    <pattern id="dots-${id}" width="12" height="12" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="0.8" fill="${p.muted}" fill-opacity="0.13"/></pattern>
+  </defs>
+  <rect width="1200" height="630" fill="${p.bg}"/><rect width="1200" height="630" fill="url(#dots-${id})"/><rect width="1200" height="630" fill="url(#glow-${id})"/>`;
+  // header
+  s += `<g transform="translate(${L},40)"><rect width="32" height="32" rx="8" fill="#1c212a" stroke="#303846"/>${[0, 1, 2].map((r) => [0, 1, 2].map((c) => `<circle cx="${9.5 + c * 6.5}" cy="${9.5 + r * 6.5}" r="2.2" fill="${['#4c8df6', '#4c8df6', '#a8c7fa', '#4c8df6', '#f9ab00', '#c58af9', '#81c995', '#4c8df6', '#334155'][r * 3 + c]}"/>`).join('')).join('')}</g>`;
+  s += txt(L + 44, 62, 'Agy Lens', 18, p.fg, { w: 650 });
+  s += `<line x1="${L + 136.5}" y1="46" x2="${L + 136.5}" y2="66" stroke="${p.line}"/>`;
+  s += txt(L + 150, 62, '用量快照', 14, p.muted, { w: 500 });
+  s += `<rect x="${R - 268}" y="40" width="268" height="30" rx="15" fill="${p.panel}" stroke="${p.panelLine}"/><circle cx="${R - 252}" cy="55" r="3.5" fill="${p.accent}"/>`;
+  s += txt(R - 240, 60, '近 30 天', 13.5, p.fg, { w: 650 }) + txt(R - 16, 60, '10-25 → 11-23', 13, p.muted, { a: 'end', mono: true });
+  // hero
+  s += `<rect x="${L}" y="112" width="8" height="8" fill="${p.accent}"/>` + txt(L + 16, 120, 'TOKENS · 不含缓存读取', 12, p.muted, { w: 600, extra: 'letter-spacing="1.4"' });
+  s += `<text x="${L - 4}" y="236" fill="url(#num-${id})" ${SANS} font-weight="650" letter-spacing="-3" style="font-variant-numeric:tabular-nums"><tspan font-size="132">12.8</tspan><tspan font-size="60" dx="10" fill="${p.muted}" letter-spacing="0">M</tspan></text>`;
+  s += `<g class="cmp-fade" id="cmp-${id}">${cmpRow(p, 0, L)}</g>`;
+  s += `<line x1="${L}" y1="304.5" x2="600" y2="304.5" stroke="${p.line}"/>`;
+  // stats
+  const st = [['费用', '$46.20', '日均 $1.54', DAILY.map((v) => v * 1.1 + 0.05)], ['调用', '1,284', '日均 43 次', DAILY.map((v, i) => v * 0.8 + ((i * 7) % 5) / 20)], ['对话', '37', '单对话 346k', DAILY.map((v, i) => (i % 4 === 0 ? 0.2 : 0.05) + v * 0.3)]];
+  st.forEach(([l, v, sub, sp], i) => {
+    const x = L + i * 184;
+    if (i) s += `<line x1="${x - 16.5}" y1="324" x2="${x - 16.5}" y2="420" stroke="${p.line}"/>`;
+    s += txt(x, 338, l, 12.5, p.muted, { w: 500 }) + txt(x + 152, 338, sub, 11.5, p.dim, { a: 'end' });
+    s += txt(x, 376, v, 30, p.fg, { w: 650, extra: 'style="font-variant-numeric:tabular-nums"' });
+    s += spark(x, 390, 152, 28, sp, p.accent, id);
+  });
+  // model panel
+  s += `<rect x="640.5" y="104.5" width="511" height="316" rx="14" fill="${p.panel}" stroke="${p.panelLine}"/>`;
+  s += txt(664, 136, '模型分布', 14, p.fg, { w: 650 }) + txt(1128, 136, '1 点 = 1% tokens', 12, p.dim, { a: 'end' });
+  const mix = [['Claude Sonnet', 52, '6.7M'], ['Gemini Pro', 31, '4.0M'], ['GPT', 11, '1.4M'], ['其余 3 个模型', 6, '0.7M']];
+  const cols = mix.map((m, i) => (i < 3 ? p.series[i] : p.rest));
+  let k = 0;
+  mix.forEach((m, i) => { for (let c = 0; c < m[1]; c++) { const col = k % 10, row = Math.floor(k / 10); s += `<rect x="${664 + col * 22}" y="${156 + row * 22}" width="16" height="16" rx="4" fill="${cols[i]}"/>`; k++; } });
+  mix.forEach((m, i) => {
+    const y = 176 + i * 56;
+    s += `<rect x="904" y="${y - 10}" width="10" height="10" rx="3" fill="${cols[i]}"/>` + txt(922, y, m[0], 14, p.fg, { w: 550 });
+    s += txt(1128, y, `${m[2]} · ${m[1]}%`, 13, p.muted, { a: 'end', mono: true });
+    s += `<rect x="904" y="${y + 12}" width="224" height="4" rx="2" fill="${p.empty}"/><rect x="904" y="${y + 12}" width="${224 * m[1] / 100}" height="4" rx="2" fill="${cols[i]}"/>`;
+  });
+  s += txt(904, 404, '共 6 个模型 · 主力 Claude Sonnet', 12, p.dim);
+  // activity
+  s += txt(L, 466, '每日活跃', 14, p.fg, { w: 650 });
+  s += txt(R, 466, '活跃 26 / 30 天 · 最长连续 12 天 · 缓存命中 86%', 12.5, p.muted, { a: 'end' });
+  const base = 548, ch = 58, gap = 6, bw = (R - L - gap * 29) / 30;
+  const peak = DAILY.indexOf(Math.max(...DAILY));
+  const avg = DAILY.reduce((a, b) => a + b, 0) / 30;
+  DAILY.forEach((v, i) => {
+    const h = v > 0 ? Math.max(4, v * ch) : 2.5;
+    s += `<rect x="${(L + i * (bw + gap)).toFixed(1)}" y="${base - h}" width="${bw.toFixed(1)}" height="${h}" rx="3" fill="${v === 0 ? p.empty : i === peak ? p.accent : p.bar}"/>`;
+  });
+  s += `<line x1="${L}" y1="${base + 0.5}" x2="${R}" y2="${base + 0.5}" stroke="${p.line}"/>`;
+  s += `<line x1="${L}" y1="${(base - avg * ch).toFixed(1)}" x2="${R}" y2="${(base - avg * ch).toFixed(1)}" stroke="${p.muted}" stroke-dasharray="3 4" stroke-opacity="0.7"/>`;
+  s += txt(L + 4, base - avg * ch - 6, '日均 427k', 11, p.muted);
+  const px = L + peak * (bw + gap) + bw / 2;
+  s += `<rect x="${px - 62}" y="${base - ch - 30}" width="124" height="22" rx="11" fill="${p.accent}"/><path d="M${px - 5} ${base - ch - 8} L${px} ${base - ch - 3} L${px + 5} ${base - ch - 8}Z" fill="${p.accent}"/>`;
+  s += txt(px, base - ch - 15, '最忙 11-13 · 1.9M', 11.5, '#ffffff', { a: 'middle', w: 650 });
+  [0, 7, 14, 21, 29].forEach((i) => { const x = L + i * (bw + gap) + bw / 2; s += `<line x1="${x}" y1="${base + 1}" x2="${x}" y2="${base + 5}" stroke="${p.dim}"/>` + txt(x, base + 18, DATES[i], 11, p.dim, { a: i === 0 ? 'start' : i === 29 ? 'end' : 'middle', mono: true }); });
+  // footer
+  s += `<line x1="${L}" y1="584.5" x2="${R}" y2="584.5" stroke="${p.line}"/>`;
+  s += txt(L, 608, '仅聚合指标 · 不含对话标题与本地路径', 12, p.dim) + txt(R, 608, 'github.com/Aoike123/agy-lens', 12, p.dim, { a: 'end' });
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">${s}</svg>`;
+}
+function cmpRow(p, idx, L = 48) {
+  const [ic, text] = POOL[idx];
+  return `<rect x="${L}" y="256" width="30" height="30" rx="8" fill="${p.accent}" fill-opacity="0.14"/>${bitmap(ICONS[ic], L + 7, 263, 2, p.accent)}` + txt(L + 42, 277, text, 17, p.sec, { w: 550 });
+}
+
+/* ================= mount ================= */
+document.getElementById('battle-summary').textContent = arena.name + ' · 以下克上 ' + PLAN.scoreMe + ' : ' + PLAN.scoreFoe;
+document.getElementById('battle-wrap').innerHTML = battleStatic();
+document.getElementById('role-wrap').innerHTML = roleCard();
+document.getElementById('wait-wrap').innerHTML = waitCard();
+document.getElementById('classic-dark').innerHTML = classic('dark');
+document.getElementById('classic-light').innerHTML = classic('light');
+document.getElementById('pool').innerHTML = POOL.map(([, t]) => `<li>${esc(t)}</li>`).join('') + '<li>…（可以继续扩充）</li>';
+document.getElementById('ach').innerHTML = '<tr><th></th><th>徽章</th><th>类型</th><th>获得条件</th></tr>' + ACH.map(([n, ic, c, k, d]) => `<tr><td style="width:44px"><svg width="28" height="28" viewBox="0 0 8 8" shape-rendering="crispEdges" style="display:block;background:#fbfbf3;border:2px solid #2c3448;padding:1px">${bitmap(ICONS[ic], 0, 0, 1, c)}</svg></td><td><b>${n}</b></td><td>${k}</td><td>${d}</td></tr>`).join('');
+const params = new URLSearchParams(location.search);
+const finalOnly = params.has('final');
+if (finalOnly) renderBattle(T_END + 5000); else play(0);
+document.getElementById('replay').onclick = () => play(0);
+document.getElementById('skip').onclick = () => { cancelAnimationFrame(raf); renderBattle(T_END + 5000); };
+let ci = 0;
+if (!finalOnly) setInterval(() => {
+  ci = (ci + 1) % POOL.length;
+  for (const mode of ['dark', 'light']) {
+    const g = document.getElementById('cmp-' + mode);
+    g.style.opacity = 0;
+    setTimeout(() => { g.innerHTML = cmpRow(TH[mode], ci); g.style.opacity = 1; }, 350);
+  }
+}, 3200);
+</script>
+</body>
+</html>

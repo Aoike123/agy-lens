@@ -63,6 +63,7 @@ export function collectRuntimeFiles(rootDir = ROOT) {
   }
   files.push(...collectFiles(rootDir, 'sidecars/agy-lens/lib', ['.mjs']));
   files.push(...collectFiles(rootDir, 'sidecars/agy-lens/web', ['.html', '.css', '.js']));
+  files.push(...collectFiles(rootDir, 'sidecars/agy-lens/share-art', ['.png', '.webp', '.txt']));
   return Array.from(new Set(files)).sort();
 }
 

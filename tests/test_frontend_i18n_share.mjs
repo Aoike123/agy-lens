@@ -1691,7 +1691,7 @@ test('Headless Chrome CDP: classic /app.js bundle, auto-detected locales, opaque
       assert.ok(!modalCheck.modalHtml.includes('canary@secret.example'), 'Share modal leaked canary email');
 
       // Toggle light theme and verify Copy SVG & Copy image (PNG) clipboard actions inside Chrome
-      await evalExpr('document.querySelector("[data-share-theme=\\"light\\"]").click()');
+      await evalExpr('document.querySelector("[data-share-style=\\"minimal-light\\"]").click()');
       const copyRes = await evalExpr(`(async () => {
         const svgBtn = document.querySelector('[data-share-svg]');
         const pngBtn = document.querySelector('[data-share-png]');

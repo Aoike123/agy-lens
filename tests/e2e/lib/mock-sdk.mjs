@@ -25,7 +25,7 @@ export class SidecarApp {
     this._apis.set(`${String(method).toUpperCase()} ${String(path)}`, handler);
   }
 
-  async dispatch(method, rawUrl) {
+  async dispatch(method, rawUrl, body = null) {
     const u = new URL(rawUrl || '/', 'http://127.0.0.1');
     const pathname = u.pathname;
 
@@ -82,6 +82,7 @@ export class SidecarApp {
     const apiHandler = this._apis.get(`${String(method || 'GET').toUpperCase()} ${pathname}`);
     if (apiHandler) {
       const data = Object.fromEntries(u.searchParams.entries());
+      if (body && typeof body === 'object') Object.assign(data, body);
       const out = await apiHandler(data);
       return {
         status: 200,
@@ -110,7 +111,7 @@ export class SidecarApp {
       process.on('message', async (msg) => {
         if (!msg || msg.type !== 'http-request') return;
         try {
-          const resp = await this.dispatch(msg.method || 'GET', msg.url || '/');
+          const resp = await this.dispatch(msg.method || 'GET', msg.url || '/', msg.body && typeof msg.body === 'object' ? msg.body : null);
           if (typeof process.send === 'function') {
             process.send({
               type: 'http-response',
@@ -138,7 +139,13 @@ export class SidecarApp {
 
     this._server = http.createServer(async (req, res) => {
       try {
-        const resp = await this.dispatch(req.method || 'GET', req.url || '/');
+        let body = null;
+        if (req.method === 'POST') {
+          const chunks = [];
+          for await (const c of req) chunks.push(c);
+          try { body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'); } catch { body = null; }
+        }
+        const resp = await this.dispatch(req.method || 'GET', req.url || '/', body);
         res.writeHead(resp.status, resp.headers);
         res.end(resp.body);
       } catch (err) {
