@@ -139,7 +139,7 @@ test('parseQuota infers limit kinds', () => {
 
   const iso = (h) => new Date(NOW + h * 3600e3).toISOString();
   assert.equal(inferLimit(0.5, iso(4.9), NOW).kind, '5h');
-  assert.equal(inferLimit(0.5, iso(12), NOW).kind, 'daily');
+  assert.equal(inferLimit(0.5, iso(12), NOW).kind, 'weekly');
   assert.equal(inferLimit(0.5, iso(100), NOW).kind, 'weekly');
   assert.equal(inferLimit(0.5, iso(336), NOW).kind, 'weekly');
   assert.equal(inferLimit(0.5, iso(1000), NOW).kind, 'unknown');
@@ -163,7 +163,7 @@ test('parseQuota without picker info falls back to named models', () => {
   assert.equal(r.pools.length, 2);
   assert.equal(r.pools[0].category, 'claude_gpt');
   assert.equal(r.pools[0].label, 'Claude models');
-  assert.equal(r.pools[0].limits[0].kind, 'daily');
+  assert.equal(r.pools[0].limits[0].kind, 'weekly');
   assert.deepEqual(r.pools[1].models.map((m) => m.id).sort(), ['gemini-3-flash', 'gemini-3-pro']);
   assert.deepEqual(r.pools[1].hidden_models, [{ id: 'internal', display_name: 'internal' }]);
   assert.equal(r.plan, null);
@@ -383,14 +383,15 @@ test('parseQuotaSummary handles groups, quotaSummary, top-level buckets, proto3 
     claude_gpt: { remaining_fraction: 0, reset_time: '2026-11-26T00:00:00.000Z' },
   });
 
-  // quotaSummary.groups + daily + unknown bucket falling back to inferLimit (inferred: true).
+  // quotaSummary.groups + explicit weekly + unknown bucket falling back to inferLimit (inferred: true),
+  // and 24h/Daily labels no longer classify as a separate 'daily' limit kind.
   const qs = parseQuotaSummary({
     quotaSummary: {
       groups: [
         {
           displayName: 'Custom Group',
           buckets: [
-            { bucketId: 'custom-24h', displayName: 'Daily Limit', remainingFraction: 0.4, resetTime: '2026-11-21T08:00:00Z' },
+            { bucketId: 'custom-7d', displayName: 'Weekly Limit', remainingFraction: 0.4, resetTime: '2026-11-21T08:00:00Z' },
             { bucketId: 'mystery', displayName: 'Mystery', remainingFraction: 0.5, resetTime: '2026-11-20T13:00:00Z' },
           ],
         },
@@ -399,10 +400,18 @@ test('parseQuotaSummary handles groups, quotaSummary, top-level buckets, proto3 
   }, NOW);
   assert.equal(qs.byCategory.other.label, 'Custom Group');
   assert.deepEqual(qs.byCategory.other.limits.map((l) => [l.kind, l.inferred]), [
+    ['weekly', false],
     ['5h', true],
-    ['daily', false],
   ]);
-  assert.deepEqual(qs.weekly, {});
+  assert.deepEqual(qs.weekly, {
+    other: { remaining_fraction: 0.4, reset_time: '2026-11-21T08:00:00.000Z' },
+  });
+  const noDaily = parseQuotaSummary({
+    buckets: [
+      { bucketId: 'custom-24h', displayName: 'Daily Limit', remainingFraction: 0.4, resetTime: '2026-11-21T08:00:00Z' },
+    ],
+  }, NOW);
+  assert.deepEqual(noDaily.byCategory.other.limits.map((l) => [l.kind, l.inferred]), [['weekly', true]]);
 
   // Top-level buckets + bare groups.
   const top = parseQuotaSummary({
@@ -2041,4 +2050,69 @@ test('parseQuota prefers authoritative RetrieveUserQuotaSummary over stale/infer
   ]);
   assert.equal(r3.pools[0].models.length, 3);
   assert.equal(r3.pools[0].families.length, 3);
+
+  // 4. Partial per-model quotaInfo desync (e.g. Opus already reset to 1/null while Sonnet/GPT lag at 0.0068)
+  // stays unified under RetrieveUserQuotaSummary both with and without description.
+  const partialDesyncModels = {
+    response: {
+      models: {
+        'claude-opus-5-5-high': { displayName: 'Claude Opus 5.5 (High)', quotaInfo: { remainingFraction: 1 }, modelProvider: 'MODEL_PROVIDER_ANTHROPIC' },
+        'claude-sonnet-5-5-high': { displayName: 'Claude Sonnet 5.5 (High)', quotaInfo: staleQuota, modelProvider: 'MODEL_PROVIDER_ANTHROPIC' },
+        'gpt-oss-120b-medium': { displayName: 'GPT-OSS 120B (Medium)', quotaInfo: staleQuota, modelProvider: 'MODEL_PROVIDER_OPENAI' },
+      },
+      agentModelSorts: [{
+        groups: [{
+          modelIds: ['claude-opus-5-5-high', 'claude-sonnet-5-5-high', 'gpt-oss-120b-medium'],
+        }],
+      }],
+    },
+  };
+  for (const sum of [
+    resetSummary,
+    {
+      response: {
+        groups: [{
+          displayName: 'Claude and GPT models',
+          buckets: [
+            { bucketId: '3p-weekly', window: 'weekly', remainingFraction: 1 },
+            { bucketId: '3p-5h', window: '5h', remainingFraction: 1 },
+          ],
+        }],
+      },
+    },
+  ]) {
+    const r4 = parseQuota(null, partialDesyncModels, NOW, sum);
+    assert.deepEqual(r4.pools.map((p) => [p.id, p.category]), [['claude_gpt', 'claude_gpt']]);
+    assert.deepEqual(r4.pools[0].limits.map((l) => [l.kind, l.inferred, l.remaining_fraction, l.reset_time]), [
+      ['weekly', false, 1, null],
+      ['5h', false, 1, null],
+    ]);
+    assert.equal(r4.pools[0].families.length, 3);
+  }
+
+  // 5. Mid-cycle partial desync without description stays unified with authoritative summary limits.
+  const midCycleDesync = {
+    response: {
+      models: {
+        'claude-opus-5-5-high': { displayName: 'Claude Opus 5.5 (High)', quotaInfo: { remainingFraction: 0.8, resetTime: new Date(NOW + 3 * 3600e3).toISOString() }, modelProvider: 'MODEL_PROVIDER_ANTHROPIC' },
+        'claude-sonnet-5-5-high': { displayName: 'Claude Sonnet 5.5 (High)', quotaInfo: { remainingFraction: 0.75, resetTime: new Date(NOW + 3 * 3600e3).toISOString() }, modelProvider: 'MODEL_PROVIDER_ANTHROPIC' },
+      },
+      agentModelSorts: [{ groups: [{ modelIds: ['claude-opus-5-5-high', 'claude-sonnet-5-5-high'] }] }],
+    },
+  };
+  const midCycleSummary = {
+    response: {
+      groups: [{
+        displayName: 'Claude and GPT models',
+        buckets: [
+          { bucketId: '3p-weekly', window: 'weekly', remainingFraction: 0.4, resetTime: new Date(NOW + 5 * 86400e3).toISOString() },
+          { bucketId: '3p-5h', window: '5h', remainingFraction: 0.8, resetTime: new Date(NOW + 3 * 3600e3).toISOString() },
+        ],
+      }],
+    },
+  };
+  const r5 = parseQuota(null, midCycleDesync, NOW, midCycleSummary);
+  assert.deepEqual(r5.pools.map((p) => p.category), ['claude_gpt']);
+  assert.deepEqual(r5.pools[0].limits.map((l) => [l.kind, l.remaining_fraction]), [['weekly', 0.4], ['5h', 0.8]]);
+  assert.equal(r5.pools[0].models.length, 2);
 });

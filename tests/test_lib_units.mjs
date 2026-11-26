@@ -4730,7 +4730,6 @@ test('Quota UI: freshly reset finite limits stay limited, omit no-reset/unlimite
   // 1. isUnlimited & isUnlimitedPool distinguish explicit finite limits at 100% from kind=none / legacy unlimited.
   assert.equal(isUnlimited({ kind: 'weekly', f: 1, reset_time: null }), false);
   assert.equal(isUnlimited({ kind: '5h', f: 1, reset_time: null }), false);
-  assert.equal(isUnlimited({ kind: 'daily', f: 1, reset_time: null }), false);
   assert.equal(isUnlimited({ kind: 'none', f: 1, reset_time: null }), true);
   assert.equal(isUnlimited({ kind: '', f: 1, reset_time: null }), true);
   assert.equal(isUnlimited({ kind: 'unknown', f: 1, reset_time: null }), true);

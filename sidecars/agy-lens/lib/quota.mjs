@@ -259,12 +259,11 @@ const HOUR = 3600 * 1000;
 const SLACK = 2 * 60 * 1000;
 const LIMIT_LABELS = {
   '5h': ['5-hour limit', '5 小时限额'],
-  daily: ['Daily limit', '每日限额'],
   weekly: ['Weekly limit', '每周限额'],
   none: ['Unlimited · no reset', '不限 · 无重置'],
   unknown: ['Quota', '额度'],
 };
-const LIMIT_ORDER = { weekly: 0, '5h': 1, daily: 2, unknown: 3, none: 4 };
+const LIMIT_ORDER = { weekly: 0, '5h': 1, unknown: 2, none: 3 };
 const SUMMARY_POOL_LABELS = {
   gemini: ['Gemini models', 'Gemini 模型'],
   claude_gpt: ['Claude / GPT-OSS models', 'Claude / GPT-OSS 模型'],
@@ -275,7 +274,7 @@ const SUMMARY_POOL_LABELS = {
 
 // The LS reports no window length, so the limit kind is inferred from the
 // time left until reset (a rolling 5-hour window never resets later than 5h
-// from now; multi-day cycles up to 31 days classify as weekly).
+// from now; longer cycles up to 31 days classify as weekly).
 export function inferLimit(remaining_fraction, reset_time, now = Date.now()) {
   let kind = 'unknown';
   if (!reset_time) {
@@ -283,7 +282,6 @@ export function inferLimit(remaining_fraction, reset_time, now = Date.now()) {
   } else {
     const dt = Date.parse(reset_time) - now;
     if (dt >= 0 && dt <= 5 * HOUR + SLACK) kind = '5h';
-    else if (dt > 0 && dt <= 24 * HOUR + SLACK) kind = 'daily';
     else if (dt > 0 && dt <= 31 * 24 * HOUR + SLACK) kind = 'weekly';
   }
   const [label, label_zh] = LIMIT_LABELS[kind];
@@ -312,7 +310,6 @@ function summaryLimitKind(bucketId, displayName, windowVal = '') {
   const text = `${windowVal || ''} ${bucketId || ''} ${displayName || ''}`.toLowerCase();
   if (/weekly|(?:^|[^a-z0-9])7[-_\s]?d(?:ay)?s?(?:$|[^a-z0-9])/.test(text)) return 'weekly';
   if (/(?:^|[^a-z0-9])(?:5[-_\s]?h(?:our)?s?|five)(?:$|[^a-z0-9])/.test(text)) return '5h';
-  if (/daily|(?:^|[^a-z0-9])24[-_\s]?h(?:our)?s?(?:$|[^a-z0-9])/.test(text)) return 'daily';
   return null;
 }
 
@@ -493,13 +490,60 @@ export function parseQuota(statusResp, modelsResp, now = Date.now(), summaryResp
   const rank = (m) => { const i = order.indexOf(m.id); return i < 0 ? Infinity : i; };
   const fams = modelFamilies(statusResp, modelsResp);
 
+  const summary = parseQuotaSummary(summaryResp, now);
+  const summaryCats = Object.keys(summary.byCategory);
+  const summaryDescEntries = Object.entries(summary.byCategory)
+    .filter(([, e]) => e && typeof e.description === 'string' && e.description.trim())
+    .map(([cat, e]) => [cat, e.description.toLowerCase()]);
+  const modelDescCat = (m) => {
+    if (isTabModel(m) || !summaryDescEntries.length) return null;
+    const fam = familyOf(fams, m.id);
+    const pv = splitParenVariant(m.display_name);
+    const names = [fam?.f?.display_name, pv?.base, m.display_name]
+      .filter((s) => typeof s === 'string' && s.trim())
+      .map((s) => s.trim().toLowerCase());
+    if (!names.length) return null;
+    const matches = summaryDescEntries
+      .filter(([, desc]) => names.some((n) => desc.includes(n)))
+      .map(([cat]) => cat);
+    return matches.length === 1 ? matches[0] : null;
+  };
+  const singleSummaryCatForBucket = (bucket) => {
+    if (bucket === 'gemini' && summary.byCategory.gemini && !summaryCats.some((c) => c !== 'gemini' && c.startsWith('gemini'))) {
+      return 'gemini';
+    }
+    if (bucket === 'claude_gpt' && summary.byCategory.claude_gpt && !summaryCats.some((c) => c !== 'claude_gpt' && c.startsWith('claude'))) {
+      return 'claude_gpt';
+    }
+    return null;
+  };
+  const isResetSummary = (cat) => {
+    const lims = summary.byCategory[cat]?.limits;
+    return Boolean(lims?.length && lims.every((l) => l.remaining_fraction === 1 && !l.reset_time));
+  };
+
   const groups = new Map();
   const unassigned = [];
   for (const m of byId.values()) {
     if (!m.quota) continue;
     const bucket = modelQuotaBucket(m);
+    const descCat = modelDescCat(m);
+    if (descCat) {
+      const key = `sum:${descCat}`;
+      if (!groups.has(key)) groups.set(key, { tab: false, bucket, summaryCat: descCat, ...m.quota, members: [] });
+      groups.get(key).members.push(m);
+      continue;
+    }
     if (bucket === 'other') {
       unassigned.push(m);
+      continue;
+    }
+    const singleCat = singleSummaryCatForBucket(bucket);
+    const isUnlimitedModel = m.quota.remaining_fraction === 1 && !m.quota.reset_time;
+    if (singleCat && (!isUnlimitedModel || isResetSummary(singleCat))) {
+      const key = `sum:${singleCat}`;
+      if (!groups.has(key)) groups.set(key, { tab: false, bucket, summaryCat: singleCat, ...m.quota, members: [] });
+      groups.get(key).members.push(m);
       continue;
     }
     const key = `${bucket}|${m.quota.remaining_fraction}|${m.quota.reset_time}`;
@@ -523,7 +567,6 @@ export function parseQuota(statusResp, modelsResp, now = Date.now(), summaryResp
     }
   }
 
-  const summary = parseQuotaSummary(summaryResp, now);
   const claudeGroupCount = [...groups.values()].filter((g) => g.bucket === 'claude_gpt').length;
   const usedIds = new Map();
   const provRank = (x) => { const i = PROVIDER_ORDER.indexOf(x); return i < 0 ? 999 : i; };
@@ -605,7 +648,19 @@ export function parseQuota(statusResp, modelsResp, now = Date.now(), summaryResp
             && activeMembers.every((m) => /(?:^|[^a-z0-9])opus(?:$|[^a-z0-9])/i.test(`${m.id} ${m.display_name || ''}`));
           const allSonnet = activeMembers.length > 0
             && activeMembers.every((m) => /(?:^|[^a-z0-9])sonnet(?:$|[^a-z0-9])/i.test(`${m.id} ${m.display_name || ''}`));
-          if (allOpus && (claudeGroupCount > 1 || Boolean(summary.byCategory.claude_opus))) {
+          if (g.summaryCat === 'claude_opus') {
+            slug = 'claude_opus';
+            label = SUMMARY_POOL_LABELS.claude_opus[0];
+            label_zh = SUMMARY_POOL_LABELS.claude_opus[1];
+          } else if (g.summaryCat === 'claude_sonnet') {
+            slug = 'claude_sonnet';
+            label = SUMMARY_POOL_LABELS.claude_sonnet[0];
+            label_zh = SUMMARY_POOL_LABELS.claude_sonnet[1];
+          } else if (g.summaryCat === 'claude_gpt') {
+            slug = 'claude_gpt';
+            label = `${names.join(' / ')} models`;
+            label_zh = `${names.join(' / ')} 模型`;
+          } else if (allOpus && (claudeGroupCount > 1 || Boolean(summary.byCategory.claude_opus))) {
             slug = 'claude_opus';
             label = SUMMARY_POOL_LABELS.claude_opus[0];
             label_zh = SUMMARY_POOL_LABELS.claude_opus[1];

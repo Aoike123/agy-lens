@@ -49,7 +49,7 @@ export const I18N = {
     remaining: '剩余', used: (p) => `已用 ${p}`, resetIn: (d) => `${d}后重置`, resetAt: (t) => `重置时间 ${t}`,
     resetPassed: '已到重置时间，刷新查看', noReset: '无重置时间', unlimited: '不限 · 无重置',
     inferred: '按重置时间归类',
-    limit: '额度', limitKinds: { '5h': '5 小时限额', daily: '每日限额', weekly: '每周限额', none: '不限额', unknown: '限额' },
+    limit: '额度', limitKinds: { '5h': '5 小时限额', weekly: '每周限额', none: '不限额', unknown: '限额' },
     categoriesQuota: {
       claude_gpt: 'Claude / GPT-OSS 模型',
       claude_opus: 'Claude Opus 模型',
@@ -253,7 +253,7 @@ export const I18N = {
     remaining: 'left', used: (p) => `${p} used`, resetIn: (d) => `Resets in ${d}`, resetAt: (t) => `Resets at ${t}`,
     resetPassed: 'Reset time reached, refresh to update', noReset: 'No reset time', unlimited: 'Unlimited · no reset',
     inferred: 'Grouped by reset time',
-    limit: 'Quota', limitKinds: { '5h': '5-hour limit', daily: 'Daily limit', weekly: 'Weekly limit', none: 'No limit', unknown: 'Limit' },
+    limit: 'Quota', limitKinds: { '5h': '5-hour limit', weekly: 'Weekly limit', none: 'No limit', unknown: 'Limit' },
     categoriesQuota: {
       claude_gpt: 'Claude / GPT-OSS models',
       claude_opus: 'Claude Opus models',
