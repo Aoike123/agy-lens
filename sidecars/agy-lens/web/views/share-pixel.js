@@ -622,8 +622,8 @@ export function footShadowAnchor(fighter, cx, mirror = false) {
   return { cx: Math.round(cx + (mirror ? -spec.dx : spec.dx)), rx: spec.rx };
 }
 
-/** Smooth 3-step pixel-art contact ellipse on the native grid (replaces harsh 1-bit checkerboard). */
-function footShadowSvg(cx, floor, rx = 24) {
+/** Smooth 3-step pixel-art contact ellipse layers on the native grid. */
+export function footShadowSteps(cx, floor = FLOOR_Y, rx = 24) {
   const fillEllipse = (p, rxVal, maxDy, col) => {
     const rad = Math.max(4, Math.round(rxVal));
     for (let j = -maxDy; j <= maxDy; j += 1) {
@@ -637,9 +637,17 @@ function footShadowSvg(cx, floor, rx = 24) {
   fillEllipse(core, rx * 0.74, 1, '#090714');
   const contact = new Pix();
   fillEllipse(contact, rx * 0.54, 0, '#090714');
-  const body = outer.toSvg(SCALE, ' fill-opacity="0.26"')
-    + core.toSvg(SCALE, ' fill-opacity="0.34"')
-    + contact.toSvg(SCALE, ' fill-opacity="0.24"');
+  return [
+    { pix: outer, alpha: 0.26 },
+    { pix: core, alpha: 0.34 },
+    { pix: contact, alpha: 0.24 },
+  ];
+}
+
+function footShadowSvg(cx, floor, rx = 24) {
+  const body = footShadowSteps(cx, floor, rx)
+    .map(({ pix, alpha }) => pix.toSvg(SCALE, ` fill-opacity="${alpha}"`))
+    .join('');
   return `<g>${body}</g>`;
 }
 
@@ -661,21 +669,21 @@ export function spriteBox(cx, floor = FLOOR_Y) {
   return { x: cx - SPRITE_CELL.w / 2, y: floor - SPRITE_CELL.baseline, w: SPRITE_CELL.w, h: SPRITE_CELL.h };
 }
 
-function placeholderSprite(cx) {
+export function placeholderSpritePix(cx) {
   const p = new Pix();
   p.rect(cx - 10, FLOOR_Y - 76, 20, 76, '#2a3050');
   p.rect(cx - 6, FLOOR_Y - 90, 12, 12, '#2a3050');
-  return p.toSvg();
+  return p;
 }
 
 function spriteLayer(uri, cx) {
   const b = spriteBox(cx);
-  const img = uri ? imageTag(uri, b.x, b.y, b.w, b.h, { attrs: ' data-sprite' }) : `<g data-sprite>${placeholderSprite(cx)}</g>`;
+  const img = uri ? imageTag(uri, b.x, b.y, b.w, b.h, { attrs: ' data-sprite="1"' }) : `<g data-sprite="1">${placeholderSpritePix(cx).toSvg()}</g>`;
   return img;
 }
 
-function svgDoc(aria, parts) {
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${PIXEL_W}" height="${PIXEL_H}" viewBox="0 0 ${PIXEL_W} ${PIXEL_H}" shape-rendering="crispEdges" role="img" aria-label="${escapeXml(aria)}"><rect width="${PIXEL_W}" height="${PIXEL_H}" fill="#141828"/>${parts.join('')}</svg>`;
+function svgDoc(aria, parts, isLight = false) {
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${PIXEL_W}" height="${PIXEL_H}" viewBox="0 0 ${PIXEL_W} ${PIXEL_H}" shape-rendering="crispEdges" role="img" aria-label="${escapeXml(aria)}"><rect width="${PIXEL_W}" height="${PIXEL_H}" fill="${isLight ? '#d8e5f2' : '#141828'}"/>${parts.join('')}</svg>`;
 }
 
 const nickOf = (p, t) => (p && p.nickname ? p.nickname : t('shareDefaultNick'));
@@ -696,18 +704,19 @@ export function featuredAchievements(achievements, n = 4) {
 
 // --- role card -----------------------------------------------------------------------------
 
-export function buildRoleCardSvg({ profile, achievements = {}, art = {}, lang = 'en', arena = DEFAULT_MATERIAL } = {}) {
+/** Shared native-grid role card UI & shadow layout used by both static SVG and animated GIF export. */
+export function buildRoleCardLayout({ profile, achievements = {}, lang = 'en', arena = DEFAULT_MATERIAL, theme = 'dark' } = {}) {
   const t = createTranslator(normalizeLang(lang));
   const p = profile;
-  const mat = materialFor(arena);
+  const isLight = theme === 'light';
+  const mat = materialFor(arena, isLight ? 'light' : 'dark');
   const ink = inkFor(mat);
   const ui = new Pix();
   const heroX = 94;
   const foot = footShadowAnchor(p, heroX, false);
-  const shadowSvg = footShadowSvg(foot.cx, FLOOR_Y, foot.rx);
+  const shadowSteps = footShadowSteps(foot.cx, FLOOR_Y, foot.rx);
 
   const rarityRamp = RARITY_RAMPS[p.rarity] || RARITY_RAMPS.N;
-  const ambientSvg = renderStaticAmbientSvg(arena, { seed: p.level * 31 + 7, clipX: 0, clipW: 186 });
 
   // Compact top-left Level & Sculpted Rarity Crest with glass EXP tube.
   const lv = drawRibbonPlate(ui, mat, 6, 6, 108, 36, { accent: rarityRamp[1] });
@@ -721,17 +730,19 @@ export function buildRoleCardSvg({ profile, achievements = {}, art = {}, lang = 
   const box = drawFrame(ui, mat, 184, 6, 210, 198);
   const L = box.x + 4;
   const R = box.x + box.w - 4;
-  const nick = fitText(nickOf(p, t), 86);
-  const nw = drawText(ui, nick, L, box.y + 13, ink.text, { shadow: mat.ramp[0] });
+  const clsLabel = className(p, t);
+  const tagW = Math.max(12, textInkX(clsLabel).inkW + 8);
+  const maxNickW = Math.max(40, (R - L) - 4 - tagW);
+  const nick = fitText(nickOf(p, t), maxNickW);
+  const nw = drawText(ui, nick, L, box.y + 13, ink.text, { shadow: isLight ? '#fbf4e2' : mat.ramp[0] });
   const ramp = STAT_RAMPS[p.topStat] || STAT_RAMPS.POW;
-  const tagW = drawTag(ui, L + nw + 4, box.y + 1, className(p, t), ramp);
+  drawTag(ui, L + nw + 4, box.y + 1, clsLabel, ramp);
   if (p.classId === 'novice') {
     const dest = t('shareClassNames')[p.destinedClass] || '';
     const dx = L + nw + 4 + tagW + 3;
     if (R - dx > 18) drawText(ui, fitText(`→ ${dest}`, R - dx), dx, box.y + 13, ink.sub);
   }
-  drawText(ui, fitText(metaLine(p, t), R - L - 44), L, box.y + 29, ink.sub);
-  drawTextRight(ui, t('shareNormShort')[p.stats.norm], R, box.y + 29, p.stats.norm === 'raw' ? PAL.red : ink.gold);
+  drawText(ui, fitText(metaLine(p, t), R - L), L, box.y + 29, ink.sub);
 
   drawFiligreeDivider(ui, mat, L, box.y + 34, R - L);
 
@@ -747,10 +758,10 @@ export function buildRoleCardSvg({ profile, achievements = {}, art = {}, lang = 
     drawPixelSprite(ui, STAT_ICONS[k], {
       o: PAL.ink, D: sr[0], M: sr[1], H: sr[2], G: PAL.gold, K: '#8a5a34',
     }, cx, cy + 3);
-    drawText(ui, names[k], cx + 9, cy + 11, isTop ? PAL.goldHi : ink.text);
+    drawText(ui, names[k], cx + 9, cy + 11, isTop ? (ink.topHi || PAL.goldHi) : ink.text);
     const codeX = cx + 11 + textWidth(names[k]);
     if (codeX + tinyWidth(k) < cx + colW - 22) drawTiny(ui, k, codeX, cy + 3, ink.dim);
-    drawTextRight(ui, String(v), cx + colW, cy + 11, isTop ? PAL.gold : ink.text);
+    drawTextRight(ui, String(v), cx + colW, cy + 11, isTop ? ink.gold : ink.text);
     drawGauge(ui, cx, cy + 14, colW, 5, v / 100, sr, mat.ramp[0]);
   });
 
@@ -769,13 +780,24 @@ export function buildRoleCardSvg({ profile, achievements = {}, art = {}, lang = 
   });
   brand(ui);
 
-  return svgDoc(t('shareAria'), [
+  return { ui, heroX, foot, shadowSteps, arena, theme: isLight ? 'light' : 'dark', aria: t('shareAria') };
+}
+
+export function buildRoleCardSvg({ profile, achievements = {}, art = {}, lang = 'en', arena = DEFAULT_MATERIAL, theme = 'dark' } = {}) {
+  const isLight = theme === 'light';
+  const layout = buildRoleCardLayout({ profile, achievements, lang, arena, theme });
+  const shadowSvg = `<g>${layout.shadowSteps.map(({ pix, alpha }) => pix.toSvg(SCALE, ` fill-opacity="${alpha}"`)).join('')}</g>`;
+  const ambientSvg = renderStaticAmbientSvg(arena, { seed: profile.level * 31 + 7, clipX: 0, clipW: 186 });
+  const dayWash = isLight ? `<rect x="0" y="0" width="${186 * SCALE}" height="${PIXEL_H}" fill="#fff4cf" fill-opacity="0.16"/>` : '';
+
+  return svgDoc(layout.aria, [
     imageTag(art.arena, 0, 0, NATIVE_W, NATIVE_H),
+    dayWash,
     ambientSvg,
     shadowSvg,
-    spriteLayer(art.char, heroX),
-    ui.toSvg(),
-  ]);
+    spriteLayer(art.char, layout.heroX),
+    layout.ui.toSvg(),
+  ], isLight);
 }
 
 export function buildBadgeSheetSvg() {

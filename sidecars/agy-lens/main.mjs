@@ -51,7 +51,7 @@ import {
   readUpdateMeta,
 } from './lib/updater.mjs';
 import { bundleWebApp, computeWebJsStamp } from './lib/web-bundle.mjs';
-import { listShareAssets, loadShareProfile, readShareAsset, shareProfilePayload, updateShareProfile } from './lib/share-assets.mjs';
+import { copyShareFileToClipboard, copyShareGifToClipboard, listShareAssets, loadShareProfile, readShareAsset, shareProfilePayload, updateShareProfile } from './lib/share-assets.mjs';
 
 export {
   buildModelCatalog,
@@ -94,6 +94,7 @@ const HISTORY_TTL_MS = 60 * 1000;
 const PRICING_PATH = join(DATA_DIR, 'pricing-cache.json');
 const UPDATE_CACHE_PATH = join(DATA_DIR, 'update-cache.json');
 const SHARE_PROFILE_PATH = join(DATA_DIR, 'share-profile.json');
+const SHARE_EXPORT_DIR = join(DATA_DIR, 'share-exports');
 const CURRENT_VERSION = readCurrentVersion(PLUGIN_ROOT);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -499,6 +500,22 @@ if (!truthy(process.env.CONTEXT_PANEL_NO_SERVER)) {
   app.api('/api/share-profile', async (data) => {
     try {
       return updateShareProfile(SHARE_PROFILE_PATH, { nickname: data?.nickname, gender: data?.gender });
+    } catch (err) {
+      return { ok: false, error: 'failed', message: err.message };
+    }
+  }, 'POST');
+
+  app.api('/api/share-copy-gif', async (data) => {
+    try {
+      return await copyShareGifToClipboard(SHARE_EXPORT_DIR, { data: data?.data, filename: data?.filename });
+    } catch (err) {
+      return { ok: false, error: 'failed', message: err.message };
+    }
+  }, 'POST');
+
+  app.api('/api/share-copy-file', async (data) => {
+    try {
+      return await copyShareFileToClipboard(SHARE_EXPORT_DIR, { data: data?.data, filename: data?.filename, kind: data?.kind });
     } catch (err) {
       return { ok: false, error: 'failed', message: err.message };
     }

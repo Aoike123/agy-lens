@@ -390,6 +390,11 @@ test('i18n.js, format.js, and buildShareCardSvg have zero browser global referen
   const formatSrc = stripCommentsAndStringLiterals(readFileSync(join(WEB_DIR, 'format.js'), 'utf8'));
   const shareSrc = readFileSync(join(WEB_DIR, 'views', 'share-card.js'), 'utf8');
   const shareNodePart = stripCommentsAndStringLiterals(shareSrc.split('// --- browser-only helpers')[0]);
+  const motionSrc = readFileSync(join(WEB_DIR, 'views', 'share-motion.js'), 'utf8');
+  const motionNodePart = stripCommentsAndStringLiterals(motionSrc.split('// --- browser-only helpers')[0]);
+  const webglSrc = readFileSync(join(WEB_DIR, 'views', 'share-webgl.js'), 'utf8');
+  const webglNodePart = stripCommentsAndStringLiterals(webglSrc.split('// --- browser-only helpers')[0]);
+  const forbiddenMotionRe = /\b(window|document|localStorage|navigator|location|Image|Blob|URL|VideoEncoder|MediaRecorder|VideoFrame)\b/;
 
   for (const sym of ['detectDefaultLang', 'createTranslator']) {
     assert.match(i18nSrc, new RegExp(`\\b${sym}\\b`), `stripped i18n.js must retain exported symbol ${sym}`);
@@ -418,6 +423,8 @@ test('i18n.js, format.js, and buildShareCardSvg have zero browser global referen
   assert.ok(!forbiddenGlobalsRe.test(i18nSrc), 'i18n.js must not reference browser globals');
   assert.ok(!forbiddenGlobalsRe.test(formatSrc), 'format.js must not reference browser globals');
   assert.ok(!forbiddenGlobalsRe.test(shareNodePart), 'pure Node section of share-card.js must not reference browser globals');
+  assert.ok(!forbiddenMotionRe.test(motionNodePart), 'pure Node section of share-motion.js must not reference browser/media globals');
+  assert.ok(!forbiddenGlobalsRe.test(webglNodePart), 'pure Node section of share-webgl.js must not reference browser globals');
 
   assert.equal(formatMod.fmtTok(1500), '1.5k');
   assert.equal(formatMod.fmtUsd(12.345), '$12.35');
@@ -481,7 +488,7 @@ test('buildShareCardSvg generates valid SVG across periods, langs, themes, empty
   assert.ok(!/\bNaN\b|\bInfinity\b|\bundefined\b/.test(emptySvg));
 });
 
-test('buildShareCardSvg uses per-period model slices and draws a 100-dot model grid', () => {
+test('buildShareCardSvg uses per-period model slices and renders editorial model ledger rows', () => {
   const byModel = [
     { model: 'a', display_name: 'Alpha', input: 900000, output: 100000, cache_read: 0, calls: 90, est_cost_usd: 9.9,
       periods: { d7: { input: 9000, output: 1000, cache_read: 0, calls: 9, est_cost_usd: 0.12 }, today: { input: 0, output: 0, cache_read: 0, calls: 0, est_cost_usd: null } } },
@@ -493,7 +500,8 @@ test('buildShareCardSvg uses per-period model slices and draws a 100-dot model g
   assert.ok(svg.includes('10.0k · 25%'), 'Alpha must use its d7 slice');
   assert.ok(svg.includes('30.0k · 75%'), 'Beta must use its d7 slice');
   assert.ok(svg.indexOf('Beta') < svg.indexOf('Alpha'), 'models are ranked by the period slice');
-  assert.equal((svg.match(/<circle [^>]*r="8.5"/g) || []).length, 100);
+  assert.ok(svg.includes('data-editorial-poster="1"'));
+  assert.equal((svg.match(/data-ledger-row="/g) || []).length, 2);
   const todaySvg = buildShareCardSvg({ period: 'today', totals, byModel, daily: [], lang: 'en', theme: 'dark' });
   assert.ok(todaySvg.includes('No model usage yet'), 'models with no usage in the period are dropped');
   assert.ok(todaySvg.includes('00:00') && todaySvg.includes('23:00'), 'today card without hourly_today still renders 24h axis');
@@ -1215,6 +1223,15 @@ function createMockResponseHandler(bundledAppJs) {
     if (pathname === '/api/update') {
       return { status: 200, contentType: 'application/json; charset=utf-8', body: JSON.stringify({ current_version: '2.2.0', latest_version: '2.2.0', update_available: false }) };
     }
+    if (pathname === '/api/share-asset') {
+      return { status: 200, contentType: 'application/json; charset=utf-8', body: JSON.stringify({ files: [] }) };
+    }
+    if (pathname === '/api/share-profile') {
+      return { status: 200, contentType: 'application/json; charset=utf-8', body: JSON.stringify({ ok: true, nickname: '', gender: 'male' }) };
+    }
+    if (pathname === '/api/share-copy-gif' || pathname === '/api/share-copy-file') {
+      return { status: 200, contentType: 'application/json; charset=utf-8', body: JSON.stringify({ ok: true, bytes: 128 }) };
+    }
     const route = routes.get(pathname);
     if (route) {
       return { status: 200, contentType: route.mime, body: readFileSync(route.abs, 'utf8') };
@@ -1690,8 +1707,197 @@ test('Headless Chrome CDP: classic /app.js bundle, auto-detected locales, opaque
       assert.ok(!modalCheck.modalHtml.includes('/Users/canary'), 'Share modal leaked canary POSIX path');
       assert.ok(!modalCheck.modalHtml.includes('canary@secret.example'), 'Share modal leaked canary email');
 
-      // Toggle light theme and verify Copy SVG & Copy image (PNG) clipboard actions inside Chrome
-      await evalExpr('document.querySelector("[data-share-style=\\"minimal-light\\"]").click()');
+      // Toggle light theme on unified mountain style and verify Copy SVG & Copy image (PNG) clipboard actions inside Chrome
+      await evalExpr('document.querySelector("[data-share-style=\\"mountain\\"]").click()');
+      await evalExpr('document.querySelector("[data-share-theme=\\"light\\"]").click()');
+      const themePressed = await evalExpr('document.querySelector("[data-share-theme=\\"light\\"]")?.getAttribute("aria-pressed")');
+      assert.equal(themePressed, 'true', 'Mountain light theme button should be pressed');
+
+      // Persistent DOM shell & zero outer width/height jump across all 6 styles + narrow viewport layout check
+      const styleSwitchCheck = await evalExpr(`(async () => {
+        const dlg = document.querySelector('#share-modal .share-dialog');
+        const styles = [...document.querySelectorAll('#share-modal [data-share-style]')].map((b) => b.dataset.shareStyle);
+        const widths = [];
+        const heights = [];
+        const svgsOk = [];
+        let sameDlg = true;
+        for (const s of styles) {
+          document.querySelector('#share-modal [data-share-style="' + s + '"]').click();
+          await new Promise((r) => setTimeout(r, 40));
+          if (document.querySelector('#share-modal .share-dialog') !== dlg) sameDlg = false;
+          const r = dlg.getBoundingClientRect();
+          widths.push(Math.round(r.width));
+          heights.push(Math.round(r.height));
+          const svg = document.querySelector('#share-modal .share-preview svg');
+          svgsOk.push(Boolean(svg && svg.getAttribute('viewBox')));
+        }
+        document.querySelector('#share-modal [data-share-style="mountain"]').click();
+        await new Promise((r) => setTimeout(r, 30));
+        return {
+          styles,
+          sameDlg,
+          widths,
+          heights,
+          svgsOk,
+          overflowX: dlg.scrollWidth > dlg.clientWidth + 1,
+        };
+      })()`);
+      assert.deepEqual(styleSwitchCheck.styles, ['mountain', 'abyssal', 'eclipse', 'bauhaus', 'phosphor', 'pixel-role']);
+      assert.equal(styleSwitchCheck.sameDlg, true, 'Switching styles must preserve persistent .share-dialog DOM');
+      assert.ok(styleSwitchCheck.svgsOk.every(Boolean), `All 6 styles must render SVG: ${JSON.stringify(styleSwitchCheck.svgsOk)}`);
+      assert.equal(new Set(styleSwitchCheck.widths).size, 1, `Outer .share-dialog width must remain constant across styles: ${JSON.stringify(styleSwitchCheck.widths)}`);
+      assert.equal(new Set(styleSwitchCheck.heights).size, 1, `Outer .share-dialog height must remain constant across styles: ${JSON.stringify(styleSwitchCheck.heights)}`);
+      assert.equal(styleSwitchCheck.overflowX, false, 'Share dialog must not overflow horizontally on desktop');
+
+      // Narrow 420px viewport overflow & zero-jump check across all 6 styles
+      await cdp.send('Emulation.setDeviceMetricsOverride', { width: 420, height: 780, deviceScaleFactor: 1, mobile: true }, sessionId);
+      const narrowCheck = await evalExpr(`(async () => {
+        window.dispatchEvent(new Event('resize'));
+        await new Promise((r) => setTimeout(r, 40));
+        const dlg = document.querySelector('#share-modal .share-dialog');
+        const foot = document.querySelector('#share-modal .share-foot');
+        const styles = [...document.querySelectorAll('#share-modal [data-share-style]')].map((b) => b.dataset.shareStyle);
+        const widths = [];
+        const heights = [];
+        let dlgOverflowX = false;
+        let docOverflowX = false;
+        let footInside = true;
+        for (const s of styles) {
+          document.querySelector('#share-modal [data-share-style="' + s + '"]').click();
+          await new Promise((r) => setTimeout(r, 40));
+          const dr = dlg.getBoundingClientRect();
+          const fr = foot.getBoundingClientRect();
+          widths.push(Math.round(dr.width));
+          heights.push(Math.round(dr.height));
+          if (dlg.scrollWidth > dlg.clientWidth + 1) dlgOverflowX = true;
+          if (document.documentElement.scrollWidth > window.innerWidth + 1) docOverflowX = true;
+          if (!(fr.right <= dr.right + 1 && fr.left >= dr.left - 1)) footInside = false;
+        }
+        document.querySelector('#share-modal [data-share-style="mountain"]').click();
+        await new Promise((r) => setTimeout(r, 30));
+        return { widths, heights, dlgOverflowX, docOverflowX, footInside };
+      })()`);
+      assert.equal(new Set(narrowCheck.widths).size, 1, `Narrow outer .share-dialog width must remain constant: ${JSON.stringify(narrowCheck.widths)}`);
+      assert.equal(new Set(narrowCheck.heights).size, 1, `Narrow outer .share-dialog height must remain constant: ${JSON.stringify(narrowCheck.heights)}`);
+      assert.equal(narrowCheck.dlgOverflowX, false, 'Share dialog must not overflow horizontally at 420px');
+      assert.equal(narrowCheck.docOverflowX, false, 'Document must not overflow horizontally at 420px');
+      assert.equal(narrowCheck.footInside, true, 'Share footer must fit inside dialog at 420px');
+      await cdp.send('Emulation.clearDeviceMetricsOverride', {}, sessionId);
+
+      // Motion export verification (GIF89a on cockpit + Motion Photo .jpg when H.264 VideoEncoder is supported)
+      const motionExportCheck = await evalExpr(`(async () => {
+        const captured = [];
+        const origCreateObj = URL.createObjectURL.bind(URL);
+        const origAnchorClick = HTMLAnchorElement.prototype.click;
+        const blobMap = new Map();
+        URL.createObjectURL = (blob) => {
+          const u = origCreateObj(blob);
+          blobMap.set(u, blob);
+          return u;
+        };
+        HTMLAnchorElement.prototype.click = function () {
+          if (this.download && this.href && blobMap.has(this.href)) {
+            captured.push({ filename: this.download, blob: blobMap.get(this.href) });
+          }
+        };
+        try {
+          // 1. Export GIF89a on abyssal
+          document.querySelector('#share-modal [data-share-style="abyssal"]').click();
+          await new Promise((r) => setTimeout(r, 30));
+          const sel = document.querySelector('#share-modal [data-share-motion-fmt]');
+          sel.value = 'gif';
+          sel.dispatchEvent(new Event('change', { bubbles: true }));
+          document.querySelector('#share-modal [data-share-motion-save]').click();
+          const gifDeadline = Date.now() + 12000;
+          while (!captured.some((c) => c.filename.endsWith('.gif')) && Date.now() < gifDeadline) {
+            await new Promise((r) => setTimeout(r, 40));
+          }
+          const gifCap = captured.find((c) => c.filename.endsWith('.gif'));
+          const gifBytes = gifCap ? new Uint8Array(await gifCap.blob.arrayBuffer()) : null;
+          const gifHeader = gifBytes ? String.fromCharCode(...gifBytes.subarray(0, 6)) : '';
+          const gifTrailer = gifBytes ? gifBytes[gifBytes.length - 1] : 0;
+
+          // 2. Probe live Motion Photo (.jpg) on mountain if live format is available
+          let liveRes = { supported: false };
+          document.querySelector('#share-modal [data-share-style="mountain"]').click();
+          await new Promise((r) => setTimeout(r, 30));
+          const hasLiveOpt = [...sel.options].some((o) => o.value === 'live');
+          if (hasLiveOpt) {
+            sel.value = 'live';
+            sel.dispatchEvent(new Event('change', { bubbles: true }));
+            document.querySelector('#share-modal [data-share-motion-save]').click();
+            const liveDeadline = Date.now() + 25000;
+            while (!captured.some((c) => c.filename.endsWith('.jpg')) && !document.querySelector('#share-modal .share-status.err') && Date.now() < liveDeadline) {
+              await new Promise((r) => setTimeout(r, 60));
+            }
+            const jpgCap = captured.find((c) => c.filename.endsWith('.jpg'));
+            if (jpgCap) {
+              const jpgBytes = new Uint8Array(await jpgCap.blob.arrayBuffer());
+              const jpgLatin1 = new TextDecoder('latin1').decode(jpgBytes.subarray(0, Math.min(jpgBytes.length, 65536)));
+              const lenMatch = jpgLatin1.match(/Item:Semantic="MotionPhoto"[^>]*Item:Length="(\\d+)"/);
+              const mp4Len = lenMatch ? Number(lenMatch[1]) : 0;
+              let videoCheck = null;
+              if (mp4Len > 0 && mp4Len < jpgBytes.length) {
+                const mp4Slice = jpgBytes.subarray(jpgBytes.length - mp4Len);
+                const mp4Url = origCreateObj(new Blob([mp4Slice], { type: 'video/mp4' }));
+                const vid = document.createElement('video');
+                vid.muted = true;
+                vid.playsInline = true;
+                vid.src = mp4Url;
+                await new Promise((res, rej) => {
+                  vid.onloadeddata = () => res();
+                  vid.onerror = () => rej(new Error('Embedded MP4 failed to load'));
+                  setTimeout(() => rej(new Error('Embedded MP4 load timeout')), 6000);
+                });
+                const c = document.createElement('canvas');
+                c.width = 64; c.height = 64;
+                const ctx = c.getContext('2d');
+                const sampleAt = async (t) => {
+                  vid.currentTime = t;
+                  await new Promise((r) => { vid.onseeked = () => r(); setTimeout(r, 600); });
+                  ctx.drawImage(vid, 0, 0, 64, 64);
+                  return ctx.getImageData(0, 0, 64, 64).data;
+                };
+                const d1 = await sampleAt(0.1);
+                const d2 = await sampleAt(1.5);
+                let diff = 0;
+                for (let i = 0; i < d1.length; i += 4) {
+                  diff += Math.abs(d1[i] - d2[i]) + Math.abs(d1[i + 1] - d2[i + 1]) + Math.abs(d1[i + 2] - d2[i + 2]);
+                }
+                videoCheck = { videoWidth: vid.videoWidth, videoHeight: vid.videoHeight, duration: vid.duration, diff };
+                URL.revokeObjectURL(mp4Url);
+              }
+              liveRes = {
+                supported: true,
+                soi: jpgBytes[0] === 0xff && jpgBytes[1] === 0xd8 && jpgBytes[2] === 0xff,
+                hasXmp: jpgLatin1.includes('GCamera:MotionPhoto="1"') && jpgLatin1.includes('Container:Directory'),
+                mp4Len,
+                videoCheck,
+              };
+            }
+          }
+          return { gifHeader, gifTrailer, gifLen: gifBytes ? gifBytes.length : 0, liveRes };
+        } finally {
+          URL.createObjectURL = origCreateObj;
+          HTMLAnchorElement.prototype.click = origAnchorClick;
+        }
+      })()`);
+      assert.equal(motionExportCheck.gifHeader, 'GIF89a', 'Exported vector GIF must have GIF89a header');
+      assert.equal(motionExportCheck.gifTrailer, 0x3b, 'Exported vector GIF must end with 0x3b');
+      assert.ok(motionExportCheck.gifLen > 1000, 'Exported vector GIF unexpectedly small');
+      if (motionExportCheck.liveRes && motionExportCheck.liveRes.supported) {
+        assert.equal(motionExportCheck.liveRes.soi, true, 'Motion Photo JPEG missing SOI');
+        assert.equal(motionExportCheck.liveRes.hasXmp, true, 'Motion Photo JPEG missing GCamera XMP');
+        assert.ok(motionExportCheck.liveRes.videoCheck, 'Motion Photo embedded MP4 failed decode');
+        assert.equal(motionExportCheck.liveRes.videoCheck.videoWidth, 760);
+        assert.equal(motionExportCheck.liveRes.videoCheck.videoHeight, 950);
+        assert.ok(motionExportCheck.liveRes.videoCheck.duration > 2.5, `Expected duration > 2.5s, got ${motionExportCheck.liveRes.videoCheck.duration}`);
+        assert.ok(motionExportCheck.liveRes.videoCheck.diff > 0, 'Embedded MP4 frames showed zero motion delta');
+      }
+
+      // Ensure mountain light theme is selected before Copy SVG / Copy PNG checks
+      await evalExpr('document.querySelector("[data-share-style=\\"mountain\\"]").click()');
+      await evalExpr('document.querySelector("[data-share-theme=\\"light\\"]").click()');
       const copyRes = await evalExpr(`(async () => {
         const svgBtn = document.querySelector('[data-share-svg]');
         const pngBtn = document.querySelector('[data-share-png]');

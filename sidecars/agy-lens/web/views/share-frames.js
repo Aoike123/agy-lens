@@ -52,13 +52,36 @@ export const MATERIALS = {
 
 export const DEFAULT_MATERIAL = 'observatory';
 
-export function materialFor(arenaId) {
-  return MATERIALS[arenaId] || MATERIALS[DEFAULT_MATERIAL];
+export function materialFor(arenaId, theme = 'dark') {
+  const base = MATERIALS[arenaId] || MATERIALS[DEFAULT_MATERIAL];
+  if (theme !== 'light') return base;
+  return {
+    ...base,
+    fill: ['#efe1be', '#e4d2a6'],
+    isLight: true,
+  };
 }
 
 /** Text colours that read on each material's fill. */
 export function inkFor(mat) {
-  return { text: '#f6efd9', sub: mixHex(mat.ramp[3], '#f6efd9', 0.35), dim: mixHex(mat.ramp[2], mat.fill[1], 0.2), gold: '#f6c453', goldDark: '#b5791f' };
+  if (mat && mat.isLight) {
+    return {
+      text: '#2c1b0e',
+      sub: '#694a2d',
+      dim: '#9a7e5c',
+      gold: '#9c560c',
+      goldDark: '#633404',
+      topHi: '#8c2c0e',
+    };
+  }
+  return {
+    text: '#f6efd9',
+    sub: mixHex(mat.ramp[3], '#f6efd9', 0.35),
+    dim: mixHex(mat.ramp[2], mat.fill[1], 0.2),
+    gold: '#f6c453',
+    goldDark: '#b5791f',
+    topHi: '#fff6c4',
+  };
 }
 
 function mixHex(a, b, t) {
