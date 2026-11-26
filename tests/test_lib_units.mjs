@@ -4718,3 +4718,197 @@ test('ProjectClassification: project_id/config/workspace resolution, cache reten
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('Quota UI: freshly reset finite limits stay limited, omit no-reset/unlimited labels, and avoid stale prior-cycle spend', async () => {
+  const { isUnlimited } = await import('../sidecars/agy-lens/web/format.js');
+  const { isUnlimitedPool, poolWeeklyValuationHtml, renderQuotaHtml } = await import('../sidecars/agy-lens/web/views/quota.js');
+  const { createTranslator } = await import('../sidecars/agy-lens/web/i18n.js');
+
+  const tZh = createTranslator('zh');
+  const tEn = createTranslator('en');
+
+  // 1. isUnlimited & isUnlimitedPool distinguish explicit finite limits at 100% from kind=none / legacy unlimited.
+  assert.equal(isUnlimited({ kind: 'weekly', f: 1, reset_time: null }), false);
+  assert.equal(isUnlimited({ kind: '5h', f: 1, reset_time: null }), false);
+  assert.equal(isUnlimited({ kind: 'none', f: 1, reset_time: null }), true);
+  assert.equal(isUnlimited({ kind: '', f: 1, reset_time: null }), true);
+  assert.equal(isUnlimited({ kind: 'unknown', f: 1, reset_time: null }), true);
+
+  const resetPool = {
+    id: 'claude_gpt',
+    category: 'claude_gpt',
+    limits: [
+      { kind: 'weekly', inferred: false, remaining_fraction: 1, reset_time: null },
+      { kind: '5h', inferred: false, remaining_fraction: 1, reset_time: null },
+    ],
+    models: [{ id: 'claude-opus-5-5-high', display_name: 'Claude Opus 5.5 (High)' }],
+    families: [{ id: 'claude-opus-5-5', display_name: 'Claude Opus 5.5', levels: ['High'] }],
+    hidden_models: [],
+  };
+  const tabPool = {
+    id: 'tab',
+    category: 'tab',
+    limits: [{ kind: 'none', remaining_fraction: 1, reset_time: null }],
+    models: [],
+    families: [],
+    hidden_models: [],
+  };
+  assert.equal(isUnlimitedPool(resetPool, 'zh'), false);
+  assert.equal(isUnlimitedPool(tabPool, 'zh'), true);
+
+  // 2. renderQuotaHtml places freshly reset pool in limited section, omits unlimited/no-reset, and shows ref value instead of old cycle spend.
+  const historyData = {
+    weekly_value_usd: { claude_gpt: 45.63 },
+    weekly_cycles: {
+      claude_gpt: [{
+        cycle_start: '2026-11-19T14:00:00Z',
+        reset_time: '2026-11-26T22:00:00Z',
+        is_current: true,
+        used_fraction: 0.993,
+        remaining_fraction: 0.007,
+        cycle_cost_usd: 45.32,
+        weekly_value_usd: 45.63,
+      }],
+    },
+  };
+  const htmlZh = renderQuotaHtml({
+    data: {
+      tier: 'Google AI Ultra',
+      fetched_at: '2026-11-26T14:15:00Z',
+      pools: [resetPool, tabPool],
+    },
+    historyData,
+    openKeys: new Set(),
+    t: tZh,
+    lang: 'zh',
+  });
+  const beforeCycles = htmlZh.split('<section class="wcycles"')[0];
+  assert.ok(beforeCycles.includes('Claude / GPT-OSS 模型'));
+  assert.ok(!beforeCycles.includes('pool-free'));
+  assert.ok(beforeCycles.includes('每周限额 · 已用 0%'));
+  assert.ok(beforeCycles.includes('5 小时限额 · 已用 0%'));
+  assert.ok(beforeCycles.includes('100%<span class="lbl">剩余</span>'));
+  assert.ok(!beforeCycles.includes('不限 · 无重置'));
+  assert.ok(!beforeCycles.includes('无重置时间'));
+  assert.ok(beforeCycles.includes('参考 ≈ $45.63'));
+  assert.ok(!beforeCycles.includes('本周期已花 $45.32'));
+
+  // 3. poolWeeklyValuationHtml with a new reset_time distinct from an older is_current cycle falls back to weeklyPrevRef.
+  const valNewResetEn = poolWeeklyValuationHtml(
+    'claude_gpt',
+    { kind: 'weekly', f: 0.95, reset_time: '2026-12-03T14:00:00Z' },
+    historyData,
+    tEn,
+    'en',
+  );
+  assert.ok(valNewResetEn.includes('Ref ≈ $45.63'));
+  assert.ok(!valNewResetEn.includes('Spent $45.32'));
+
+  // Matching reset_time still renders current cycle valuation.
+  const valSameResetEn = poolWeeklyValuationHtml(
+    'claude_gpt',
+    { kind: 'weekly', f: 0.007, reset_time: '2026-11-26T22:00:00Z' },
+    historyData,
+    tEn,
+    'en',
+  );
+  assert.ok(valSameResetEn.includes('Spent $45.32'));
+  assert.ok(valSameResetEn.includes('Full ≈ $45.63'));
+});
+
+test('QuotaCycles: early reset to 100% without reset_time closes active cycle, avoids false prev_reset link, and updates history chart', async () => {
+  const { mergeQuotaObservation, normalizeQuotaCycles, WEEK_MS } = await import('../sidecars/agy-lens/lib/quota.mjs');
+  const { renderQuotaHtml } = await import('../sidecars/agy-lens/web/views/quota.js');
+  const { createTranslator } = await import('../sidecars/agy-lens/web/i18n.js');
+
+  const cycleStartIso = '2026-11-19T14:00:00.000Z';
+  const origResetIso = '2026-11-26T14:00:00.000Z';
+  const obsIso = '2026-11-24T10:00:00.000Z';
+  const earlyResetAtIso = '2026-11-26T06:00:00.000Z';
+
+  // 1. Active used cycle followed by 100% weekly quota with reset_time: null closes the cycle via ended_at.
+  const m0 = mergeQuotaObservation(normalizeQuotaCycles(null), {
+    fetched_at: obsIso,
+    weekly: { claude_gpt: { remaining_fraction: 0.007, reset_time: origResetIso } },
+  });
+  const m1 = mergeQuotaObservation(m0.ledger, {
+    fetched_at: earlyResetAtIso,
+    weekly: { claude_gpt: { remaining_fraction: 1, reset_time: null } },
+  });
+  assert.equal(m1.changed, true);
+  const closed = m1.ledger.pools.claude_gpt[0];
+  assert.equal(closed.ended_at, earlyResetAtIso);
+  assert.equal(closed.remaining_fraction, 0.007);
+  assert.equal(closed.observed_at, obsIso);
+  assert.equal(closed.cycle_duration_ms, Date.parse(earlyResetAtIso) - Date.parse(cycleStartIso));
+
+  // 2. Repeated 100% + null reset_time polling is idempotent and preserves ended_at across normalizeQuotaCycles.
+  const m2 = mergeQuotaObservation(m1.ledger, {
+    fetched_at: '2026-11-26T06:05:00.000Z',
+    weekly: { claude_gpt: { remaining_fraction: 1, reset_time: null } },
+  });
+  assert.equal(m2.changed, false);
+  assert.equal(m2.ledger.pools.claude_gpt[0].ended_at, earlyResetAtIso);
+  const rt = normalizeQuotaCycles(m2.ledger);
+  assert.equal(rt.pools.claude_gpt[0].ended_at, earlyResetAtIso);
+
+  // 3. Subsequent cycle starting after original reset_time must NOT link cycle_start to ended cycle's cancelled reset_time.
+  const newFirstSeen = '2026-11-26T16:00:00.000Z';
+  const newResetIso = '2026-12-03T16:00:00.000Z';
+  const m3 = mergeQuotaObservation(rt, {
+    fetched_at: newFirstSeen,
+    weekly: { claude_gpt: { remaining_fraction: 0.9, reset_time: newResetIso } },
+  });
+  assert.equal(m3.ledger.pools.claude_gpt.length, 2);
+  assert.equal(m3.ledger.pools.claude_gpt[0].cycle_start_source, 'weekly_7d');
+  assert.equal(m3.ledger.pools.claude_gpt[0].cycle_duration_ms, WEEK_MS);
+  assert.equal(m3.ledger.pools.claude_gpt[1].ended_at, earlyResetAtIso);
+
+  // 4. End-to-end scan() + renderQuotaHtml marks the early-closed cycle as non-current and counts early reset.
+  const dir = mkdtempSync(join(tmpdir(), 'agy-unit-early-null-'));
+  try {
+    const root = join(dir, 'conversations');
+    mkdirSync(root);
+    const callSec = Math.floor(Date.parse('2026-11-22T12:00:00.000Z') / 1000);
+    const lateCallSec = Math.floor(Date.parse('2026-11-26T07:00:00.000Z') / 1000); // after earlyResetAtIso, before origResetIso!
+    makeHistoryDb(join(root, 'c.db'), [
+      { ts: callSec, model: 'claude-opus-4-6', input: 100_000, output: 100_000, cache: 0 },
+      { ts: lateCallSec, model: 'claude-opus-4-6', input: 500_000, output: 500_000, cache: 0 },
+    ]);
+    const expectedCost = callCostInfo('claude-opus-4-6', 100_000, 100_000, 0)[0];
+    const scanNow = new Date('2026-11-26T07:10:00.000Z'); // still before origResetIso!
+    const scanned = await scan([[root, 'desktop']], { now: scanNow, quotaCycles: m1.ledger });
+    const cyOut = scanned.weekly_cycles.claude_gpt[0];
+    assert.equal(cyOut.is_current, false);
+    assert.equal(cyOut.ended_at, earlyResetAtIso);
+    assert.equal(cyOut.cycle_cost_usd, roundN(expectedCost, 4)); // lateCallSec excluded by ended_at
+    assert.equal(cyOut.weekly_value_usd, roundN(expectedCost / 0.993, 2));
+
+    const tZh = createTranslator('zh');
+    const qHtml = renderQuotaHtml({
+      data: {
+        tier: 'Google AI Ultra',
+        fetched_at: scanNow.toISOString(),
+        pools: [{
+          id: 'claude_gpt',
+          category: 'claude_gpt',
+          limits: [
+            { kind: 'weekly', inferred: false, remaining_fraction: 1, reset_time: null },
+            { kind: '5h', inferred: false, remaining_fraction: 1, reset_time: null },
+          ],
+          models: [],
+          families: [],
+          hidden_models: [],
+        }],
+      },
+      historyData: scanned,
+      openKeys: new Set(),
+      t: tZh,
+      lang: 'zh',
+    });
+    assert.ok(!qHtml.includes('<span class="wtag">当前</span>'));
+    assert.ok(qHtml.includes('提前 1 次'));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

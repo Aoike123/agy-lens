@@ -125,7 +125,17 @@ export function poolWeeklyValuationHtml(category, l, historyData, t, lang) {
   const cyclesMap = historyData.weekly_cycles && typeof historyData.weekly_cycles === 'object' ? historyData.weekly_cycles : {};
   const weeklyValueUsd = historyData.weekly_value_usd && typeof historyData.weekly_value_usd === 'object' ? historyData.weekly_value_usd : {};
   const list = Array.isArray(cyclesMap[category]) ? cyclesMap[category] : [];
-  const curCy = list.find((cy) => cy.is_current || (l.reset_time && tsOf(cy.reset_time) === tsOf(l.reset_time))) || null;
+  const lResetMs = l.reset_time ? tsOf(l.reset_time) : -Infinity;
+  const curCy = list.find((cy) => {
+    if (!cy) return false;
+    const cyResetMs = cy.reset_time ? tsOf(cy.reset_time) : -Infinity;
+    if (Number.isFinite(lResetMs) && Number.isFinite(cyResetMs)) {
+      return Math.abs(cyResetMs - lResetMs) <= 120_000;
+    }
+    if (!cy.is_current) return false;
+    if (!l.reset_time && l.f != null && l.f >= 1 && num(cy.used_fraction) > 0) return false;
+    return true;
+  }) || null;
   const refVal = num(weeklyValueUsd[category]);
 
   if (curCy && isNum(curCy.weekly_value_usd) && curCy.weekly_value_usd > 0) {
@@ -664,9 +674,10 @@ export function limitHtml(l, single, t, lang, extraHtml = '') {
   }
   const f = l.f;
   const resetTitle = l.reset_time ? t('resetAt', fmtTime(l.reset_time, true, lang)) : '';
+  const resetStr = !l.reset_time && f != null && f >= 1 ? '' : resetText(l.reset_time, t, lang);
   return `<div class="limit ${levelOf(f)}">
     <div class="limit-head"><span${l.inferred ? ` title="${esc(t('inferred'))}"` : ''}>${esc(name)}${f != null ? ` · ${esc(t('used', pctText(1 - f)))}` : ''}</span>
-      <span class="num" data-reset="${esc(l.reset_time || '')}" title="${esc(resetTitle)}">${esc(resetText(l.reset_time, t, lang))}</span></div>
+      <span class="num" data-reset="${esc(l.reset_time || '')}" title="${esc(resetTitle)}">${esc(resetStr)}</span></div>
     <div class="limit-body">${meterHtml(f, name)}<div class="limit-pct num">${pctText(f)}<span class="lbl">${esc(t('remaining'))}</span></div></div>
     ${extraHtml}
   </div>`;
