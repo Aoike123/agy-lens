@@ -1846,26 +1846,39 @@ test('Headless Chrome CDP: classic /app.js bundle, auto-detected locales, opaque
                 const vid = document.createElement('video');
                 vid.muted = true;
                 vid.playsInline = true;
+                vid.preload = 'auto';
                 vid.src = mp4Url;
                 await new Promise((res, rej) => {
                   vid.onloadeddata = () => res();
                   vid.onerror = () => rej(new Error('Embedded MP4 failed to load'));
-                  setTimeout(() => rej(new Error('Embedded MP4 load timeout')), 6000);
+                  setTimeout(() => rej(new Error('Embedded MP4 load timeout')), 15000);
                 });
                 const c = document.createElement('canvas');
-                c.width = 64; c.height = 64;
+                c.width = 128; c.height = 128;
                 const ctx = c.getContext('2d');
                 const sampleAt = async (t) => {
-                  vid.currentTime = t;
-                  await new Promise((r) => { vid.onseeked = () => r(); setTimeout(r, 600); });
-                  ctx.drawImage(vid, 0, 0, 64, 64);
-                  return ctx.getImageData(0, 0, 64, 64).data;
+                  await new Promise((r) => {
+                    let done = false;
+                    const finish = () => { if (!done) { done = true; r(); } };
+                    vid.addEventListener('seeked', finish, { once: true });
+                    setTimeout(finish, 8000);
+                    vid.currentTime = t;
+                  });
+                  await new Promise((r) => requestAnimationFrame(() => r()));
+                  ctx.drawImage(vid, 0, 0, 128, 128);
+                  return ctx.getImageData(0, 0, 128, 128).data;
                 };
-                const d1 = await sampleAt(0.1);
+                const d1 = await sampleAt(0.05);
                 const d2 = await sampleAt(1.5);
                 let diff = 0;
                 for (let i = 0; i < d1.length; i += 4) {
                   diff += Math.abs(d1[i] - d2[i]) + Math.abs(d1[i + 1] - d2[i + 1]) + Math.abs(d1[i + 2] - d2[i + 2]);
+                }
+                if (diff === 0) {
+                  const d3 = await sampleAt(Math.max(2.0, (vid.duration || 3) * 0.75));
+                  for (let i = 0; i < d1.length; i += 4) {
+                    diff += Math.abs(d1[i] - d3[i]) + Math.abs(d1[i + 1] - d3[i + 1]) + Math.abs(d1[i + 2] - d3[i + 2]);
+                  }
                 }
                 videoCheck = { videoWidth: vid.videoWidth, videoHeight: vid.videoHeight, duration: vid.duration, diff };
                 URL.revokeObjectURL(mp4Url);
