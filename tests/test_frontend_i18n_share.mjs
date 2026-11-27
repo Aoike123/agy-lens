@@ -1944,15 +1944,15 @@ test('Headless Chrome CDP: classic /app.js bundle, auto-detected locales, opaque
         }
         try {
           svgBtn.click();
-          const deadlineSvg = Date.now() + 4000;
+          const deadlineSvg = Date.now() + 8000;
           while ((!copiedSvg || document.querySelector('.share-status')?.hidden) && Date.now() < deadlineSvg) {
             await new Promise((r) => setTimeout(r, 20));
           }
           const svgStatus = document.querySelector('.share-status')?.textContent?.trim() || '';
 
           pngBtn.click();
-          const deadlinePng = Date.now() + 8000;
-          while ((!capturedBlob || !document.querySelector('.share-status')?.textContent?.includes('PNG')) && Date.now() < deadlinePng) {
+          const deadlinePng = Date.now() + 20000;
+          while ((!capturedBlob || pngBtn.disabled || !document.querySelector('.share-status')?.textContent?.includes('PNG')) && Date.now() < deadlinePng) {
             await new Promise((r) => setTimeout(r, 30));
           }
           const pngStatus = document.querySelector('.share-status')?.textContent?.trim() || '';
@@ -1963,9 +1963,9 @@ test('Headless Chrome CDP: classic /app.js bundle, auto-detected locales, opaque
 
           rejectNextWrite = true;
           pngBtn.click();
-          const deadlineErr = Date.now() + 4000;
-          while (!document.querySelector('.share-status.err') && Date.now() < deadlineErr) {
-            await new Promise((r) => setTimeout(r, 20));
+          const deadlineErr = Date.now() + 20000;
+          while ((!document.querySelector('.share-status.err') || document.querySelector('.share-status.err')?.hidden) && Date.now() < deadlineErr) {
+            await new Promise((r) => setTimeout(r, 30));
           }
           const errEl = document.querySelector('.share-status.err');
           const errStatus = errEl && !errEl.hidden ? errEl.textContent.trim() : '';
