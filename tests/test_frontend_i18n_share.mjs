@@ -1784,7 +1784,9 @@ test('Headless Chrome CDP: classic /app.js bundle, auto-detected locales, opaque
       assert.equal(narrowCheck.footInside, true, 'Share footer must fit inside dialog at 420px');
       await cdp.send('Emulation.clearDeviceMetricsOverride', {}, sessionId);
 
-      // Motion export verification (GIF89a on cockpit + Motion Photo .jpg when H.264 VideoEncoder is supported)
+      // Motion export verification (GIF89a on abyssal + Motion Photo .jpg when H.264 VideoEncoder is supported).
+      // Run once (en-US) since binary GIF89a & MP4 encoders are locale-independent and software-WebGL CI runners are slow.
+      if (navLang === 'en-US') {
       const motionExportCheck = await evalExpr(`(async () => {
         const captured = [];
         const origCreateObj = URL.createObjectURL.bind(URL);
@@ -1808,10 +1810,11 @@ test('Headless Chrome CDP: classic /app.js bundle, auto-detected locales, opaque
           sel.value = 'gif';
           sel.dispatchEvent(new Event('change', { bubbles: true }));
           document.querySelector('#share-modal [data-share-motion-save]').click();
-          const gifDeadline = Date.now() + 12000;
-          while (!captured.some((c) => c.filename.endsWith('.gif')) && Date.now() < gifDeadline) {
-            await new Promise((r) => setTimeout(r, 40));
+          const gifDeadline = Date.now() + 45000;
+          while (!captured.some((c) => c.filename.endsWith('.gif')) && !document.querySelector('#share-modal .share-status.err') && Date.now() < gifDeadline) {
+            await new Promise((r) => setTimeout(r, 50));
           }
+          const gifStatus = document.querySelector('#share-modal .share-status')?.textContent || '';
           const gifCap = captured.find((c) => c.filename.endsWith('.gif'));
           const gifBytes = gifCap ? new Uint8Array(await gifCap.blob.arrayBuffer()) : null;
           const gifHeader = gifBytes ? String.fromCharCode(...gifBytes.subarray(0, 6)) : '';
@@ -1826,7 +1829,7 @@ test('Headless Chrome CDP: classic /app.js bundle, auto-detected locales, opaque
             sel.value = 'live';
             sel.dispatchEvent(new Event('change', { bubbles: true }));
             document.querySelector('#share-modal [data-share-motion-save]').click();
-            const liveDeadline = Date.now() + 25000;
+            const liveDeadline = Date.now() + 45000;
             while (!captured.some((c) => c.filename.endsWith('.jpg')) && !document.querySelector('#share-modal .share-status.err') && Date.now() < liveDeadline) {
               await new Promise((r) => setTimeout(r, 60));
             }
@@ -1876,13 +1879,13 @@ test('Headless Chrome CDP: classic /app.js bundle, auto-detected locales, opaque
               };
             }
           }
-          return { gifHeader, gifTrailer, gifLen: gifBytes ? gifBytes.length : 0, liveRes };
+          return { gifHeader, gifTrailer, gifLen: gifBytes ? gifBytes.length : 0, gifStatus, liveRes };
         } finally {
           URL.createObjectURL = origCreateObj;
           HTMLAnchorElement.prototype.click = origAnchorClick;
         }
       })()`);
-      assert.equal(motionExportCheck.gifHeader, 'GIF89a', 'Exported vector GIF must have GIF89a header');
+      assert.equal(motionExportCheck.gifHeader, 'GIF89a', `Exported vector GIF must have GIF89a header (status=${motionExportCheck.gifStatus})`);
       assert.equal(motionExportCheck.gifTrailer, 0x3b, 'Exported vector GIF must end with 0x3b');
       assert.ok(motionExportCheck.gifLen > 1000, 'Exported vector GIF unexpectedly small');
       if (motionExportCheck.liveRes && motionExportCheck.liveRes.supported) {
@@ -1893,6 +1896,7 @@ test('Headless Chrome CDP: classic /app.js bundle, auto-detected locales, opaque
         assert.equal(motionExportCheck.liveRes.videoCheck.videoHeight, 950);
         assert.ok(motionExportCheck.liveRes.videoCheck.duration > 2.5, `Expected duration > 2.5s, got ${motionExportCheck.liveRes.videoCheck.duration}`);
         assert.ok(motionExportCheck.liveRes.videoCheck.diff > 0, 'Embedded MP4 frames showed zero motion delta');
+      }
       }
 
       // Ensure mountain light theme is selected before Copy SVG / Copy PNG checks

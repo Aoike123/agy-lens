@@ -7,21 +7,22 @@
 **Entry:**
 
 ```markdown
-- [Agy Lens](https://github.com/Aoike123/agy-lens) - All-in-one local cockpit & CLI for Antigravity 2.0: exact context window by category, live tok/s, 5-hour & weekly quotas with implied dollar value tracking, subagent tree rollups, and sanitized share cards.
+- [Agy Lens](https://github.com/Aoike123/agy-lens) - All-in-one local cockpit & CLI for Antigravity 2.0: exact context window, live tok/s, 5h & weekly quotas with implied `$` value, multi-cycle waste tracker & opt-in auto-wake, project subagent spend, and 6-style WebGL/Pixel share cards (Live Photo/MP4/GIF). Pure Node.js 24, 0 deps.
 ```
 
-**PR title:** `Add Agy Lens (context, speed, quota value & usage side panel + CLI)`
+**PR title:** `Add Agy Lens (context, speed, quota value/utilization, share cards & CLI)`
 
 **PR body:**
 
 ```markdown
-Adds [Agy Lens](https://github.com/Aoike123/agy-lens), an MIT-licensed plugin & CLI for the Antigravity 2.0 desktop app.
+Adds [Agy Lens](https://github.com/Aoike123/agy-lens), an MIT-licensed side-panel plugin & terminal CLI for the Antigravity 2.0 desktop app.
 
 - Exact context window breakdown (same accounting as `agy /context`) + request-budget trimming alert
 - Streaming tok/s, time to first token, and cache hit rate per model
-- Official 5-hour and weekly quotas with countdowns + implied 100% weekly quota value & shrinkage history
-- Desktop + CLI usage history with subagent tree rollups, pruned DB archiving, per-project weekly `%`, and sanitized SVG/PNG share cards
-- Runs on Antigravity's bundled Node.js 24 (`npx github:Aoike123/agy-lens`), zero dependencies, read-only, no external requests by default
+- Official 5-hour and weekly quotas with countdowns, implied 100% cycle dollar value & shrinkage history, multi-cycle utilization (`Used / Total`, `Past unused`), in-cycle burn-rate drill-down, and opt-in per-pool auto-wake (OFF by default)
+- Desktop + CLI usage history with project grouping, subagent tree rollups, pruned DB archiving, and time-locked per-project weekly `%`
+- 6-style sanitized WebGL & Pixel Hero share cards (Dark/Light, Live Photo / MP4 / GIF / PNG / SVG)
+- Pure Node.js 24 (`npx github:Aoike123/agy-lens`), zero dependencies, read-only by default, SHA-256-verified in-panel updates
 
 Placed alphabetically in the section; happy to move it if another section fits better.
 ```

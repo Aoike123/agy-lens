@@ -844,12 +844,14 @@ export async function createPosterHybridCanvasRenderer({
   const uniforms = computePosterShaderUniforms(style, payload);
 
   return (targetCtx, phase, _frameIdx, outW, outH) => {
+    const rw = outW || width;
+    const rh = outH || height;
     targetCtx.imageSmoothingEnabled = true;
     targetCtx.imageSmoothingQuality = 'high';
-    drawPosterPass(engine, uniforms, phase, 0.0, width, height);
-    targetCtx.drawImage(engine.canvas, 0, 0, outW, outH);
-    targetCtx.drawImage(svgImg, 0, 0, outW, outH);
-    drawPosterPass(engine, uniforms, phase, 1.0, width, height);
-    targetCtx.drawImage(engine.canvas, 0, 0, outW, outH);
+    drawPosterPass(engine, uniforms, phase, 0.0, rw, rh);
+    targetCtx.drawImage(engine.canvas, 0, 0, rw, rh);
+    targetCtx.drawImage(svgImg, 0, 0, rw, rh);
+    drawPosterPass(engine, uniforms, phase, 1.0, rw, rh);
+    targetCtx.drawImage(engine.canvas, 0, 0, rw, rh);
   };
 }
