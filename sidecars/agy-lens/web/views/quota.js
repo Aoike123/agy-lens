@@ -264,6 +264,124 @@ function cycleDiffFooter(summary, summaryTip, t) {
   return `<div class="heat-foot"><span class="num"${summaryTip ? ` title="${esc(summaryTip)}"` : ''}>${esc(summary)}</span>${leg}</div>`;
 }
 
+function liveWeeklyMapFromQuota(data) {
+  const out = {};
+  if (!data || data.error) return out;
+  if (data.weekly && typeof data.weekly === 'object') {
+    for (const [pk, entry] of Object.entries(data.weekly)) {
+      if (entry && isNum(entry.remaining_fraction)) {
+        out[pk] = { remaining_fraction: entry.remaining_fraction, reset_time: entry.reset_time || null };
+      }
+    }
+  }
+  for (const p of Array.isArray(data.pools) ? data.pools : []) {
+    if (!p || !p.category || out[p.category]) continue;
+    const lims = Array.isArray(p.limits) ? p.limits : [];
+    const wk = lims.find((l) => l && l.kind === 'weekly' && isNum(l.remaining_fraction));
+    if (wk) {
+      out[p.category] = { remaining_fraction: wk.remaining_fraction, reset_time: wk.reset_time || null };
+    }
+  }
+  return out;
+}
+
+const snapZero = (v) => (Math.abs(v) < 1e-6 ? 0 : Math.max(0, v));
+
+export function cycleQuotaSummary(cyclesList, liveWeekly = null) {
+  if (!Array.isArray(cyclesList) || !cyclesList.length) return null;
+  let count = 0;
+  let usedPct = 0;
+  let hasCurrent = false;
+  let currentRemPct = 0;
+  let closedCount = 0;
+  let closedUsedPct = 0;
+  const liveResetMs = liveWeekly && liveWeekly.reset_time ? tsOf(liveWeekly.reset_time) : -Infinity;
+  const liveRem = liveWeekly && isNum(liveWeekly.remaining_fraction) ? fraction(liveWeekly.remaining_fraction) : null;
+
+  for (const cy of cyclesList) {
+    if (!cy || typeof cy !== 'object') continue;
+    let usedFrac = null;
+    let remFrac = null;
+    if (cy.is_current && liveRem != null && Number.isFinite(liveResetMs)) {
+      const cyResetMs = cy.reset_time ? tsOf(cy.reset_time) : -Infinity;
+      if (Number.isFinite(cyResetMs) && Math.abs(cyResetMs - liveResetMs) <= 120_000) {
+        remFrac = liveRem;
+        usedFrac = 1 - liveRem;
+      }
+    }
+    if (usedFrac === null) {
+      if (cy.saturated === true) {
+        usedFrac = 1;
+        remFrac = 0;
+      } else if (isNum(cy.used_fraction)) {
+        usedFrac = fraction(cy.used_fraction);
+        remFrac = isNum(cy.remaining_fraction) ? fraction(cy.remaining_fraction) : (1 - usedFrac);
+      } else if (isNum(cy.remaining_fraction)) {
+        remFrac = fraction(cy.remaining_fraction);
+        usedFrac = 1 - remFrac;
+      }
+    }
+    if (usedFrac === null) continue;
+    const u = usedFrac * 100;
+    const r = Math.max(0, Math.min(100 - u, remFrac * 100));
+    count += 1;
+    usedPct += u;
+    if (cy.is_current) {
+      hasCurrent = true;
+      currentRemPct += r;
+    } else {
+      closedCount += 1;
+      closedUsedPct += u;
+    }
+  }
+  if (!count) return null;
+  const totalPct = count * 100;
+  const used = snapZero(Math.min(totalPct, usedPct));
+  const curRem = hasCurrent ? snapZero(Math.min(totalPct - used, currentRemPct)) : null;
+  const pastUnused = snapZero(totalPct - used - (curRem ?? 0));
+  const closedUtilPct = closedCount > 0 ? snapZero((closedUsedPct / (closedCount * 100)) * 100) : null;
+  return {
+    count,
+    totalPct,
+    usedPct: used,
+    hasCurrent,
+    currentRemPct: curRem,
+    closedCount,
+    pastUnusedPct: pastUnused,
+    closedUtilPct,
+  };
+}
+
+function cycleQuotaStripHtml(qStats, t, lang) {
+  if (!qStats || !qStats.count) return '';
+  const usedStr = fmtPctNum(qStats.usedPct);
+  const totalStr = fmtPctNum(qStats.totalPct);
+  const curStr = qStats.hasCurrent ? fmtPctNum(qStats.currentRemPct) : '—';
+  const unusedStr = qStats.closedCount > 0 ? fmtPctNum(qStats.pastUnusedPct) : '—';
+  const tipParts = [t('cycleQuotaTip', fmtInt(qStats.count, lang), totalStr, usedStr)];
+  if (qStats.hasCurrent) tipParts.push(t('cycleQuotaTipCur', curStr));
+  if (qStats.closedCount > 0) {
+    tipParts.push(t('cycleQuotaTipPast', unusedStr, fmtInt(qStats.closedCount, lang), fmtPctNum(qStats.closedUtilPct)));
+  }
+  const tip = tipParts.join(' · ');
+  const unusedCls = qStats.closedCount > 0
+    ? (qStats.closedUtilPct <= 60 ? ' is-warn' : (qStats.pastUnusedPct < 5 ? ' is-ok' : ''))
+    : ' dim';
+  const unusedTitle = qStats.closedCount === 0 ? ` title="${esc(t('cycleQuotaNoPastTip'))}"` : '';
+  const usedW = Math.min(100, Math.max(0, (qStats.usedPct / qStats.totalPct) * 100));
+  const curW = qStats.hasCurrent
+    ? Math.min(100 - usedW, Math.max(0, (qStats.currentRemPct / qStats.totalPct) * 100))
+    : 0;
+  return `<div class="cy-quota num" title="${esc(tip)}">`
+    + '<div class="cy-q-grid">'
+    + `<div class="cy-q-item"><div class="cy-q-lbl">${esc(t('cycleQuotaUsedTotal'))}</div><div class="cy-q-val"><b>${esc(usedStr)}</b><span class="dim"> / ${esc(totalStr)}</span></div></div>`
+    + `<div class="cy-q-item"><div class="cy-q-lbl">${esc(t('cycleQuotaCurLeft'))}</div><div class="cy-q-val${qStats.hasCurrent ? '' : ' dim'}"><b>${esc(curStr)}</b></div></div>`
+    + `<div class="cy-q-item"${unusedTitle}><div class="cy-q-lbl">${esc(t('cycleQuotaPastUnused'))}</div><div class="cy-q-val${unusedCls}"><b>${esc(unusedStr)}</b></div></div>`
+    + '</div>'
+    + `<div class="cy-q-bar" aria-hidden="true">${usedW > 0 ? `<span class="cy-q-used" style="width:${usedW.toFixed(2)}%"></span>` : ''}${curW > 0 ? `<span class="cy-q-cur" style="width:${curW.toFixed(2)}%"></span>` : ''}</div>`
+    + '</div>';
+}
+
 function fmtAxisUsd(v) {
   if (!isNum(v) || v <= 0) return '0';
   if (v >= 1000) return `$${(v / 1000).toFixed(1).replace(/\.0$/, '')}k`;
@@ -507,7 +625,7 @@ function cycleBarRows(cols) {
   return Math.max(BAR_ROWS_MIN, Math.min(BAR_ROWS_MAX, Math.round(cols * BAR_ASPECT_RATIO)));
 }
 
-function cycleBarChart(list, endDay, period, t, lang, pk = '', drillEntry = null) {
+function cycleBarChart(list, endDay, period, t, lang, pk = '', drillEntry = null, liveWeekly = null) {
   let source = list;
   if (period === 'month') {
     const minDay = new Date(endDay.getFullYear(), endDay.getMonth(), 1);
@@ -576,7 +694,8 @@ function cycleBarChart(list, endDay, period, t, lang, pk = '', drillEntry = null
   const summaryTip = stats.valuedCount > 0
     ? t('cycleSummaryTip', fmtUsd(stats.totalVal), fmtUsd(stats.totalVal / stats.valuedCount))
     : '';
-  const overviewHtml = `<div class="cy-overview"><div class="cy-chart">${xHtml}${yHtml}<div class="cy-cols${modeCls ? ` ${modeCls}` : ''}" style="--cols:${cols};--rows:${rows}">${barsHtml}</div></div>${cycleDiffFooter(summary, summaryTip, t)}</div>`;
+  const quotaHtml = cycleQuotaStripHtml(cycleQuotaSummary(shown, liveWeekly), t, lang);
+  const overviewHtml = `<div class="cy-overview"><div class="cy-chart">${xHtml}${yHtml}<div class="cy-cols${modeCls ? ` ${modeCls}` : ''}" style="--cols:${cols};--rows:${rows}">${barsHtml}</div></div>${cycleDiffFooter(summary, summaryTip, t)}${quotaHtml}</div>`;
 
   const drilledCy = drillEntry && drillEntry.cycleKey
     ? (shown.find((c) => cycleKeyOf(c) === drillEntry.cycleKey) || list.find((c) => cycleKeyOf(c) === drillEntry.cycleKey) || null)
@@ -596,7 +715,7 @@ function cycleBarChart(list, endDay, period, t, lang, pk = '', drillEntry = null
   };
 }
 
-export function weeklyCyclesHtml(historyData, _openKeys, t, lang, poolOrder = null, { period = 'month', anchorIso = null, activeDrills = null } = {}) {
+export function weeklyCyclesHtml(historyData, _openKeys, t, lang, poolOrder = null, { period = 'month', anchorIso = null, activeDrills = null, liveWeeklyMap = null } = {}) {
   const cyclesMap = historyData && !historyData.error && historyData.weekly_cycles && typeof historyData.weekly_cycles === 'object'
     ? historyData.weekly_cycles
     : null;
@@ -632,7 +751,8 @@ export function weeklyCyclesHtml(historyData, _openKeys, t, lang, poolOrder = nu
     const list = cyclesMap[pk];
     const color = poolColor(pk, poolIdx);
     const drillEntry = activeDrills && activeDrills.get ? activeDrills.get(pk) : null;
-    const chart = cycleBarChart(list, endDay, p, t, lang, pk, drillEntry);
+    const liveWeekly = liveWeeklyMap && liveWeeklyMap[pk] ? liveWeeklyMap[pk] : null;
+    const chart = cycleBarChart(list, endDay, p, t, lang, pk, drillEntry, liveWeekly);
 
     const latest = list[0] || null;
     const peakStr = chart.maxVal > 0 ? t('cyclePeak', fmtUsd(chart.maxVal)) : '';
@@ -673,8 +793,11 @@ export function limitHtml(l, single, t, lang, extraHtml = '') {
     return `<div class="limit free"><div class="limit-head"><span>${esc(t('unlimited'))}</span></div></div>`;
   }
   const f = l.f;
-  const resetTitle = l.reset_time ? t('resetAt', fmtTime(l.reset_time, true, lang)) : '';
-  const resetStr = !l.reset_time && f != null && f >= 1 ? '' : resetText(l.reset_time, t, lang);
+  const pendingStart = !l.reset_time && f != null && f >= 1;
+  const resetTitle = l.reset_time
+    ? t('resetAt', fmtTime(l.reset_time, true, lang))
+    : (pendingStart ? t('resetPendingTip') : '');
+  const resetStr = pendingStart ? t('resetPending') : resetText(l.reset_time, t, lang);
   return `<div class="limit ${levelOf(f)}">
     <div class="limit-head"><span${l.inferred ? ` title="${esc(t('inferred'))}"` : ''}>${esc(name)}${f != null ? ` · ${esc(t('used', pctText(1 - f)))}` : ''}</span>
       <span class="num" data-reset="${esc(l.reset_time || '')}" title="${esc(resetTitle)}">${esc(resetStr)}</span></div>
@@ -689,7 +812,27 @@ export function isUnlimitedPool(p, lang = 'en') {
   return limits.length > 0 && limits.every((l) => isUnlimited(l));
 }
 
-export function poolHtml(p, { openKeys, historyData = null, free = false, t, lang }) {
+function poolWakeErrorHtml(category, l, { wakePool = null, isWaking = false, notice = null, t }) {
+  if (!category || category === 'tab' || !l || l.kind !== 'weekly') return '';
+  if (notice && !notice.ok && notice.text) {
+    return `<div class="wake-note err">${esc(notice.text)}</div>`;
+  }
+  if (!isWaking && wakePool && wakePool.auto && wakePool.last_error) {
+    return `<div class="wake-note err">${esc(t('wakeFail', wakePool.last_error))}</div>`;
+  }
+  return '';
+}
+
+export function poolHtml(p, {
+  openKeys,
+  historyData = null,
+  free = false,
+  wakeState = null,
+  wakeToggleBusy = null,
+  wakeNotices = null,
+  t,
+  lang,
+}) {
   const limits = poolLimits(p, lang);
   const localizedCat = p.category && p.category !== 'other' ? t('categoriesQuota')[p.category] : '';
   const label = localizedCat || (lang === 'zh' ? p.label_zh : p.label) || p.label || (p.category === 'other' ? t('categoriesQuota').other : '') || p.id || '?';
@@ -702,15 +845,51 @@ export function poolHtml(p, { openKeys, historyData = null, free = false, t, lan
   const more = hidden.length
     ? `<details class="more" data-key="${esc(key)}"${openKeys && openKeys.has(key) ? ' open' : ''}><summary>${CHEV}<span>${esc(t('moreModels', hidden.length))}</span></summary><div class="tags">${hidden.map(tag).join('')}</div></details>`
     : '';
+  const hasWeekly = !free && Boolean(p.category && p.category !== 'tab') && limits.some((l) => l.kind === 'weekly');
+  const wakePool = wakeState && wakeState.pools && p.category ? wakeState.pools[p.category] : null;
+  const wakeModelName = (wakePool && wakePool.model && wakePool.model.display_name) || '';
+  const autoOn = Boolean(wakePool && wakePool.auto);
+  const isWaking = Boolean(wakePool && wakePool.in_flight);
+  const isToggling = Boolean(wakeToggleBusy && p.category && wakeToggleBusy.has(p.category));
+  const notice = wakeNotices && p.category ? wakeNotices.get(p.category) : null;
+  let headHtml = `<div class="pool-label">${esc(label)}</div>`;
+  if (hasWeekly) {
+    const tipParts = [t('wakeAutoTip', wakeModelName)];
+    if (wakePool && wakePool.last_success_at) {
+      tipParts.push(t('wakeAutoOnMeta', fmtTime(wakePool.last_success_at, true, lang)));
+    }
+    const toggleLabel = isWaking
+      ? `<span class="spin" aria-hidden="true"></span><span>${esc(t('wakeBusy'))}</span>`
+      : `<span>${esc(t('wakeAuto'))}</span>`;
+    headHtml = `<div class="pool-head"><div class="pool-label ellipsis">${esc(label)}</div>`
+      + `<button type="button" class="wake-toggle" role="switch" aria-checked="${autoOn}" data-wake-toggle="${esc(p.category)}" title="${esc(tipParts.join(' · '))}"${isToggling || isWaking ? ' disabled' : ''}>`
+      + `${toggleLabel}<i class="switch-track" aria-hidden="true"></i></button></div>`;
+  }
   return `<div class="pool${free ? ' pool-free' : ''}">
-    <div class="pool-label">${esc(label)}</div>
-    ${limits.map((l) => limitHtml(l, limits.length === 1, t, lang, poolWeeklyValuationHtml(p.category, l, historyData, t, lang))).join('')}
+    ${headHtml}
+    ${limits.map((l) => {
+      const valHtml = poolWeeklyValuationHtml(p.category, l, historyData, t, lang);
+      const wakeErrHtml = hasWeekly ? poolWakeErrorHtml(p.category, l, { wakePool, isWaking, notice, t }) : '';
+      return limitHtml(l, limits.length === 1, t, lang, valHtml + wakeErrHtml);
+    }).join('')}
     ${shownList.length ? `<div class="tags">${shownList.map(tag).join('')}</div>` : ''}
     ${more}
   </div>`;
 }
 
-export function renderQuotaHtml({ data, historyData = null, error, openKeys, cyclePeriod = 'month', activeDrills = null, t, lang }) {
+export function renderQuotaHtml({
+  data,
+  historyData = null,
+  error,
+  openKeys,
+  cyclePeriod = 'month',
+  activeDrills = null,
+  wakeState = null,
+  wakeToggleBusy = null,
+  wakeNotices = null,
+  t,
+  lang,
+}) {
   let meta = '';
   let tip = '';
   let body = '';
@@ -742,10 +921,19 @@ export function renderQuotaHtml({ data, historyData = null, error, openKeys, cyc
       period: cyclePeriod,
       anchorIso: data.fetched_at,
       activeDrills,
+      liveWeeklyMap: liveWeeklyMapFromQuota(data),
     });
     if (!error) {
       body = pools.length
-        ? limitedPools.map((p) => poolHtml(p, { openKeys, historyData, t, lang })).join('')
+        ? limitedPools.map((p) => poolHtml(p, {
+          openKeys,
+          historyData,
+          wakeState,
+          wakeToggleBusy,
+          wakeNotices,
+          t,
+          lang,
+        })).join('')
           + cyclesHtml
           + unlimitedPools.map((p) => poolHtml(p, { openKeys, historyData, free: true, t, lang })).join('')
         : `<p class="empty">${esc(t('noPools'))}</p>${cyclesHtml}`;
@@ -763,18 +951,93 @@ export function createQuotaController({
   getT,
   getLang,
   getJson,
+  postJson = null,
   keepScroll,
   setMeta,
   onBusyChange,
   onDataChange,
+  onWakeComplete = null,
 }) {
   const resetFired = new Set();
   let resetTimer = null;
+  let wakeState = null;
+  let wakeLoading = false;
+  let wakePollTimer = null;
+  const wakeToggleBusy = new Set();
+  const wakeNotices = new Map(); // pk -> { ok, text }
   const drillState = new Map(); // pk -> { cycleKey, ox, activeIdx }
   const leaveTimers = new Map(); // pk -> timerId
   let cyclePeriod = store && CYCLE_PERIODS.includes(store.get('ctx.cyclePeriod', 'month'))
     ? store.get('ctx.cyclePeriod', 'month')
     : 'month';
+
+  function setWakeNotice(pk, ok, text) {
+    if (!text) {
+      wakeNotices.delete(pk);
+      return;
+    }
+    wakeNotices.set(pk, { ok, text });
+  }
+
+  function hasAnyWakeInFlight(st) {
+    const pools = st && st.pools && typeof st.pools === 'object' ? st.pools : null;
+    if (!pools) return false;
+    return Object.values(pools).some((x) => x && x.in_flight);
+  }
+
+  function scheduleWakePoll() {
+    if (wakePollTimer) return;
+    wakePollTimer = setTimeout(() => {
+      wakePollTimer = null;
+      loadWakeState();
+    }, 2500);
+  }
+
+  async function loadWakeState() {
+    if (!getJson || wakeLoading || !loader.data || loader.data.error) return;
+    wakeLoading = true;
+    const prevInFlight = hasAnyWakeInFlight(wakeState);
+    try {
+      const res = await getJson('/api/quota/wake');
+      if (!res || typeof res !== 'object' || res.error || !res.pools) return;
+      const changed = JSON.stringify(res) !== JSON.stringify(wakeState);
+      wakeState = res;
+      const nowInFlight = hasAnyWakeInFlight(wakeState);
+      if (nowInFlight) scheduleWakePoll();
+      if (prevInFlight && !nowInFlight) {
+        loader.load({ refresh: true, silent: true });
+        if (onWakeComplete) onWakeComplete();
+      } else if (changed && loader.data && !loader.data.error) {
+        paint();
+      }
+    } catch { /* wake endpoint optional in mock/static environments */ }
+    finally {
+      wakeLoading = false;
+    }
+  }
+
+  async function toggleAutoWake(pk) {
+    if (!pk || !postJson || wakeToggleBusy.has(pk)) return;
+    const curAuto = Boolean(wakeState && wakeState.pools && wakeState.pools[pk] && wakeState.pools[pk].auto);
+    wakeToggleBusy.add(pk);
+    setWakeNotice(pk, true, '');
+    paint();
+    try {
+      const res = await postJson('/api/quota/wake/config', { pool: pk, auto: !curAuto });
+      if (res && res.wake && res.wake.pools) {
+        wakeState = res.wake;
+        if (hasAnyWakeInFlight(wakeState)) scheduleWakePoll();
+      }
+      if (res && res.ok === false) {
+        setWakeNotice(pk, false, getT()('wakeFail', res.message || ''));
+      }
+    } catch (err) {
+      setWakeNotice(pk, false, getT()('wakeFail', (err && err.message) || ''));
+    } finally {
+      wakeToggleBusy.delete(pk);
+      paint();
+    }
+  }
 
   function clearLeaveTimer(pk) {
     const id = leaveTimers.get(pk);
@@ -858,6 +1121,9 @@ export function createQuotaController({
       openKeys,
       cyclePeriod,
       activeDrills: drillState,
+      wakeState,
+      wakeToggleBusy,
+      wakeNotices,
       t: getT(),
       lang: getLang(),
     });
@@ -880,6 +1146,12 @@ export function createQuotaController({
 
   if (pane && typeof pane.addEventListener === 'function') {
     pane.addEventListener('click', (e) => {
+      const wakeToggle = e.target && e.target.closest ? e.target.closest('[data-wake-toggle]') : null;
+      if (wakeToggle) {
+        const pk = wakeToggle.getAttribute('data-wake-toggle') || '';
+        if (pk) toggleAutoWake(pk);
+        return;
+      }
       const backBtn = e.target && e.target.closest ? e.target.closest('[data-cy-back]') : null;
       if (backBtn) {
         const poolEl = backBtn.closest('.wcy-pool');
@@ -950,6 +1222,7 @@ export function createQuotaController({
     onBusyChange,
     paint: () => {
       paint();
+      loadWakeState();
       if (onDataChange) onDataChange();
     },
     keyOf: quotaKey,
@@ -960,6 +1233,7 @@ export function createQuotaController({
     },
     onSilent: () => {
       paint();
+      loadWakeState();
       if (onDataChange) onDataChange();
     },
   });

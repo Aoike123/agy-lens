@@ -20,6 +20,7 @@ import { buildReport, workspacePath } from './lib/context.mjs';
 import { defaultRoots, findLegacyHistoryCaches, findSubagentSources, scan as scanHistoryNative } from './lib/history.mjs';
 import { defaultDataDir, defaultGeminiDir, fileStamp, hasNodeSqlite } from './lib/pb.mjs';
 import {
+  loadPricingFile,
   parseLiteLLMPricing,
   parseOpenRouterPricing,
   readPricingMeta,
@@ -52,19 +53,36 @@ import {
 } from './lib/updater.mjs';
 import { bundleWebApp, computeWebJsStamp } from './lib/web-bundle.mjs';
 import { copyShareFileToClipboard, copyShareGifToClipboard, listShareAssets, loadShareProfile, readShareAsset, shareProfilePayload, updateShareProfile } from './lib/share-assets.mjs';
+import {
+  buildWakePayload,
+  conversationRequest,
+  isPoolActivelyRunning,
+  isPoolPendingStart,
+  loadWakeState,
+  pickCheapestWakeModel,
+  rankWakeModels,
+  reconcileWakeState,
+  setPoolAutoWake,
+  wakePoolCycle,
+} from './lib/wake.mjs';
 
 export {
   buildModelCatalog,
+  buildWakePayload,
   bundleWebApp,
   checkForUpdate,
   compareSemver,
   computeWebJsStamp,
+  conversationRequest,
   detectInstallMode,
   extractZipEntries,
   inferLimit,
   installReleaseUpdate,
   isAllowedUpdateUrl,
+  isPoolActivelyRunning,
+  isPoolPendingStart,
   loadQuotaCycles,
+  loadWakeState,
   mergeQuotaObservation,
   parseGithubRelease,
   parseLiteLLMPricing,
@@ -73,10 +91,15 @@ export {
   parseQuota,
   parseQuotaSummary,
   parseSha256Sums,
+  pickCheapestWakeModel,
+  rankWakeModels,
   readCurrentVersion,
   readUpdateMeta,
+  reconcileWakeState,
   recordQuotaCycles,
   redact,
+  setPoolAutoWake,
+  wakePoolCycle,
 };
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -88,6 +111,7 @@ const CATALOG_PATH = join(DATA_DIR, 'model-catalog.json');
 const CATALOG_TTL_MS = 10 * 60 * 1000;
 const QUOTA_RAW_PATH = join(DATA_DIR, 'quota-raw.json');
 const QUOTA_CYCLES_PATH = join(DATA_DIR, 'quota-cycles.json');
+const WAKE_STATE_PATH = join(DATA_DIR, 'quota-wake.json');
 const QUOTA_TTL_MS = 60 * 1000;
 const HISTORY_CACHE_PATH = join(DATA_DIR, 'history-cache.json');
 const HISTORY_TTL_MS = 60 * 1000;
@@ -122,8 +146,45 @@ async function refreshCatalog(force = false) {
 
 let quotaCache = null; // { at, result }
 let quotaInFlight = null;
+const wakeInFlight = new Set();
 
-async function quota(refresh) {
+function wakePricingModels() {
+  return existsSync(PRICING_PATH) ? loadPricingFile(PRICING_PATH)[0] : {};
+}
+
+function wakeStatusPayload() {
+  return buildWakePayload(loadWakeState(WAKE_STATE_PATH), quotaCache ? quotaCache.result : null, {
+    inFlightPools: wakeInFlight,
+    customPrices: wakePricingModels(),
+  });
+}
+
+function scheduleAutoWake(quotaResult) {
+  if (!quotaResult || quotaResult.error || !Array.isArray(quotaResult.pools)) return;
+  const st = reconcileWakeState(WAKE_STATE_PATH, quotaResult);
+  for (const pool of quotaResult.pools) {
+    if (!pool || !pool.category || !isPoolPendingStart(pool)) continue;
+    const entry = st.pools[pool.category];
+    if (!entry || !entry.auto || entry.pending_latched) continue;
+    if (wakeInFlight.has(pool.category)) continue;
+    wakePoolCycle({
+      poolCategory: pool.category,
+      wakeStatePath: WAKE_STATE_PATH,
+      quotaResult,
+      refreshQuota: async (force) => {
+        const fresh = await quota(force, { skipAutoWake: true });
+        historyCache = null;
+        return fresh;
+      },
+      customPrices: wakePricingModels(),
+      inFlightPools: wakeInFlight,
+    }).catch((err) => {
+      console.error('[agy-lens] auto-wake failed:', err?.message || err);
+    });
+  }
+}
+
+async function quota(refresh, { skipAutoWake = false } = {}) {
   if (!refresh && quotaCache && Date.now() - quotaCache.at < QUOTA_TTL_MS) return quotaCache.result;
   if (!quotaInFlight) {
     quotaInFlight = fetchQuota({
@@ -137,6 +198,7 @@ async function quota(refresh) {
         // Errors are cached for the same TTL so a broken LS isn't hammered;
         // refresh:true bypasses the cache.
         quotaCache = { at: Date.now(), result };
+        if (!skipAutoWake) scheduleAutoWake(result);
         return result;
       })
       .finally(() => { quotaInFlight = null; });
@@ -450,6 +512,28 @@ if (!truthy(process.env.CONTEXT_PANEL_NO_SERVER)) {
       return { pools: [], weekly: {}, plan: null, tier: null, fetched_at: new Date().toISOString(), error: 'failed', message: err.message };
     }
   }, 'GET');
+
+  app.api('/api/quota/wake', async () => {
+    try {
+      return wakeStatusPayload();
+    } catch (err) {
+      return { pools: {}, error: 'failed', message: err.message };
+    }
+  }, 'GET');
+
+  app.api('/api/quota/wake/config', async (data) => {
+    try {
+      const pool = typeof data?.pool === 'string' ? data.pool.trim() : '';
+      const auto = truthy(data?.auto);
+      setPoolAutoWake(WAKE_STATE_PATH, pool, auto);
+      if (auto && quotaCache && quotaCache.result && !quotaCache.result.error) {
+        scheduleAutoWake(quotaCache.result);
+      }
+      return { ok: true, wake: wakeStatusPayload() };
+    } catch (err) {
+      return { ok: false, error: 'failed', message: err.message, wake: wakeStatusPayload() };
+    }
+  }, 'POST');
 
   app.api('/api/history', async (data) => {
     try {

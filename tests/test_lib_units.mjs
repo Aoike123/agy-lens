@@ -3104,7 +3104,13 @@ test('Updater: semver comparisons, release parsers, URL sanitization, fallback &
   assert.equal((gemBars[9].match(/class="cell l0"/g) || []).length, 1);
   assert.ok(!gemBars[9].includes('diff-shrink') && !gemBars[9].includes('diff-grow'));
   const multiVisible = wcySecZh.replace(/\s+title="[^"]*"/g, '');
-  assert.ok(!multiVisible.includes('本周期已花') && !multiVisible.includes('已花 ') && !multiVisible.includes('已用'));
+  assert.ok(!multiVisible.includes('本周期已花') && !multiVisible.includes('已花 '));
+  assert.ok(claudePoolHtml.includes('class="cy-quota num"'));
+  assert.ok(claudePoolHtml.includes('<b>99.3%</b><span class="dim"> / 100%</span>'));
+  assert.ok(claudePoolHtml.includes('<b>0.7%</b>'));
+  assert.ok(geminiPoolHtml.includes('<b>84%</b><span class="dim"> / 200%</span>'));
+  assert.ok(geminiPoolHtml.includes('<b>39%</b>'));
+  assert.ok(geminiPoolHtml.includes('<b>77%</b>'));
 
   const multiEn = renderQuotaHtml({
     data: {
@@ -4790,8 +4796,22 @@ test('Quota UI: freshly reset finite limits stay limited, omit no-reset/unlimite
   assert.ok(beforeCycles.includes('100%<span class="lbl">剩余</span>'));
   assert.ok(!beforeCycles.includes('不限 · 无重置'));
   assert.ok(!beforeCycles.includes('无重置时间'));
+  assert.ok(beforeCycles.includes('首次使用后开始倒计时'));
   assert.ok(beforeCycles.includes('参考 ≈ $45.63'));
   assert.ok(!beforeCycles.includes('本周期已花 $45.32'));
+
+  const htmlEnReset = renderQuotaHtml({
+    data: {
+      tier: 'Google AI Ultra',
+      fetched_at: '2026-11-26T14:15:00Z',
+      pools: [resetPool, tabPool],
+    },
+    historyData,
+    openKeys: new Set(),
+    t: tEn,
+    lang: 'en',
+  });
+  assert.ok(htmlEnReset.includes('Starts on first use'));
 
   // 3. poolWeeklyValuationHtml with a new reset_time distinct from an older is_current cycle falls back to weeklyPrevRef.
   const valNewResetEn = poolWeeklyValuationHtml(
@@ -4908,6 +4928,490 @@ test('QuotaCycles: early reset to 100% without reset_time closes active cycle, a
     });
     assert.ok(!qHtml.includes('<span class="wtag">当前</span>'));
     assert.ok(qHtml.includes('提前 1 次'));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('cycleQuotaSummary and Quota cycle valuations strip show total usable, used, current remaining, and past unused quota', async () => {
+  const { cycleQuotaSummary, renderQuotaHtml } = await import('../sidecars/agy-lens/web/views/quota.js');
+  const { createTranslator } = await import('../sidecars/agy-lens/web/i18n.js');
+
+  // 1. 4-cycle month (3 closed + 1 active current): 215% + 80% + 105% = 400%.
+  const fourCycles = [
+    {
+      cycle_start: '2026-11-22T00:00:00Z',
+      reset_time: '2026-11-29T00:00:00Z',
+      is_current: true,
+      used_fraction: 0.20,
+      remaining_fraction: 0.80,
+      weekly_value_usd: 100,
+    },
+    {
+      cycle_start: '2026-11-15T00:00:00Z',
+      ended_at: '2026-11-22T00:00:00Z',
+      reset_time: '2026-11-22T00:00:00Z',
+      is_current: false,
+      used_fraction: 0.65,
+      remaining_fraction: 0.35,
+      weekly_value_usd: 100,
+    },
+    {
+      cycle_start: '2026-11-11T00:00:00Z',
+      ended_at: '2026-11-15T00:00:00Z',
+      reset_time: '2026-11-18T00:00:00Z',
+      is_current: false,
+      used_fraction: 0.60,
+      remaining_fraction: 0.40,
+      weekly_value_usd: 100,
+    },
+    {
+      cycle_start: '2026-11-04T00:00:00Z',
+      ended_at: '2026-11-11T00:00:00Z',
+      reset_time: '2026-11-11T00:00:00Z',
+      is_current: false,
+      used_fraction: 0.70,
+      remaining_fraction: 0.30,
+      weekly_value_usd: 100,
+    },
+  ];
+  const s4 = cycleQuotaSummary(fourCycles);
+  assert.equal(s4.count, 4);
+  assert.equal(s4.totalPct, 400);
+  assert.equal(s4.usedPct, 215);
+  assert.equal(s4.hasCurrent, true);
+  assert.equal(s4.currentRemPct, 80);
+  assert.equal(s4.closedCount, 3);
+  assert.equal(s4.pastUnusedPct, 105);
+  assert.equal(s4.closedUtilPct, 65);
+
+  const htmlZh = renderQuotaHtml({
+    data: {
+      plan: 'Pro',
+      fetched_at: '2026-11-24T00:00:00Z',
+      pools: [{ id: 'gem', category: 'gemini', limits: [{ kind: 'weekly', remaining_fraction: 0.80, reset_time: '2026-11-29T00:00:00Z' }] }],
+    },
+    historyData: { weekly_cycles: { gemini: fourCycles }, weekly_value_usd: { gemini: 100 } },
+    openKeys: new Set(),
+    t: createTranslator('zh'),
+    lang: 'zh',
+  });
+  assert.ok(htmlZh.includes('class="cy-quota num"'));
+  assert.ok(htmlZh.includes('已用 / 总可用'));
+  assert.ok(htmlZh.includes('本周期剩余'));
+  assert.ok(htmlZh.includes('往期未用'));
+  assert.ok(htmlZh.includes('<b>215%</b><span class="dim"> / 400%</span>'));
+  assert.ok(htmlZh.includes('<b>80%</b>'));
+  assert.ok(htmlZh.includes('<b>105%</b>'));
+  assert.ok(htmlZh.includes('4 个周期共可用 400% · 累计已用 215% · 本周期剩余 80% · 往期未用 105%（已结束 3 期利用率 65%）'));
+  assert.ok(htmlZh.includes('class="cy-q-used" style="width:53.75%"'));
+  assert.ok(htmlZh.includes('class="cy-q-cur" style="width:20.00%"'));
+
+  const htmlEn = renderQuotaHtml({
+    data: {
+      plan: 'Pro',
+      fetched_at: '2026-11-24T00:00:00Z',
+      pools: [{ id: 'gem', category: 'gemini', limits: [{ kind: 'weekly', remaining_fraction: 0.80, reset_time: '2026-11-29T00:00:00Z' }] }],
+    },
+    historyData: { weekly_cycles: { gemini: fourCycles }, weekly_value_usd: { gemini: 100 } },
+    openKeys: new Set(),
+    t: createTranslator('en'),
+    lang: 'en',
+  });
+  assert.ok(htmlEn.includes('Used / Total') && htmlEn.includes('Cycle left') && htmlEn.includes('Past unused'));
+  assert.ok(htmlEn.includes('4 cycles (400% total) · 215% used · 80% left this cycle · 105% unused across 3 past cycles (65% used)'));
+
+  // 2. Fresher live weekly fraction overrides matching current cycle, while reset_time:null does not erase used quota.
+  const sLive = cycleQuotaSummary(fourCycles, { remaining_fraction: 0.65, reset_time: '2026-11-29T00:00:30Z' });
+  assert.equal(sLive.usedPct, 230);
+  assert.equal(sLive.currentRemPct, 65);
+  assert.equal(sLive.pastUnusedPct, 105);
+
+  const sResetNull = cycleQuotaSummary(fourCycles, { remaining_fraction: 1, reset_time: null });
+  assert.equal(sResetNull.usedPct, 215);
+  assert.equal(sResetNull.currentRemPct, 80);
+
+  // 3. Current-only cycle shows dash for past unused; all-closed cycles show dash for current left; high waste gets is-warn, 0% waste gets is-ok.
+  const currentOnlyHtml = renderQuotaHtml({
+    data: { plan: 'Pro', fetched_at: '2026-11-24T00:00:00Z', pools: [] },
+    historyData: { weekly_cycles: { gemini: [fourCycles[0]] } },
+    openKeys: new Set(),
+    t: createTranslator('zh'),
+    lang: 'zh',
+  });
+  assert.ok(currentOnlyHtml.includes('<b>20%</b><span class="dim"> / 100%</span>'));
+  assert.ok(currentOnlyHtml.includes('暂无已结束周期'));
+
+  const closedOnlyWarn = renderQuotaHtml({
+    data: { plan: 'Pro', fetched_at: '2026-11-24T00:00:00Z', pools: [] },
+    historyData: {
+      weekly_cycles: {
+        gemini: [{ cycle_start: '2026-11-04T00:00:00Z', reset_time: '2026-11-11T00:00:00Z', is_current: false, used_fraction: 0.4, remaining_fraction: 0.6 }],
+      },
+    },
+    openKeys: new Set(),
+    t: createTranslator('zh'),
+    lang: 'zh',
+  });
+  assert.ok(closedOnlyWarn.includes('cy-q-val dim"><b>—</b>'));
+  assert.ok(closedOnlyWarn.includes('cy-q-val is-warn"><b>60%</b>'));
+
+  const closedFullOk = renderQuotaHtml({
+    data: { plan: 'Pro', fetched_at: '2026-11-24T00:00:00Z', pools: [] },
+    historyData: {
+      weekly_cycles: {
+        gemini: [{ cycle_start: '2026-11-04T00:00:00Z', reset_time: '2026-11-11T00:00:00Z', is_current: false, saturated: true, used_fraction: 1, remaining_fraction: 0 }],
+      },
+    },
+    openKeys: new Set(),
+    t: createTranslator('en'),
+    lang: 'en',
+  });
+  assert.ok(closedFullOk.includes('cy-q-val is-ok"><b>0%</b>'));
+
+  // 4. Minimal fixtures without usage fractions omit the strip cleanly without NaN.
+  assert.equal(cycleQuotaSummary([{ cycle_start: '2026-11-21T00:00:00Z', is_current: true, weekly_value_usd: 1000 }]), null);
+  const minimalHtml = renderQuotaHtml({
+    data: { plan: 'Pro', fetched_at: '2026-11-24T00:00:00Z', pools: [] },
+    historyData: { weekly_cycles: { gemini: [{ cycle_start: '2026-11-21T00:00:00Z', is_current: true, weekly_value_usd: 1000 }] } },
+    openKeys: new Set(),
+    t: createTranslator('en'),
+    lang: 'en',
+  });
+  assert.ok(!minimalHtml.includes('class="cy-quota') && !minimalHtml.includes('NaN'));
+});
+
+test('QuotaWake: cheapest model ranking, strict opt-in guards, ConversationService wake+cleanup, and Quota UI', async () => {
+  const {
+    AUTO_WAKE_COOLDOWN_MS,
+    WAKE_PROMPT,
+    WAKE_TAG,
+    WAKE_TITLE,
+    buildWakePayload,
+    isPoolActivelyRunning,
+    isPoolPendingStart,
+    loadWakeState,
+    pickCheapestWakeModel,
+    rankWakeModels,
+    reconcileWakeState,
+    setPoolAutoWake,
+    wakePoolCycle,
+  } = await import('../sidecars/agy-lens/lib/wake.mjs');
+  const { renderQuotaHtml } = await import('../sidecars/agy-lens/web/views/quota.js');
+  const { createTranslator } = await import('../sidecars/agy-lens/web/i18n.js');
+
+  const claudePoolPending = {
+    id: 'claude_gpt',
+    category: 'claude_gpt',
+    kind: 'models',
+    limits: [
+      { kind: 'weekly', remaining_fraction: 1, reset_time: null },
+      { kind: '5h', remaining_fraction: 1, reset_time: null },
+    ],
+    models: [
+      { id: 'claude-opus-5-5-high', display_name: 'Claude Opus 5.5 (High)' },
+      { id: 'claude-sonnet-5-5-high', display_name: 'Claude Sonnet 5.5 (High)' },
+      { id: 'claude-sonnet-5-5-low', display_name: 'Claude Sonnet 5.5 (Low)' },
+      { id: 'gpt-oss-120b', display_name: 'GPT-OSS 120B (Medium)' },
+    ],
+    families: [],
+    hidden_models: [],
+  };
+  const geminiPoolRunning = {
+    id: 'gemini',
+    category: 'gemini',
+    kind: 'models',
+    limits: [
+      { kind: 'weekly', remaining_fraction: 0.91, reset_time: '2026-12-03T14:00:00.000Z' },
+      { kind: '5h', remaining_fraction: 1, reset_time: null },
+    ],
+    models: [
+      { id: 'gemini-pro-orchestrator-neon', display_name: 'Orchestrator Gemini 4 Neon High' },
+      { id: 'gemini-4-neon', display_name: 'Gemini 4 Neon' },
+      { id: 'gemini-4-hydrogen', display_name: 'Gemini 4 Hydrogen' },
+      { id: 'gemini-3-8-flash', display_name: 'Gemini 3.8 Flash' },
+    ],
+    families: [],
+    hidden_models: [],
+  };
+  const tabPool = {
+    id: 'tab',
+    category: 'tab',
+    kind: 'tab',
+    limits: [{ kind: 'none', remaining_fraction: 1, reset_time: null }],
+    models: [],
+    families: [],
+    hidden_models: [],
+  };
+
+  // 1. Pending detection targets weekly 100% + reset_time:null only.
+  assert.equal(isPoolPendingStart(claudePoolPending), true);
+  assert.equal(isPoolPendingStart(geminiPoolRunning), false);
+  assert.equal(isPoolPendingStart(tabPool), false);
+  assert.equal(isPoolPendingStart({
+    ...claudePoolPending,
+    limits: [{ kind: 'weekly', remaining_fraction: 1, reset_time: '2026-12-04T01:23:00.000Z' }],
+  }), false);
+
+  // 2. Cheapest model ranking picks GPT-OSS 120B for claude_gpt, Flash for gemini, and prefers lower effort & non-orchestrator.
+  const rankedClaude = rankWakeModels(claudePoolPending);
+  assert.equal(rankedClaude[0].id, 'gpt-oss-120b');
+  assert.equal(rankedClaude[1].id, 'claude-sonnet-5-5-low');
+  assert.equal(rankedClaude[2].id, 'claude-sonnet-5-5-high');
+  assert.equal(rankedClaude[3].id, 'claude-opus-5-5-high');
+  assert.equal(pickCheapestWakeModel(geminiPoolRunning).id, 'gemini-3-8-flash');
+  assert.equal(rankWakeModels(geminiPoolRunning).at(-1).id, 'gemini-pro-orchestrator-neon');
+
+  const dir = mkdtempSync(join(tmpdir(), 'agy-unit-wake-'));
+  try {
+    const wakePath = join(dir, 'quota-wake.json');
+    assert.deepEqual(loadWakeState(wakePath).pools, {});
+    assert.throws(() => setPoolAutoWake(wakePath, 'tab', true));
+    assert.throws(() => setPoolAutoWake(wakePath, '../bad', true));
+
+    // 3. Auto-wake is strictly disabled by default and makes 0 RPC calls.
+    const calls = [];
+    const mockReq = async (method, body) => {
+      calls.push([method, body]);
+      if (method === 'CreateConversation') return { conversation: { id: 'conv-wake-1' } };
+      if (method === 'GetConversation') return { conversation: { id: 'conv-wake-1', state: { runState: 'RUN_STATE_IDLE' } } };
+      if (method === 'DeleteConversation') return {};
+      return {};
+    };
+    let clock = Date.parse('2026-11-27T01:30:00.000Z');
+    const pendingQuota = { pools: [claudePoolPending, geminiPoolRunning, tabPool] };
+    const startedQuota = {
+      pools: [
+        {
+          ...claudePoolPending,
+          limits: [
+            { kind: 'weekly', remaining_fraction: 1, reset_time: '2026-12-04T01:30:05.000Z' },
+            { kind: '5h', remaining_fraction: 1, reset_time: '2026-11-27T06:30:05.000Z' },
+          ],
+        },
+        geminiPoolRunning,
+        tabPool,
+      ],
+    };
+
+    const skippedDisabled = await wakePoolCycle({
+      poolCategory: 'claude_gpt',
+      wakeStatePath: wakePath,
+      quotaResult: pendingQuota,
+      requestFn: mockReq,
+      nowFn: () => clock,
+    });
+    assert.equal(skippedDisabled.ok, true);
+    assert.equal(skippedDisabled.skipped, 'disabled');
+    assert.equal(calls.length, 0);
+
+    // 4. Already-started pool skips cleanly with 0 RPC calls even when auto-wake is enabled.
+    setPoolAutoWake(wakePath, 'gemini', true);
+    const skippedStarted = await wakePoolCycle({
+      poolCategory: 'gemini',
+      wakeStatePath: wakePath,
+      quotaResult: pendingQuota,
+      requestFn: mockReq,
+      nowFn: () => clock,
+    });
+    assert.equal(skippedStarted.ok, true);
+    assert.equal(skippedStarted.skipped, 'already_started');
+    assert.equal(calls.length, 0);
+    setPoolAutoWake(wakePath, 'gemini', false);
+
+    // 5. Enabling auto-wake sends cheapest model, waits for idle, deletes temp chat, and refreshes quota.
+    setPoolAutoWake(wakePath, 'claude_gpt', true);
+    assert.equal(loadWakeState(wakePath).pools.claude_gpt.auto, true);
+    let refreshCount = 0;
+    const autoRes = await wakePoolCycle({
+      poolCategory: 'claude_gpt',
+      wakeStatePath: wakePath,
+      refreshQuota: async () => (++refreshCount === 1 ? pendingQuota : startedQuota),
+      requestFn: mockReq,
+      sleepFn: async () => {},
+      nowFn: () => clock,
+    });
+    assert.equal(autoRes.ok, true);
+    assert.equal(autoRes.model, 'gpt-oss-120b');
+    assert.equal(autoRes.cleanup, 'deleted');
+    assert.equal(calls.length, 3);
+    assert.equal(calls[0][0], 'CreateConversation');
+    assert.equal(calls[0][1].model, 'gpt-oss-120b');
+    assert.equal(calls[0][1].title, WAKE_TITLE);
+    assert.deepEqual(calls[0][1].tags, [WAKE_TAG]);
+    assert.deepEqual(calls[0][1].prompt, [{ text: WAKE_PROMPT }]);
+    assert.equal(calls[1][0], 'GetConversation');
+    assert.equal(calls[2][0], 'DeleteConversation');
+    assert.equal(calls[2][1].conversationId, 'conv-wake-1');
+    assert.equal(autoRes.quota.pools[0].limits[0].reset_time, '2026-12-04T01:30:05.000Z');
+
+    const saved = loadWakeState(wakePath);
+    assert.equal(saved.pools.claude_gpt.last_model, 'gpt-oss-120b');
+    assert.equal(saved.pools.claude_gpt.last_cleanup, 'deleted');
+    assert.equal(saved.pools.claude_gpt.last_error, null);
+    assert.equal(saved.pools.claude_gpt.pending_latched, false, 'postQuota showed future reset_time so latch re-arms');
+
+    // 6. Auto-wake honors 12h cooldown after prior attempt, then triggers with candidate-2 fallback (on HTTP 400 only) & archive fallback when Delete fails.
+    assert.equal(AUTO_WAKE_COOLDOWN_MS, 12 * 60 * 60 * 1000);
+    const cooldownSkip = await wakePoolCycle({
+      poolCategory: 'claude_gpt',
+      wakeStatePath: wakePath,
+      quotaResult: pendingQuota,
+      requestFn: mockReq,
+      nowFn: () => clock + 60_000,
+    });
+    assert.equal(cooldownSkip.skipped, 'cooldown');
+
+    clock += AUTO_WAKE_COOLDOWN_MS + 1000;
+    const fbCalls = [];
+    const fbReq = async (method, body) => {
+      fbCalls.push([method, body]);
+      if (method === 'CreateConversation' && body.model === 'gpt-oss-120b') {
+        throw new Error('CreateConversation: HTTP 400 (model unavailable)');
+      }
+      if (method === 'CreateConversation') return { conversation: { id: 'conv-wake-2' } };
+      if (method === 'GetConversation') return { conversation: { id: 'conv-wake-2', state: { runState: 'RUN_STATE_IDLE' } } };
+      if (method === 'DeleteConversation') throw new Error('DeleteConversation: HTTP 501');
+      if (method === 'UpdateConversation') return { conversation: { id: 'conv-wake-2' } };
+      return {};
+    };
+    const fbRes = await wakePoolCycle({
+      poolCategory: 'claude_gpt',
+      wakeStatePath: wakePath,
+      quotaResult: pendingQuota,
+      requestFn: fbReq,
+      sleepFn: async () => {},
+      nowFn: () => clock,
+    });
+    assert.equal(fbRes.ok, true);
+    assert.equal(fbRes.model, 'claude-sonnet-5-5-low');
+    assert.equal(fbRes.cleanup, 'archived');
+    assert.equal(fbCalls.some(([m, b]) => m === 'UpdateConversation' && b.annotations?.archived === true), true);
+
+    // 6b. Per-cycle pending latch: when postQuota still shows pending (reset_time: null),
+    // auto-wake MUST NOT fire again even after 10x cooldown until an active future reset_time is observed.
+    assert.equal(loadWakeState(wakePath).pools.claude_gpt.pending_latched, true);
+    let extraCalls = 0;
+    const latchedSkip = await wakePoolCycle({
+      poolCategory: 'claude_gpt',
+      wakeStatePath: wakePath,
+      quotaResult: pendingQuota,
+      requestFn: async () => { extraCalls += 1; return {}; },
+      nowFn: () => clock + 10 * AUTO_WAKE_COOLDOWN_MS,
+    });
+    assert.equal(latchedSkip.ok, true);
+    assert.equal(latchedSkip.skipped, 'latched');
+    assert.equal(extraCalls, 0);
+
+    // Past reset_time must NOT clear the latch.
+    assert.equal(isPoolActivelyRunning(startedQuota.pools[0], clock), true);
+    reconcileWakeState(wakePath, {
+      pools: [{
+        ...claudePoolPending,
+        limits: [{ kind: 'weekly', remaining_fraction: 0.9, reset_time: '2020-01-01T00:00:00.000Z' }],
+      }],
+    }, { nowMs: clock });
+    assert.equal(loadWakeState(wakePath).pools.claude_gpt.pending_latched, true);
+
+    // Real future reset_time DOES re-arm the latch.
+    reconcileWakeState(wakePath, startedQuota, { nowMs: clock });
+    assert.equal(loadWakeState(wakePath).pools.claude_gpt.pending_latched, false);
+
+    // 6c. Timeout / 5xx on candidate #1 MUST NOT fall back to candidate #2 (prevents double-send) and stays latched.
+    clock += AUTO_WAKE_COOLDOWN_MS + 1000;
+    const timeoutModels = [];
+    const timeoutRes = await wakePoolCycle({
+      poolCategory: 'claude_gpt',
+      wakeStatePath: wakePath,
+      quotaResult: pendingQuota,
+      requestFn: async (_m, body) => {
+        timeoutModels.push(body.model);
+        throw new Error('CreateConversation: timeout');
+      },
+      nowFn: () => clock,
+    });
+    assert.equal(timeoutRes.ok, false);
+    assert.deepEqual(timeoutModels, ['gpt-oss-120b']);
+    assert.equal(loadWakeState(wakePath).pools.claude_gpt.pending_latched, true);
+
+    // Turning auto OFF clears latch + error; turning ON re-enables cleanly.
+    setPoolAutoWake(wakePath, 'claude_gpt', false);
+    assert.equal(loadWakeState(wakePath).pools.claude_gpt.pending_latched, false);
+    assert.equal(loadWakeState(wakePath).pools.claude_gpt.last_error, null);
+    setPoolAutoWake(wakePath, 'claude_gpt', true);
+
+    // 6d. Unwritable wake state aborts BEFORE calling CreateConversation (0 RPC calls).
+    let badCalls = 0;
+    const writeErrRes = await wakePoolCycle({
+      poolCategory: 'claude_gpt',
+      wakeStatePath: wakePath,
+      quotaResult: pendingQuota,
+      writeStateFn: () => { throw new Error('EACCES: disk read-only'); },
+      requestFn: async () => { badCalls += 1; return {}; },
+      nowFn: () => clock + 2 * AUTO_WAKE_COOLDOWN_MS,
+    });
+    assert.equal(writeErrRes.ok, false);
+    assert.equal(writeErrRes.error, 'state_write_failed');
+    assert.equal(badCalls, 0);
+
+    // 7. Single-flight lock rejects concurrent wakes for the same pool.
+    const lockSet = new Set(['claude_gpt']);
+    const inFlightRes = await wakePoolCycle({
+      poolCategory: 'claude_gpt',
+      wakeStatePath: wakePath,
+      quotaResult: pendingQuota,
+      inFlightPools: lockSet,
+      requestFn: mockReq,
+      nowFn: () => clock + AUTO_WAKE_COOLDOWN_MS + 1000,
+    });
+    assert.equal(inFlightRes.ok, false);
+    assert.equal(inFlightRes.error, 'in_flight');
+
+    // 8. buildWakePayload & renderQuotaHtml render switch on weekly pools only, with no manual trigger bar.
+    const payload = buildWakePayload(loadWakeState(wakePath), pendingQuota);
+    assert.equal(payload.pools.claude_gpt.auto, true);
+    assert.equal(payload.pools.claude_gpt.pending, true);
+    assert.equal(payload.pools.claude_gpt.model.id, 'gpt-oss-120b');
+    assert.equal(payload.pools.gemini.auto, false);
+    assert.equal(payload.pools.gemini.pending, false);
+    assert.equal(payload.pools.gemini.model.id, 'gemini-3-8-flash');
+
+    const tZh = createTranslator('zh');
+    const tEn = createTranslator('en');
+    const htmlZh = renderQuotaHtml({
+      data: { tier: 'Pro', fetched_at: '2026-11-27T01:30:00.000Z', pools: [claudePoolPending, geminiPoolRunning, tabPool] },
+      historyData: null,
+      openKeys: new Set(),
+      wakeState: payload,
+      t: tZh,
+      lang: 'zh',
+    });
+    assert.ok(htmlZh.includes('data-wake-toggle="claude_gpt"') && htmlZh.includes('aria-checked="true"'));
+    assert.ok(htmlZh.includes('data-wake-toggle="gemini"') && htmlZh.includes('aria-checked="false"'));
+    assert.ok(!htmlZh.includes('data-wake-toggle="tab"'));
+    assert.ok(!htmlZh.includes('data-wake-trigger'));
+    assert.ok(!htmlZh.includes('wake-bar'));
+    assert.ok(!htmlZh.includes('立即触发'));
+    assert.ok(htmlZh.includes('GPT-OSS 120B (Medium)'));
+
+    const payloadBusy = {
+      pools: {
+        ...payload.pools,
+        claude_gpt: { ...payload.pools.claude_gpt, in_flight: true },
+      },
+    };
+    const htmlEn = renderQuotaHtml({
+      data: { tier: 'Pro', fetched_at: '2026-11-27T01:30:00.000Z', pools: [claudePoolPending, geminiPoolRunning, tabPool] },
+      historyData: null,
+      openKeys: new Set(),
+      wakeState: payloadBusy,
+      t: tEn,
+      lang: 'en',
+    });
+    assert.ok(htmlEn.includes('Auto-wake'));
+    assert.ok(htmlEn.includes('Waking…'));
+    assert.ok(!htmlEn.includes('data-wake-trigger'));
+    assert.ok(!htmlEn.includes('wake-bar'));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

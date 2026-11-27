@@ -2054,8 +2054,8 @@ function computeStageFit(modal) {
   let availH = 0;
   if (vp) {
     const cs = typeof getComputedStyle === 'function' ? getComputedStyle(vp) : null;
-    const padX = cs ? (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0) : 32;
-    const padY = cs ? (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0) : 32;
+    const padX = cs ? (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0) : 8;
+    const padY = cs ? (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0) : 4;
     availW = Math.max(0, vp.clientWidth - padX);
     availH = Math.max(0, vp.clientHeight - padY);
   }
@@ -3063,6 +3063,15 @@ function ensureShareModal() {
     document.addEventListener('keydown', onShareKeydown);
     document.addEventListener('visibilitychange', onShareVisibilityChange);
     if (typeof window !== 'undefined') window.addEventListener('resize', onShareResize);
+    if (typeof ResizeObserver === 'function') {
+      const vp = modal.querySelector('.share-viewport');
+      if (vp) {
+        const ro = new ResizeObserver(() => {
+          if (modalState.open) fitStageFrame();
+        });
+        ro.observe(vp);
+      }
+    }
     document.body.appendChild(modal);
   }
   return modal;

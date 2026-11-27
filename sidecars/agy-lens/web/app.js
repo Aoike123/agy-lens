@@ -339,12 +339,16 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
       getT: () => t,
       getLang: () => lang,
       getJson,
+      postJson,
       keepScroll,
       setMeta,
       onBusyChange: syncRefreshButton,
       onDataChange: () => {
         if (history) history.syncFromQuota();
         if (overview) overview.syncWeekly();
+      },
+      onWakeComplete: () => {
+        if (history && !history.loader.loading) history.loader.load({ refresh: true, silent: true });
       },
     });
 
