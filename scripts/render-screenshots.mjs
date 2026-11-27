@@ -37,15 +37,25 @@ import { writeModelCatalog } from '../sidecars/agy-lens/lib/catalog.mjs';
 import { buildReport } from '../sidecars/agy-lens/lib/context.mjs';
 import { defaultRoots, scan } from '../sidecars/agy-lens/lib/history.mjs';
 import { parseQuota } from '../sidecars/agy-lens/lib/quota.mjs';
+import { readShareAsset } from '../sidecars/agy-lens/lib/share-assets.mjs';
 import { bundleWebApp } from '../sidecars/agy-lens/lib/web-bundle.mjs';
-import { SHARE_CARD_HEIGHT, SHARE_CARD_WIDTH, buildShareCardSvg } from '../sidecars/agy-lens/web/views/share-card.js';
+import {
+  buildAbyssalCardSvg,
+  buildBauhausCardSvg,
+  buildEclipseCardSvg,
+  buildPhosphorCardSvg,
+  buildShareCardSvg,
+} from '../sidecars/agy-lens/web/views/share-card.js';
+import { CLASS_ARENA, arenaPath, buildProfile, charIdlePath, charStillPath, usageAchievements } from '../sidecars/agy-lens/web/views/share-game.js';
+import { buildRoleCardSvg } from '../sidecars/agy-lens/web/views/share-pixel.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, '..');
 const WEB_DIR = join(ROOT, 'sidecars', 'agy-lens', 'web');
+const SHARE_ART_DIR = join(ROOT, 'sidecars', 'agy-lens', 'share-art');
 const IMG_DIR = join(ROOT, 'docs', 'img');
 const PANEL_W = 420;
-const PANEL_H = 1160;
+const PANEL_H = 1280;
 const SCALE = 2;
 
 const args = process.argv.slice(2);
@@ -448,18 +458,132 @@ const COPY = {
   en: {
     title: 'Agy Lens',
     tagline: 'The all-in-one local cockpit for Antigravity 2.0',
-    bullets: ['Context window by category', 'Live tok/s & TTFT', '5-hour & weekly quotas', 'Token spend & history'],
-    foot: 'Zero dependencies \u00b7 100% local \u00b7 read-only \u00b7 zero tokens per refresh',
+    bullets: ['Context window & live tok/s', '5h & weekly quotas + cycle value', 'Subagent trees & project % share', '6-style WebGL & Pixel share cards'],
+    foot: 'Zero dependencies \u00b7 100% local \u00b7 pure Node.js 24 \u00b7 Antigravity 2.0',
     labels: ['Overview', 'Quota', 'History'],
+    galleryTitle: '6 Share Card Styles',
+    gallerySub: 'Night & Day themes \u00b7 60fps WebGL preview \u00b7 Live Photo / MP4 / GIF / PNG / SVG \u00b7 Zero titles or paths',
+    styleLabels: {
+      mountain: 'Mountain \u00b7 Almanac (Night)',
+      abyssal: 'Abyssal \u00b7 Trench (Night)',
+      eclipse: 'Eclipse \u00b7 Astrolabe (Night)',
+      bauhaus: 'Bauhaus \u00b7 Overprint (Day)',
+      phosphor: 'Phosphor \u00b7 Ribbon (Night)',
+      pixel: 'Pixel \u00b7 Hero (RPG Card \u00b7 13 Classes & 12 Achievements)',
+      mountainDay: 'Mountain \u00b7 Almanac (Day)',
+      eclipseDay: 'Eclipse \u00b7 Astrolabe (Day)',
+    },
   },
   zh: {
     title: 'Agy Lens',
     tagline: 'Antigravity 2.0 一站式本地驾驶舱',
-    bullets: ['上下文按类别拆解', '实时 tok/s 与首字延迟', '5 小时 + 每周额度', 'Token 花费与历史'],
-    foot: '零依赖 \u00b7 100% 本地 \u00b7 只读 \u00b7 刷新零 Token',
+    bullets: ['上下文拆解与实时 tok/s', '5 小时 / 周额度与周期估值', '子智能体树与项目周额度占比', '6 种 WebGL 与像素风分享卡片'],
+    foot: '零依赖 \u00b7 100% 本地 \u00b7 纯 Node.js 24 \u00b7 Antigravity 2.0',
     labels: ['概览', '额度', '历史'],
+    galleryTitle: '6 种分享卡片风格',
+    gallerySub: '深浅双主题 \u00b7 60fps WebGL 实时预览 \u00b7 实况 / MP4 / GIF / PNG / SVG \u00b7 绝不含标题与路径',
+    styleLabels: {
+      mountain: '高山·年鉴（深色）',
+      abyssal: '深海·潜航（深色）',
+      eclipse: '星穹·日晷（深色）',
+      bauhaus: '瑞士·叠印（浅色）',
+      phosphor: '磷光·丝带（深色）',
+      pixel: '像素·角色卡（13 职业 · 12 成就 · 动态像素）',
+      mountainDay: '高山·年鉴（浅色）',
+      eclipseDay: '星穹·日晷（浅色）',
+    },
   },
 };
+
+function artDataUri(relPath) {
+  const res = readShareAsset(SHARE_ART_DIR, relPath);
+  if (!res || res.error || !res.data) return '';
+  return `data:${res.mime};base64,${res.data}`;
+}
+
+function scopeSvgIds(svg, prefix) {
+  const ids = new Set();
+  for (const m of svg.matchAll(/\bid="([^"]+)"/g)) ids.add(m[1]);
+  if (!ids.size) return svg;
+  let out = svg;
+  for (const id of ids) {
+    const esc = id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const next = `${prefix}_${id}`;
+    out = out
+      .replace(new RegExp(`\\bid="${esc}"`, 'g'), `id="${next}"`)
+      .replace(new RegExp(`url\\(#${esc}\\)`, 'g'), `url(#${next})`)
+      .replace(new RegExp(`(xlink:)?href="#${esc}"`, 'g'), `$1href="#${next}"`);
+  }
+  return out;
+}
+
+function shareGalleryHtml({ history, lang }) {
+  const c = COPY[lang];
+  const basePayload = {
+    period: 'd30',
+    totals: history.totals,
+    byModel: history.by_model,
+    daily: history.daily,
+    hourlyToday: history.hourly_today,
+    weeklyValueUsd: history.weekly_value_usd,
+    lang,
+  };
+  const svgs = {
+    mountain: scopeSvgIds(buildShareCardSvg({ ...basePayload, theme: 'dark' }), 'mtn_d'),
+    abyssal: scopeSvgIds(buildAbyssalCardSvg({ ...basePayload, theme: 'dark' }), 'aby_d'),
+    eclipse: scopeSvgIds(buildEclipseCardSvg({ ...basePayload, theme: 'dark' }), 'ecl_d'),
+    bauhaus: scopeSvgIds(buildBauhausCardSvg({ ...basePayload, theme: 'light' }), 'bau_l'),
+    phosphor: scopeSvgIds(buildPhosphorCardSvg({ ...basePayload, theme: 'dark' }), 'pho_d'),
+    mountainDay: scopeSvgIds(buildShareCardSvg({ ...basePayload, theme: 'light' }), 'mtn_l'),
+    eclipseDay: scopeSvgIds(buildEclipseCardSvg({ ...basePayload, theme: 'light' }), 'ecl_l'),
+  };
+  const prof = buildProfile(history, 'd30', { nickname: lang === 'zh' ? '星海旅人' : 'Nova', gender: 'male' });
+  const ach = usageAchievements(history, 'd30');
+  const arenaId = CLASS_ARENA[prof.classId] || 'observatory';
+  const charUri = artDataUri(charStillPath(prof.classId, prof.stage)) || artDataUri(charIdlePath(prof.classId, prof.stage));
+  const arenaUri = artDataUri(arenaPath(arenaId));
+  const pixelSvg = buildRoleCardSvg({
+    profile: prof,
+    achievements: ach,
+    art: { char: charUri, arena: arenaUri },
+    lang,
+    arena: arenaId,
+    theme: 'dark',
+  });
+  const topRow = [
+    ['mountain', svgs.mountain],
+    ['abyssal', svgs.abyssal],
+    ['eclipse', svgs.eclipse],
+    ['bauhaus', svgs.bauhaus],
+    ['phosphor', svgs.phosphor],
+  ].map(([k, svg]) => `<figure class="poster"><div class="card">${svg}</div><figcaption>${c.styleLabels[k]}</figcaption></figure>`).join('');
+  return `<!doctype html><html><head><meta charset="utf-8"><style>
+*{box-sizing:border-box;margin:0}
+html,body{width:1400px;height:884px;overflow:hidden}
+body{background:#0b0d10;font-family:"Segoe UI","Microsoft YaHei UI","PingFang SC",system-ui,sans-serif;color:#e8eaed;padding:34px 40px 30px;display:flex;flex-direction:column}
+header{display:flex;align-items:baseline;gap:14px;margin-bottom:20px}
+h1{font-size:24px;font-weight:600;letter-spacing:-.01em}
+header p{font-size:14px;color:#9aa0a6}
+.row1{display:grid;grid-template-columns:repeat(5,251px);gap:16px;margin-bottom:22px}
+.row2{display:grid;grid-template-columns:694px 291px 291px;gap:22px}
+figure{display:flex;flex-direction:column;gap:8px;min-width:0}
+.card{border-radius:10px;overflow:hidden;border:1px solid rgba(255,255,255,.10);box-shadow:0 12px 32px rgba(0,0,0,.5);background:#111317}
+.card svg{display:block;width:100%;height:100%}
+.row1 .card{width:251px;height:314px}
+.row2 .pixel .card{width:694px;height:364px;border-radius:8px}
+.row2 .pixel .card svg,.row2 .pixel .card image{image-rendering:pixelated}
+.row2 .day .card{width:291px;height:364px}
+figcaption{font-size:12.5px;color:#9aa0a6;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+</style></head><body>
+<header><h1>${c.galleryTitle}</h1><p>${c.gallerySub}</p></header>
+<div class="row1">${topRow}</div>
+<div class="row2">
+  <figure class="pixel"><div class="card">${pixelSvg}</div><figcaption>${c.styleLabels.pixel}</figcaption></figure>
+  <figure class="day"><div class="card">${svgs.mountainDay}</div><figcaption>${c.styleLabels.mountainDay}</figcaption></figure>
+  <figure class="day"><div class="card">${svgs.eclipseDay}</div><figcaption>${c.styleLabels.eclipseDay}</figcaption></figure>
+</div>
+</body></html>`;
+}
 
 const LOGO = readFileSync(join(ROOT, 'assets', 'logo.svg'), 'utf8');
 
@@ -605,7 +729,13 @@ async function main() {
     report.updatedAt = now.toISOString();
     const history = await scan(defaultRoots(geminiDir), { now, modelCatalogPath: catalogPath, quotaCycles });
     const pricing = { source: 'builtin', fetched_at: null, count: 0, stale: false };
-    const api = { '/api/report': report, '/api/quota': quota, '/api/history': history, '/api/pricing': pricing };
+    const wake = {
+      pools: {
+        gemini: { auto: false, pending: false, latched: false, in_flight: false, model: { id: 'gemini-3-flash', display_name: 'Gemini 3 Flash' } },
+        claude_gpt: { auto: false, pending: false, latched: false, in_flight: false, model: { id: 'gpt-oss-120b', display_name: 'GPT-OSS 120B (Medium)' } },
+      },
+    };
+    const api = { '/api/report': report, '/api/quota': quota, '/api/quota/wake': wake, '/api/history': history, '/api/pricing': pricing };
     const fixtures = { report, quota, history, pricing };
     const fixturesJson = JSON.stringify(fixtures, null, 1);
     if (/[A-Za-z]:\\\\|\/Users\/|\/home\/|agy-lens-shots-/i.test(fixturesJson)) {
@@ -635,13 +765,10 @@ async function main() {
         console.log(`ok ${lang}/${tab}.png`, pngSize(png));
       }
 
-      const cardSvg = buildShareCardSvg({
-        period: 'd30', totals: history.totals, byModel: history.by_model, daily: history.daily, hourlyToday: history.hourly_today, lang, theme: 'dark',
-      });
       const cardHtml = join(work, `share-${lang}.html`);
-      writeFileSync(cardHtml, `<!doctype html><meta charset="utf-8"><style>html,body{margin:0;overflow:hidden}</style>${cardSvg}`, 'utf8');
+      writeFileSync(cardHtml, shareGalleryHtml({ history, lang }), 'utf8');
       const cardPng = join(dir, 'share-card.png');
-      screenshot(chrome, cardHtml, cardPng, SHARE_CARD_WIDTH, SHARE_CARD_HEIGHT, 1000);
+      screenshot(chrome, cardHtml, cardPng, 1400, 884, 1500);
       console.log(`ok ${lang}/share-card.png`, pngSize(cardPng));
 
       const heroPath = join(work, `hero-${lang}.html`);
