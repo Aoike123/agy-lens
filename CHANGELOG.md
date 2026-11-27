@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [2.8.0] - 2026-11-27
+
+### Added
+
+- **Multi-cycle quota utilization summary (`Used / Total` · `Cycle left` · `Past unused`)** (`sidecars/agy-lens/web/{views/quota.js,styles.css,i18n.js}`): added a closed-loop utilization strip under each pool's **Cycle valuations** chart showing total available weekly quota across cycles in the active range (e.g. 4 cycles = `400%`), cumulative used `%`, live current-cycle remaining `%`, and expired unused past quota `%` (plus closed-cycle utilization % in tooltip) so users can see how much quota went unused and right-size their plan.
+- **Lazy-start countdown hint & opt-in per-pool Auto-wake** (`sidecars/agy-lens/lib/wake.mjs`, `sidecars/agy-lens/main.mjs`, `sidecars/agy-lens/web/{views/quota.js,app.js,styles.css,i18n.js}`): displays `Starts on first use` (`首次使用后开始倒计时`) when a freshly reset pool reports `100%` with `reset_time: null`, and adds an opt-in **Auto-wake** switch (strictly OFF by default) on weekly limited pools (`GET /api/quota/wake`, `POST /api/quota/wake/config`). When enabled and a pool is pending start, sends strictly 1 minimal tool-disabled prompt via the pool's cheapest model through Antigravity's local `product.v1.ConversationService` and deletes (or archives as fallback) the temporary conversation — guarded by a persistent per-cycle latch (`pending_latched`), 12-hour hard cooldown, in-memory guard, strict lock-before-RPC disk write, and HTTP 400/404-only model fallback.
+
+### Changed
+
+- **Full-bleed edge-to-edge Share Modal layout** (`sidecars/agy-lens/web/{styles.css,views/share-card.js}`): removed the outer modal margin, `500px` width cap, inner dark box padding, and `58dvh / 504px / 380px` height caps so both 4:5 art posters and 1200×630 Pixel Hero cards scale smoothly via `ResizeObserver` to fill the entire viewport between compact header and footer bars.
+
 ## [2.7.0] - 2026-11-26
 
 ### Added
@@ -192,6 +203,15 @@ Original **Context Usage** panel by Dimitrios Ioannidis
 - Context window and model name from the app's live model catalog, with a built-in fallback table.
 - Zero tokens per refresh; conversation databases opened read-only.
 
+[2.8.0]: https://github.com/Aoike123/agy-lens/releases/tag/v2.8.0
+[2.7.0]: https://github.com/Aoike123/agy-lens/releases/tag/v2.7.0
+[2.6.4]: https://github.com/Aoike123/agy-lens/releases/tag/v2.6.4
+[2.6.3]: https://github.com/Aoike123/agy-lens/releases/tag/v2.6.3
+[2.6.2]: https://github.com/Aoike123/agy-lens/releases/tag/v2.6.2
+[2.6.1]: https://github.com/Aoike123/agy-lens/releases/tag/v2.6.1
+[2.6.0]: https://github.com/Aoike123/agy-lens/releases/tag/v2.6.0
+[2.5.0]: https://github.com/Aoike123/agy-lens/releases/tag/v2.5.0
+[2.4.0]: https://github.com/Aoike123/agy-lens/releases/tag/v2.4.0
 [2.3.1]: https://github.com/Aoike123/agy-lens/releases/tag/v2.3.1
 [2.3.0]: https://github.com/Aoike123/agy-lens/releases/tag/v2.3.0
 [2.2.0]: https://github.com/Aoike123/agy-lens/releases/tag/v2.2.0

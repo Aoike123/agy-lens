@@ -2,8 +2,8 @@
   "$schema": "https://antigravity.google/schemas/v1/plugin.json",
   "name": "agy-lens",
   "displayName": "Agy Lens",
-  "version": "2.7.0",
-  "description": "All-in-one local cockpit and terminal CLI for Antigravity 2.0: context window breakdown, streaming tok/s speed, 5-hour & weekly model quotas, per-conversation totals, categorized usage history, and public-price cost estimates. Pure Node.js 24+, zero dependencies, local by default.",
+  "version": "2.8.0",
+  "description": "All-in-one local cockpit and terminal CLI for Antigravity 2.0: exact context window breakdown, live tok/s speed, 5-hour & weekly quotas with cycle valuation, utilization tracking & opt-in auto-wake, project/subagent token spend, and 6-style WebGL/Pixel share cards. Pure Node.js 24+, zero dependencies, local by default.",
   "author": {
     "name": "Aoike123",
     "url": "https://github.com/Aoike123"
