@@ -28,6 +28,7 @@ const UPDATE_WAKE_THROTTLE_MS = 10 * 60 * 1000;
 const UPDATE_MANUAL_FORCE_COOLDOWN_MS = 60 * 1000;
 const UPDATE_RELOAD_POLL_MS = 600;
 const UPDATE_RELOAD_MAX_ATTEMPTS = 25;
+const UPDATE_PROGRESS_POLL_MS = 180;
 
 let t = null;
 let tab = 'overview';
@@ -101,8 +102,78 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
     let updateError = '';
     let updatingVersion = '';
     let updatePreviousVersion = '';
+    let updateProgress = null;
+    let updateProgressTimer = null;
+    let updateProgressInFlight = false;
     let lastUpdateCheckAt = 0;
     let lastManualUpdateForceAt = 0;
+
+    function fmtUpdateBytes(bytes) {
+      if (typeof bytes !== 'number' || !Number.isFinite(bytes) || bytes < 0) return '';
+      if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+      if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`;
+      return `${Math.round(bytes)} B`;
+    }
+
+    function formatUpdateProgressText(ver, prog) {
+      if (updateState === 'reloading') return t('updateReloading', ver);
+      const stage = prog && prog.stage ? String(prog.stage) : '';
+      if (stage === 'downloading') {
+        const loaded = typeof prog.loaded === 'number' && Number.isFinite(prog.loaded) ? prog.loaded : 0;
+        const total = typeof prog.total === 'number' && Number.isFinite(prog.total) && prog.total > 0 ? prog.total : null;
+        let detail = '';
+        if (total) {
+          detail = total >= 1024 * 1024
+            ? `${(loaded / (1024 * 1024)).toFixed(1)} / ${(total / (1024 * 1024)).toFixed(1)} MB`
+            : `${Math.round(loaded / 1024)} / ${Math.round(total / 1024)} KB`;
+        } else if (loaded > 0) {
+          detail = fmtUpdateBytes(loaded);
+        }
+        return t('updateStageDownloading', ver, detail);
+      }
+      if (stage === 'verifying') return t('updateStageVerifying');
+      if (stage === 'extracting') return t('updateStageExtracting');
+      if (stage === 'installing') {
+        const done = typeof prog.files_done === 'number' && Number.isFinite(prog.files_done) ? prog.files_done : 0;
+        const total = typeof prog.files_total === 'number' && Number.isFinite(prog.files_total) ? prog.files_total : 0;
+        return t('updateStageInstalling', done, total);
+      }
+      if (stage === 'restarting') return t('updateReloading', ver);
+      return t('updatingTo', ver);
+    }
+
+    function stopUpdateProgressPoll() {
+      if (updateProgressTimer !== null) {
+        clearInterval(updateProgressTimer);
+        updateProgressTimer = null;
+      }
+      updateProgressInFlight = false;
+    }
+
+    async function pollUpdateProgressOnce() {
+      if (updateState !== 'installing' || updateProgressInFlight) return;
+      updateProgressInFlight = true;
+      try {
+        const res = await getJson('/api/update/progress');
+        if (updateState !== 'installing') return;
+        if (res && typeof res === 'object' && res.stage && res.stage !== 'idle') {
+          if (res.active || res.stage === 'restarting' || res.stage === 'done') {
+            updateProgress = res;
+            renderUpdateBanner();
+          }
+        }
+      } catch { /* progress poll is best-effort */ }
+      finally {
+        updateProgressInFlight = false;
+      }
+    }
+
+    function startUpdateProgressPoll() {
+      stopUpdateProgressPoll();
+      updateProgressTimer = setInterval(() => {
+        pollUpdateProgressOnce();
+      }, UPDATE_PROGRESS_POLL_MS);
+    }
 
     function updateInstallCommand() {
       const plat = typeof navigator !== 'undefined'
@@ -125,19 +196,47 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
         ? `<a class="update-link" href="${esc(safeUrl)}" target="_blank" rel="noopener noreferrer">${esc(t('viewRelease'))}</a>`
         : '';
       const dismissBtn = `<button type="button" class="update-dismiss" data-dismiss-update aria-label="${esc(t('dismissUpdate'))}" title="${esc(t('dismissUpdate'))}">&times;</button>`;
+      const isProgress = updateState === 'installing' || updateState === 'reloading';
       el.classList.toggle('is-err', updateState === 'error');
+      el.classList.toggle('is-progress', isProgress);
 
-      if (updateState === 'installing') {
+      if (isProgress) {
         const ver = updatingVersion || latest;
-        el.innerHTML = `<span class="update-msg num"><span class="spin" aria-hidden="true"></span><span class="ellipsis">${esc(t('updatingTo', ver))}</span></span>`
-          + `<span class="update-acts"><button type="button" class="update-install-btn" disabled>${esc(t('updatingBtn'))}</button></span>`;
-        el.hidden = false;
-        return;
-      }
-
-      if (updateState === 'reloading') {
-        const ver = updatingVersion || latest;
-        el.innerHTML = `<span class="update-msg num"><span class="spin" aria-hidden="true"></span><span class="ellipsis">${esc(t('updateReloading', ver))}</span></span>`;
+        const label = formatUpdateProgressText(ver, updateProgress);
+        const rawPct = updateState === 'reloading'
+          ? 100
+          : (updateProgress && typeof updateProgress.pct === 'number' && Number.isFinite(updateProgress.pct)
+            ? Math.max(0, Math.min(100, Math.round(updateProgress.pct)))
+            : null);
+        const isDone = updateState === 'reloading' || rawPct === 100;
+        const pctText = rawPct !== null ? `${rawPct}%` : t('updatingBtn');
+        const fillStyle = rawPct !== null ? `width:${rawPct}%` : '';
+        const fillCls = `update-progress-fill${rawPct === null ? ' is-indeterminate' : ''}${isDone ? ' is-done' : ''}`;
+        const existingBar = el.querySelector('[data-update-progress]');
+        const existingLabel = existingBar ? el.querySelector('[data-update-label]') : null;
+        const existingPct = existingBar ? el.querySelector('[data-update-pct]') : null;
+        const existingFill = existingBar ? el.querySelector('[data-update-fill]') : null;
+        if (existingBar && existingLabel && existingPct && existingFill && typeof window.document?.createTreeWalker === 'function') {
+          existingLabel.textContent = label;
+          existingPct.textContent = pctText;
+          if (rawPct !== null) {
+            existingBar.setAttribute('aria-valuenow', String(rawPct));
+            existingFill.classList.remove('is-indeterminate');
+            if (existingFill.style) existingFill.style.width = `${rawPct}%`;
+          } else {
+            existingBar.removeAttribute('aria-valuenow');
+            existingFill.classList.add('is-indeterminate');
+            if (existingFill.style) existingFill.style.width = '';
+          }
+          existingFill.classList.toggle('is-done', isDone);
+        } else {
+          const ariaVal = rawPct !== null ? ` aria-valuenow="${rawPct}"` : '';
+          const styleAttr = fillStyle ? ` style="${fillStyle}"` : '';
+          el.innerHTML = `<div class="update-head"><span class="update-msg num"><span class="spin" aria-hidden="true"></span><span class="ellipsis" data-update-label>${esc(label)}</span></span>`
+            + `<span class="update-acts"><span class="update-pct num" data-update-pct>${esc(pctText)}</span></span></div>`
+            + `<div class="update-progress" data-update-progress role="progressbar" aria-valuemin="0" aria-valuemax="100"${ariaVal}>`
+            + `<div class="${fillCls}" data-update-fill${styleAttr}></div></div>`;
+        }
         el.hidden = false;
         return;
       }
@@ -236,26 +335,33 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
       updateError = '';
       updatingVersion = targetVer || '';
       updatePreviousVersion = prevVer || '';
+      updateProgress = { stage: 'checking', pct: null, loaded: 0, total: null, files_done: 0, files_total: 0 };
       store.remove('ctx.dismissedUpdate');
       renderUpdateBanner();
+      startUpdateProgressPoll();
       try {
         const res = await postJson('/api/update/install', targetVer ? { version: targetVer } : {});
+        stopUpdateProgressPoll();
         if (!res || res.error || !res.ok) {
           throw new Error((res && (res.message || res.error)) || 'Update failed');
         }
         const resolvedVer = res.version ? String(res.version) : updatingVersion;
         updatingVersion = resolvedVer;
         if (!res.updated) {
+          updateProgress = null;
           if (!reloadPanel()) {
             updateState = 'restart-needed';
             renderUpdateBanner();
           }
           return;
         }
+        updateProgress = { stage: 'restarting', pct: 100 };
         updateState = 'reloading';
         renderUpdateBanner();
         await waitForUpdatedReload(resolvedVer, prevVer || (res.previous_version ? String(res.previous_version) : ''));
       } catch (err) {
+        stopUpdateProgressPoll();
+        updateProgress = null;
         updateState = 'error';
         updateError = (err && err.message) || String(err);
         renderUpdateBanner();

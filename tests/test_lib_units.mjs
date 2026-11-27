@@ -3392,8 +3392,13 @@ test('SelfUpdater: URL allowlist, SHA-256 sums, PKZIP safety, install modes & at
     parseGithubRelease,
     parseSha256Sums,
     readCurrentVersion,
+    UPDATE_DOWNLOAD_TIMEOUT_MS,
+    UPDATE_ZIP_MAX_BYTES,
   } = await import('../sidecars/agy-lens/lib/updater.mjs');
   const { buildZipBuffer } = await import('../scripts/build-release.mjs');
+
+  assert.ok(UPDATE_ZIP_MAX_BYTES >= 50 * 1024 * 1024, `UPDATE_ZIP_MAX_BYTES must allow >= 50 MiB, got ${UPDATE_ZIP_MAX_BYTES}`);
+  assert.ok(UPDATE_DOWNLOAD_TIMEOUT_MS >= 60 * 1000, `UPDATE_DOWNLOAD_TIMEOUT_MS must be >= 60s, got ${UPDATE_DOWNLOAD_TIMEOUT_MS}`);
 
   // 1. summarizeNotes skips leading markdown image banner lines
   const relImg = parseGithubRelease({
@@ -3466,6 +3471,7 @@ test('SelfUpdater: URL allowlist, SHA-256 sums, PKZIP safety, install modes & at
       rmSync(pluginDir, { recursive: true, force: true });
       mkdirSync(join(pluginDir, 'sidecars', 'agy-lens', 'lib'), { recursive: true });
       mkdirSync(join(pluginDir, 'sidecars', 'agy-lens', 'web'), { recursive: true });
+      mkdirSync(join(pluginDir, 'sidecars', 'agy-lens', 'share-art', 'arenas'), { recursive: true });
       mkdirSync(join(pluginDir, 'sidecars', 'agy-lens', '.data'), { recursive: true });
       mkdirSync(join(pluginDir, 'sidecars', 'agy-lens', 'node_modules', 'keep'), { recursive: true });
       writeFileSync(join(pluginDir, 'plugin.json'), JSON.stringify({ name: 'agy-lens', version: '2.3.0' }));
@@ -3473,6 +3479,7 @@ test('SelfUpdater: URL allowlist, SHA-256 sums, PKZIP safety, install modes & at
       writeFileSync(join(pluginDir, 'sidecars', 'agy-lens', 'sidecar.json'), '{"command":"node","args":["main.mjs"]}');
       writeFileSync(join(pluginDir, 'sidecars', 'agy-lens', 'main.mjs'), '// v2.3.0\n');
       writeFileSync(join(pluginDir, 'sidecars', 'agy-lens', 'lib', 'old.mjs'), '// obsolete in 2.3.1\n');
+      writeFileSync(join(pluginDir, 'sidecars', 'agy-lens', 'share-art', 'arenas', 'old-arena.png'), Buffer.from([137, 80, 78, 71]));
       writeFileSync(join(pluginDir, 'sidecars', 'agy-lens', 'web', 'index.html'), '<html>v2.3.0</html>');
       writeFileSync(join(pluginDir, 'sidecars', 'agy-lens', 'web', 'app.js'), '// v2.3.0\n');
       writeFileSync(join(pluginDir, 'sidecars', 'agy-lens', '.data', 'keep.json'), '{"ok":true}');
@@ -3562,27 +3569,41 @@ test('SelfUpdater: URL allowlist, SHA-256 sums, PKZIP safety, install modes & at
     assert.equal(existsSync(join(pluginDir, 'sidecars', 'agy-lens', 'lib', 'old.mjs')), true);
     assert.equal(existsSync(join(pluginDir, 'sidecars', 'agy-lens', 'lib', 'updater.mjs')), false);
 
-    // Happy path: upgrades 2.3.0 -> 2.3.1, prunes old.mjs, preserves .data & node_modules, updates cache
+    // Happy path: upgrades 2.3.0 -> 2.3.1, reports live progress, prunes old.mjs & share-art/old-arena.png, preserves .data & node_modules
+    const progressEvents = [];
     const res = await installReleaseUpdate({
       rootDir: pluginDir,
       dataDir,
       updateCachePath: cachePath,
       fetchJson: async () => ({ tag_name: 'v2.3.1', published_at: '2026-11-24T01:30:32Z', body: '## Fixes' }),
-      fetchBuffer: async (url) => {
+      fetchBuffer: async (url, opts) => {
         if (url === expectedSumsUrl) return Buffer.from(sumsTxt);
-        if (url === expectedZipUrl) return v231Zip;
+        if (url === expectedZipUrl) {
+          opts?.onProgress?.({ loaded: Math.floor(v231Zip.length / 2), total: v231Zip.length, done: false });
+          opts?.onProgress?.({ loaded: v231Zip.length, total: v231Zip.length, done: true });
+          return v231Zip;
+        }
         throw new Error(`Unexpected URL: ${url}`);
       },
+      onProgress: (ev) => { progressEvents.push(ev); },
     });
     assert.equal(res.ok, true);
     assert.equal(res.updated, true);
     assert.equal(res.previous_version, '2.3.0');
     assert.equal(res.version, '2.3.1');
     assert.equal(res.restarting, true);
-    assert.equal(res.files_removed, 1);
+    assert.equal(res.files_removed, 2);
     assert.equal(readCurrentVersion(pluginDir), '2.3.1');
     assert.equal(readFileSync(join(pluginDir, 'sidecars', 'agy-lens', 'main.mjs'), 'utf8'), '// v2.3.1\n');
     assert.equal(existsSync(join(pluginDir, 'sidecars', 'agy-lens', 'lib', 'old.mjs')), false);
+    assert.equal(existsSync(join(pluginDir, 'sidecars', 'agy-lens', 'share-art', 'arenas', 'old-arena.png')), false);
+    const stages = progressEvents.map((e) => e.stage);
+    for (const s of ['checking', 'downloading', 'verifying', 'extracting', 'installing', 'restarting']) {
+      assert.ok(stages.includes(s), `Missing progress stage: ${s}`);
+    }
+    const dlEvents = progressEvents.filter((e) => e.stage === 'downloading' && e.total);
+    assert.ok(dlEvents.some((e) => e.pct > 5 && e.pct < 78), 'Expected intermediate download progress percentage');
+    assert.equal(progressEvents[progressEvents.length - 1].pct, 100);
     assert.equal(existsSync(join(pluginDir, 'sidecars', 'agy-lens', '.data', 'keep.json')), true);
     assert.equal(existsSync(join(pluginDir, 'sidecars', 'agy-lens', 'node_modules', 'keep', 'index.js')), true);
     if (process.platform !== 'win32') {

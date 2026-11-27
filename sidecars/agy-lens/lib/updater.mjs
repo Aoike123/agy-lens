@@ -27,17 +27,17 @@ const REPO_ROOT = resolve(HERE, '..', '..', '..');
 
 export const UPDATE_TTL_MS = 6 * 60 * 60 * 1000;
 export const UPDATE_TIMEOUT_MS = 8 * 1000;
-export const UPDATE_DOWNLOAD_TIMEOUT_MS = 30 * 1000;
+export const UPDATE_DOWNLOAD_TIMEOUT_MS = 60 * 1000;
 export const UPDATE_MAX_BYTES = 1024 * 1024;
-export const UPDATE_ZIP_MAX_BYTES = 10 * 1024 * 1024;
+export const UPDATE_ZIP_MAX_BYTES = 50 * 1024 * 1024;
 export const GITHUB_LATEST_RELEASE_URL = 'https://api.github.com/repos/Aoike123/agy-lens/releases/latest';
 export const GITHUB_MANIFEST_FALLBACK_URL = 'https://raw.githubusercontent.com/Aoike123/agy-lens/main/plugin.json';
 export const GITHUB_RELEASES_PAGE = 'https://github.com/Aoike123/agy-lens/releases/latest';
 export const GITHUB_DOWNLOAD_BASE = 'https://github.com/Aoike123/agy-lens/releases/download';
 
 const MAX_ZIP_ENTRIES = 500;
-const MAX_ZIP_ENTRY_BYTES = 5 * 1024 * 1024;
-const MAX_ZIP_TOTAL_BYTES = 20 * 1024 * 1024;
+const MAX_ZIP_ENTRY_BYTES = 15 * 1024 * 1024;
+const MAX_ZIP_TOTAL_BYTES = 100 * 1024 * 1024;
 const SENTINEL_FILES = [
   'plugin.json',
   'package.json',
@@ -46,7 +46,7 @@ const SENTINEL_FILES = [
   'sidecars/agy-lens/web/index.html',
   'sidecars/agy-lens/web/app.js',
 ];
-const MANAGED_SUBDIRS = ['sidecars/agy-lens/lib', 'sidecars/agy-lens/web'];
+const MANAGED_SUBDIRS = ['sidecars/agy-lens/lib', 'sidecars/agy-lens/web', 'sidecars/agy-lens/share-art'];
 const IGNORED_MANAGED_DIRS = new Set(['__pycache__', '.data', 'node_modules']);
 
 const SEMVER_RE = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/;
@@ -288,7 +288,7 @@ export function readUpdateMeta(updateCachePath, currentVersion = '0.0.0', now = 
 
 export function fetchUpdateBuffer(
   url,
-  { headers = {}, timeoutMs = UPDATE_DOWNLOAD_TIMEOUT_MS, maxBytes = UPDATE_ZIP_MAX_BYTES } = {},
+  { headers = {}, timeoutMs = UPDATE_DOWNLOAD_TIMEOUT_MS, maxBytes = UPDATE_ZIP_MAX_BYTES, onProgress = null } = {},
   redirects = 5,
 ) {
   const deadline = Date.now() + timeoutMs;
@@ -322,7 +322,7 @@ export function fetchUpdateBuffer(
         }
         clearTimeout(timer);
         settled = true;
-        fetchUpdateBuffer(next, { headers, timeoutMs: remaining, maxBytes }, redirects - 1)
+        fetchUpdateBuffer(next, { headers, timeoutMs: remaining, maxBytes, onProgress }, redirects - 1)
           .then(resolvePromise, rejectPromise);
         return;
       }
@@ -331,8 +331,22 @@ export function fetchUpdateBuffer(
         finish(new Error(`HTTP ${res.statusCode}`));
         return;
       }
+      const clRaw = Number.parseInt(String(res.headers['content-length'] || ''), 10);
+      const expectedTotal = Number.isFinite(clRaw) && clRaw > 0 ? clRaw : null;
+      if (expectedTotal !== null && expectedTotal > maxBytes) {
+        req.destroy(new Error('response too large'));
+        return;
+      }
+      const emitProgress = typeof onProgress === 'function'
+        ? (loaded, done = false) => {
+            try { onProgress({ loaded, total: expectedTotal, done }); } catch { /* ignore observer errors */ }
+          }
+        : null;
+      if (emitProgress) emitProgress(0, false);
       const chunks = [];
       let total = 0;
+      let lastEmitAt = 0;
+      let lastEmitBytes = 0;
       res.on('data', (chunk) => {
         total += chunk.length;
         if (total > maxBytes) {
@@ -340,8 +354,19 @@ export function fetchUpdateBuffer(
           return;
         }
         chunks.push(chunk);
+        if (emitProgress) {
+          const nowMs = Date.now();
+          if (nowMs - lastEmitAt >= 50 || total - lastEmitBytes >= 32768 || (expectedTotal && total >= expectedTotal)) {
+            lastEmitAt = nowMs;
+            lastEmitBytes = total;
+            emitProgress(total, false);
+          }
+        }
       });
-      res.on('end', () => finish(null, Buffer.concat(chunks)));
+      res.on('end', () => {
+        if (emitProgress) emitProgress(total, true);
+        finish(null, Buffer.concat(chunks));
+      });
       res.on('error', (e) => finish(e));
     });
     const timer = setTimeout(() => req.destroy(new Error('timeout')), timeoutMs);
@@ -672,6 +697,7 @@ export async function installReleaseUpdate({
   fetchJson = null,
   fetchBuffer = null,
   writeFile = null,
+  onProgress = null,
   timeoutMs = UPDATE_DOWNLOAD_TIMEOUT_MS,
   now = Date.now(),
 } = {}) {
@@ -687,12 +713,29 @@ export async function installReleaseUpdate({
     || '0.0.0';
 
   let resolvedTarget = '';
+  const emitProgress = (patch) => {
+    if (typeof onProgress !== 'function') return;
+    try {
+      onProgress({
+        version: resolvedTarget || null,
+        loaded: 0,
+        total: null,
+        files_done: 0,
+        files_total: 0,
+        pct: null,
+        ...patch,
+      });
+    } catch { /* progress observer is best-effort */ }
+  };
+
   let releaseMeta = null;
   if (targetVersion !== null && targetVersion !== undefined && String(targetVersion).trim()) {
     const parsed = parseSemver(String(targetVersion));
     if (!parsed) throw new Error(`Invalid target version: ${targetVersion}`);
     resolvedTarget = parsed.raw;
+    emitProgress({ stage: 'checking', pct: 2 });
   } else {
+    emitProgress({ stage: 'checking', pct: 2 });
     const checkRes = await checkForUpdate({
       updateCachePath,
       currentVersion: normCurrent,
@@ -725,6 +768,7 @@ export async function installReleaseUpdate({
   const zipUrl = `${GITHUB_DOWNLOAD_BASE}/v${resolvedTarget}/${zipName}`;
   const reqHeaders = { 'User-Agent': `agy-lens/${normCurrent}` };
 
+  emitProgress({ stage: 'checking', pct: 4 });
   const sumsBuf = await doFetchBuffer(sumsUrl, {
     headers: { ...reqHeaders, Accept: 'text/plain' },
     timeoutMs: Math.min(timeoutMs, UPDATE_TIMEOUT_MS),
@@ -736,16 +780,26 @@ export async function installReleaseUpdate({
     throw new Error(`Release checksum missing for ${zipName}`);
   }
 
+  emitProgress({ stage: 'downloading', loaded: 0, total: null, pct: 5 });
   const zipBuf = await doFetchBuffer(zipUrl, {
     headers: { ...reqHeaders, Accept: 'application/octet-stream' },
     timeoutMs,
     maxBytes: UPDATE_ZIP_MAX_BYTES,
+    onProgress: ({ loaded = 0, total = null } = {}) => {
+      const pct = total && total > 0
+        ? Math.min(78, 5 + Math.round((Math.min(loaded, total) / total) * 73))
+        : null;
+      emitProgress({ stage: 'downloading', loaded, total, pct });
+    },
   });
+  const zipTotal = zipBuf.length;
+  emitProgress({ stage: 'verifying', loaded: zipTotal, total: zipTotal, pct: 82 });
   const actualHex = createHash('sha256').update(zipBuf).digest('hex');
   if (!timingSafeEqual(Buffer.from(actualHex, 'hex'), Buffer.from(expectedHex, 'hex'))) {
     throw new Error(`SHA-256 checksum mismatch for ${zipName}`);
   }
 
+  emitProgress({ stage: 'extracting', loaded: zipTotal, total: zipTotal, pct: 86 });
   const entries = extractZipEntries(zipBuf, { topDir: 'agy-lens' });
   for (const requiredRel of SENTINEL_FILES) {
     if (!entries.has(requiredRel)) {
@@ -790,6 +844,8 @@ export async function installReleaseUpdate({
   const writeFn = typeof writeFile === 'function' ? writeFile : writeFileAtomicSameDir;
   const rollbackOps = [];
   let seq = 0;
+  const filesTotal = plan.length + 1;
+  emitProgress({ stage: 'installing', loaded: zipTotal, total: zipTotal, files_done: 0, files_total: filesTotal, pct: 90 });
 
   const backupTarget = (rel, dest) => {
     if (!existsSync(dest)) {
@@ -810,6 +866,16 @@ export async function installReleaseUpdate({
       if (rel === 'bin/cli.mjs' && process.platform !== 'win32') {
         try { chmodSync(dest, 0o755); } catch { /* best-effort executable bit */ }
       }
+      if (seq === plan.length || seq % 4 === 0) {
+        emitProgress({
+          stage: 'installing',
+          loaded: zipTotal,
+          total: zipTotal,
+          files_done: seq,
+          files_total: filesTotal,
+          pct: Math.min(98, 90 + Math.round((seq / filesTotal) * 8)),
+        });
+      }
     }
 
     for (const rel of obsoleteFiles) {
@@ -822,6 +888,14 @@ export async function installReleaseUpdate({
     backupTarget('plugin.json', manifestDest);
     seq += 1;
     await writeFn(manifestDest, manifestBuf, seq, 'plugin.json');
+    emitProgress({
+      stage: 'restarting',
+      loaded: zipTotal,
+      total: zipTotal,
+      files_done: filesTotal,
+      files_total: filesTotal,
+      pct: 100,
+    });
   } catch (err) {
     rollbackUpdatedFiles(rollbackOps);
     throw err;

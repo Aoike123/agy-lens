@@ -1420,12 +1420,21 @@ test('bundled /app.js executes in mocked browser VM (en-US & opaque zh-CN) witho
         release_url: 'https://github.com/Aoike123/agy-lens/releases/tag/v2.3.1',
       };
     },
-    '/api/update/install': (_url, opts) => {
+    '/api/update/install': async (_url, opts) => {
       assert.equal(opts.method, 'POST');
       installedCalledWith = JSON.parse(opts.body || '{}');
       pollUpdCount = 0;
+      await new Promise((r) => setTimeout(r, 420));
       return { ok: true, updated: true, previous_version: '2.3.0', version: '2.3.1', restarting: true };
     },
+    '/api/update/progress': () => ({
+      active: true,
+      stage: 'downloading',
+      version: '2.3.1',
+      loaded: 4_404_019,
+      total: 8_808_038,
+      pct: 42,
+    }),
   };
   const vmSelf = createMockDomSandbox({ navigatorLanguage: 'en-US', brokenStorage: false, fetchFixtures: selfUpdateFixtures });
   try {
@@ -1439,8 +1448,14 @@ test('bundled /app.js executes in mocked browser VM (en-US & opaque zh-CN) witho
     assert.equal(vmSelf.elements.updateBanner.querySelector('[data-copy-update]'), null);
 
     installBtn.click();
+    assert.equal(vmSelf.elements.updateBanner.classList.contains('is-progress'), true);
     assert.ok(vmSelf.elements.updateBanner.textContent.includes('Updating to v2.3.1'));
-    await new Promise((r) => setTimeout(r, 1500));
+    assert.ok(vmSelf.elements.updateBanner.querySelector('[role="progressbar"]'));
+    await new Promise((r) => setTimeout(r, 250));
+    assert.ok(vmSelf.elements.updateBanner.textContent.includes('Downloading v2.3.1'));
+    assert.ok(vmSelf.elements.updateBanner.textContent.includes('42%'));
+    assert.equal(vmSelf.elements.updateBanner.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow'), '42');
+    await new Promise((r) => setTimeout(r, 1600));
     assert.deepEqual(installedCalledWith, { version: '2.3.1' });
     assert.equal(vmSelf.getReloadCalls(), 1);
   } finally {

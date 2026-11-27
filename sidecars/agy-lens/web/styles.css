@@ -102,6 +102,8 @@ button:disabled { opacity: .6; cursor: default; transform: none; }
   background: transparent;
   font-size: 12px; line-height: 16px; color: var(--fg);
 }
+.update-banner.is-progress { flex-direction: column; align-items: stretch; gap: 6px; }
+.update-head { display: flex; align-items: center; justify-content: space-between; gap: 8px 12px; width: 100%; min-width: 0; }
 .update-msg { display: inline-flex; align-items: center; gap: 8px; min-width: 0; color: var(--dim); }
 .update-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex: none; }
 .update-dot.is-ok { background: var(--ok); }
@@ -109,6 +111,30 @@ button:disabled { opacity: .6; cursor: default; transform: none; }
 .update-msg .spin { flex: none; margin-right: 0; }
 .update-banner.is-err .update-msg { color: var(--crit); }
 .update-acts { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; flex: none; }
+.update-pct { font-size: 11px; line-height: 16px; color: var(--dim); white-space: nowrap; }
+.update-progress {
+  position: relative; width: 100%; height: 4px; border-radius: 999px; overflow: hidden;
+  background: color-mix(in srgb, var(--fg) 10%, transparent);
+}
+.update-progress-fill {
+  height: 100%; width: 0%; border-radius: inherit; background: var(--accent);
+  transition: width .2s linear, background-color .2s var(--ease);
+}
+.update-progress-fill.is-done { background: var(--ok); }
+.update-progress-fill.is-indeterminate {
+  position: absolute; top: 0; left: 0; width: 32%;
+  transition: none;
+  animation: agy-update-slide 1.15s cubic-bezier(.4, 0, .2, 1) infinite;
+}
+@keyframes agy-update-slide {
+  0% { transform: translateX(-110%); }
+  100% { transform: translateX(420%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .update-progress-fill.is-indeterminate {
+    position: static; width: 45%; opacity: .75; animation: none;
+  }
+}
 .update-install-btn {
   border: 0; border-radius: 6px; padding: 4px 10px;
   font-size: 12px; line-height: 16px; font-weight: 500;

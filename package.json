@@ -1,6 +1,6 @@
 {
   "name": "agy-lens",
-  "version": "2.8.0",
+  "version": "2.8.1",
   "description": "All-in-one local cockpit & CLI for Antigravity 2.0: context window, live tok/s, 5h & weekly quotas, cycle value & utilization, subagent spend, and 6-style WebGL/Pixel share cards (pure Node.js 24+, zero deps).",
   "type": "module",
   "bin": {

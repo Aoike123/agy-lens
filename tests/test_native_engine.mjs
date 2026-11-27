@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 import { inflateRawSync } from 'node:zlib';
 
 import { RUNTIME_FILES, buildRelease, buildZipBuffer, collectRuntimeFiles } from '../scripts/build-release.mjs';
+import { UPDATE_ZIP_MAX_BYTES } from '../sidecars/agy-lens/lib/updater.mjs';
 import { loadModelCatalog, modelLabel, modelPool } from '../sidecars/agy-lens/lib/catalog.mjs';
 import {
   buildReport,
@@ -398,6 +399,14 @@ test('release ZIP contains all runtime files, zero .py files, and valid SHA256SU
     const prefix = 'agy-lens';
     assert.ok(res.genericPath.endsWith('agy-lens.zip'));
     assert.ok(res.versionedPath.endsWith(`agy-lens-v${res.version}.zip`));
+    assert.ok(
+      res.size < UPDATE_ZIP_MAX_BYTES,
+      `Release ZIP (${res.size} B) exceeds UPDATE_ZIP_MAX_BYTES (${UPDATE_ZIP_MAX_BYTES} B)`,
+    );
+    assert.ok(
+      res.size < 10 * 1024 * 1024,
+      `Release ZIP (${res.size} B) exceeds legacy v2.4-v2.7 10 MiB self-updater cap`,
+    );
     const runtimeFiles = collectRuntimeFiles(ROOT);
     const expected = runtimeFiles.map((f) => `${prefix}/${f}`).sort();
     assert.deepEqual(Array.from(entries.keys()).sort(), expected);

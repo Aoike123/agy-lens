@@ -231,6 +231,7 @@ async function pricing({ refresh = false, sync = false } = {}) {
 
 let updateInFlight = null;
 let updateInstallInFlight = null;
+let updateInstallProgress = null;
 
 async function updateStatus({ refresh = false } = {}) {
   const mode = detectInstallMode(PLUGIN_ROOT);
@@ -262,13 +263,49 @@ async function installUpdate(targetVersion = null) {
     };
   }
   if (!updateInstallInFlight) {
+    updateInstallProgress = {
+      active: true,
+      stage: 'checking',
+      version: targetVersion ? String(targetVersion).replace(/^v/i, '') : null,
+      loaded: 0,
+      total: null,
+      files_done: 0,
+      files_total: 0,
+      pct: 2,
+      updated_at: Date.now(),
+    };
     updateInstallInFlight = installReleaseUpdate({
       rootDir: PLUGIN_ROOT,
       dataDir: DATA_DIR,
       updateCachePath: UPDATE_CACHE_PATH,
       currentVersion: CURRENT_VERSION,
       targetVersion,
-    }).finally(() => { updateInstallInFlight = null; });
+      onProgress: (p) => {
+        updateInstallProgress = { active: true, ...p, updated_at: Date.now() };
+      },
+    })
+      .then((res) => {
+        updateInstallProgress = {
+          ...(updateInstallProgress || {}),
+          active: Boolean(res && res.ok && res.updated && res.restarting),
+          stage: res && res.updated ? 'restarting' : 'done',
+          version: (res && res.version) || (updateInstallProgress && updateInstallProgress.version) || null,
+          pct: 100,
+          updated_at: Date.now(),
+        };
+        return res;
+      })
+      .catch((err) => {
+        updateInstallProgress = {
+          ...(updateInstallProgress || {}),
+          active: false,
+          stage: 'error',
+          error: err?.message || String(err),
+          updated_at: Date.now(),
+        };
+        throw err;
+      })
+      .finally(() => { updateInstallInFlight = null; });
   }
   return updateInstallInFlight;
 }
@@ -604,6 +641,10 @@ if (!truthy(process.env.CONTEXT_PANEL_NO_SERVER)) {
       return { ok: false, error: 'failed', message: err.message };
     }
   }, 'POST');
+
+  app.api('/api/update/progress', async () => (
+    updateInstallProgress || { active: false, stage: 'idle', pct: 0 }
+  ), 'GET');
 
   app.api('/api/update/install', async (data) => {
     try {

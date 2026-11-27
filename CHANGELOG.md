@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [2.8.1] - 2026-11-27
+
+### Added
+
+- **Live in-panel self-update progress bar** (`sidecars/agy-lens/lib/updater.mjs`, `sidecars/agy-lens/main.mjs`, `sidecars/agy-lens/web/{app.js,styles.css,i18n.js}`): added real-time download byte & installation stage reporting (`GET /api/update/progress`, covering `checking` → `downloading` with MB/KB readout → `verifying` SHA-256 → `extracting` → `installing` file count → `restarting`) rendered as a smooth hairline progress bar inside the top update banner.
+
+### Fixed
+
+- **Self-update `response too large` error & legacy `v2.4`–`v2.7` upgrade compatibility** (`sidecars/agy-lens/lib/updater.mjs`, `scripts/share-art/pack-share-assets.py`, `sidecars/agy-lens/share-art/`): raised `UPDATE_ZIP_MAX_BYTES` from `10 MiB` to `50 MiB`, `MAX_ZIP_TOTAL_BYTES` to `100 MiB`, `MAX_ZIP_ENTRY_BYTES` to `15 MiB`, and `UPDATE_DOWNLOAD_TIMEOUT_MS` to `60s`, added `sidecars/agy-lens/share-art` to `MANAGED_SUBDIRS` so obsolete art assets are pruned cleanly on upgrade, and repacked the 26 lossless Pixel Hero idle loops from 48 frames (6 fps) to exact uniform 32 frames (4 fps, 250 ms/frame, full 8 s loop) so `agy-lens-v2.8.1.zip` drops from `11.34 MiB` to `8.44 MiB` — safely below the old `10 MiB` cap so existing `v2.4`–`v2.7` installs can one-click self-update directly in-panel.
+
 ## [2.8.0] - 2026-11-27
 
 ### Added

@@ -1,12 +1,12 @@
 """Pack approved share-card art into the shipped plugin folder (dev-only tool).
 
 Reads art-src/roster.json and writes sidecars/agy-lens/share-art/:
-  characters/<id>/idle-<stage>.webp   every 4th frame of the 24 fps idle -> 48 frames at 6 fps,
+  characters/<id>/idle-<stage>.webp   every 6th frame of the 24 fps idle -> 32 frames at 4 fps,
                                       lossless animated WebP, full 8 s loop kept intact
   characters/<id>/still-<stage>.png   frame 0 of the same idle (used by exported PNG/SVG cards)
   arenas/<id>.png                     resampled onto the 400x210 native grid (native-arena.py)
 
-Usage: python scripts/share-art/pack-share-assets.py [--step 4] [--only knight]
+Usage: python scripts/share-art/pack-share-assets.py [--step 6] [--only knight]
 Needs Pillow (see requirements.txt). Re-run after any art-src change; `npm test` checks the output.
 """
 import argparse
@@ -47,7 +47,7 @@ def pack_idle(src: Path, dst_anim: Path, dst_still: Path, step: int, fps: int) -
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--step", type=int, default=4)
+    ap.add_argument("--step", type=int, default=6)
     ap.add_argument("--only", default=None)
     ap.add_argument("--arenas-only", action="store_true")
     args = ap.parse_args()
